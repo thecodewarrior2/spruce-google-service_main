@@ -139,3 +139,24 @@ test('the native engine (0.5.0): the same answers as an independent computation 
     const all = await batched.margins_(ref.cases.slice(0, 64).map(c => c.text));
     all.forEach((m, i) => assert.ok(Math.abs(m - one[i]) < 1e-4, `case ${i}: ${m} vs ${one[i]}`));
 });
+
+// Input format 2 (phish-tiny 0.16.0): the model's facts carry what the sender checks found (a format-1
+// model leaves them out, so what it reads is unchanged).
+test('the AI facts (input format 2): who the sender claims to be, other Reply-To domains, attachment kinds without names', async () => {
+    const raw = ['From: "PayPal Service" <service@paypal-review.example>', 'Reply-To: "Help" <madeup.help@freemail.example>, <desk@mail.paypal-review.example>',
+        'To: <reader@maple-schools.example>', 'Subject: Your account is limited', 'Authentication-Results: mx.google.com; dkim=fail header.d=paypal-review.example; spf=softfail; dmarc=fail header.from=paypal-review.example',
+        'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="b"', '', '--b', 'Content-Type: text/plain', '', 'Open the attached statement to restore access.',
+        '--b', 'Content-Type: text/html; name="Jane Doe Statement.pdf.html"', 'Content-Disposition: attachment; filename="Jane Doe Statement.pdf.html"', '', '<p>x</p>', '--b--', ''].join('\r\n');
+    const facts = await readMessage(Buffer.from(raw));
+    const r = await analyze(facts, Object.assign({ keepAiFacts: true, readAttachments: false }, CTX));
+    assert.deepEqual(r.aiFacts.identity, { brand: 'PayPal', owner: 'no' });
+    assert.deepEqual(r.aiFacts.replyTo, ['freemail.example']);
+    assert.deepEqual(r.aiFacts.attachments, [{ name: 'file.pdf.html', type: 'text/html' }]);
+    assert.equal(r.aiFacts.auth.spf, 'softfail');
+    assert.equal(r.aiFacts.auth.dkim, 'fail');
+    assert.ok(!JSON.stringify(r.aiFacts).includes('Jane'), 'no file name');
+    // The organization's own staff aren't judged by a brand their name mentions.
+    const staff = await readMessage(Buffer.from(['From: "Microsoft 365 Support" <it@maple-schools.example>', 'To: <reader@maple-schools.example>', 'Subject: Password policy',
+        'Authentication-Results: mx.google.com; dmarc=pass header.from=maple-schools.example', 'Content-Type: text/plain', '', 'Passwords change on July 1.'].join('\r\n')));
+    assert.equal((await analyze(staff, Object.assign({ keepAiFacts: true, aiInside: true }, CTX))).aiFacts.identity, null);
+});

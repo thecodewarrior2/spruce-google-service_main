@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.47: The AI model's facts carry what the sender checks found (for the model's input format 2)
+
+- **What the model is given** (`analyze.js`, `aiFacts`) now also has what the rule checks already found, so a
+  model trained on phish-tiny's input format 2 (0.16.0) judges an email's words in context: who the sender's
+  name claims to be and whether the domain is theirs (`identity`: **`aiSenderIdentity`** in
+  `vendor/spruce/shared.js`, the same checks as `nameAddressSigns`: a brand's own domain, another domain,
+  "not known to be", a free mailbox; a look-alike domain; a colleague's name on an outside address; nothing for
+  the organization's own staff), the Reply-To domains that aren't the sender's (**`aiReplyToDomains`**), the
+  attached files' kinds (**`aiAttachmentFacts`**: their endings and types, never their names; pictures inside
+  the email aren't attachments) and failing SPF/DKIM. **Nothing the current model reads changes**: phish-tiny
+  0.13.0 reads input format 1, which leaves these out. `modelInputParts` in `vendor/spruce/ai.js` takes format
+  2's lines together with the model that reads them (`tools/sync-model.js`).
+- **The retraining export** keeps them, with nothing personal: the identity's brand and yes/no answers, Reply-To
+  domains (your domain becomes [OUR-DOMAIN]), attachment endings and types (`docs/RETRAINING.md`). A district's
+  examples exported from now on can train a format-2 model with these facts.
+- Tests: `engine.test.js` (a "PayPal" sender on another domain with a free-mail Reply-To, failing SPF and DKIM and
+  an attachment whose name hides its type: what the model is given, with no file name; the organization's own
+  staff get no identity), `training.test.js` (the export keeps them without anything personal). Made-up mail.
+
 ## 0.5.46: A Help tab, an architecture deep dive, and About & credits with a Donate button
 
 - **Help (a new tab)**, like the S.P.R.U.C.E+ extension's: How it works, The dashboard, Alerts, Your privacy,

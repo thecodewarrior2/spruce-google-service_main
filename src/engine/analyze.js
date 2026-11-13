@@ -90,6 +90,7 @@ async function analyze(facts, ctx = {}) {
         .catch(() => ({ signals: [], checks: { failed: true } }));
     const allText = `${facts.subject}\n${facts.visibleText}\n${facts.hiddenText}`;
     const safe = (f) => { try { return f() || []; } catch (e) { return []; } };
+    const safeOne = (f) => { try { return f(); } catch (e) { return null; } };
     const headerSigns = safe(() => E.headerAnomalies(facts.rawForHeaders, mailbox, E.gmailReceiver));
     const signals = [
         ...headerSigns,
@@ -149,7 +150,15 @@ async function analyze(facts, ctx = {}) {
     const aiFacts = {
         subject: facts.subject, senderName: facts.senderName, senderAddress: facts.senderAddress,
         org: (ctx.orgDomains || []).length ? (ownAddress ? 'inside' : 'outside') : undefined,
-        auth: facts.auth ? { dmarc: facts.auth.dmarc } : null,
+        auth: facts.auth ? { dmarc: facts.auth.dmarc, spf: facts.auth.spf || undefined, dkim: facts.auth.dkim || undefined } : null,
+        // Input format 2 (phish-tiny 0.16.0; a format-1 model doesn't read them): what the sender checks found,
+        // so the model judges the words in context. Who the sender's name claims to be and whether the domain
+        // is theirs, a look-alike domain, a colleague's name on an outside address (the same checks as
+        // nameAddressSigns); the Reply-To domains that aren't the sender's; the attached files' kinds (their
+        // endings and types, never their names; pictures inside the email aren't attachments).
+        identity: safeOne(() => E.aiSenderIdentity(facts.senderName, facts.senderAddress, { own: ctx.orgDomains || [], colleagues: ctx.colleagues || null })),
+        replyTo: safeOne(() => E.aiReplyToDomains(facts.replyTo || [], facts.senderAddress)) || [],
+        attachments: safeOne(() => E.aiAttachmentFacts((facts.attachmentFiles || facts.attachments || []).filter(a => !a.inline))) || [],
         links: judged.filter(j => !j.hidden).slice(0, 8).map(j => ({ text: j.text, host: hostOf(j.url), destHost: j.finalUrl && hostOf(j.finalUrl) !== hostOf(j.url) ? hostOf(j.finalUrl) : '', finding: j.severity ? j.reason : '' })),
         bodyText: String(facts.visibleText || '').slice(0, 8000),
         recipient: mailbox.split('@')[0] || '',

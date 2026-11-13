@@ -97,10 +97,13 @@ one line, spread out (from the demo's made-up data):
 | `note` | What the service did on arrival: what it did with the email, what triggered it, the rules score, the AI score. It is for you; training ignores it. |
 | `facts.subject`, `senderName`, `bodyText` | What the email said, with the people taken out (below). `bodyText` is cut to about 1,200 characters, a little more than the model reads. |
 | `facts.senderAddress` | The sender's domain. The part before @ is kept only for shared mailboxes (`noreply`, `security`, `billing`); otherwise it is `sender`. |
-| `facts.auth.dmarc` | Gmail's DMARC check of the sender: `pass`, `fail`, `none`, or missing (unknown). |
+| `facts.auth.dmarc` | Gmail's DMARC check of the sender: `pass`, `fail`, `none`, or missing (unknown). `facts.auth.spf` and `dkim` are there only when they failed. |
 | `facts.links` | Up to 8 links: their text, where they point (`host`), where they really go when that differs (`destHost`), and what the checks found (`finding`). |
 | `facts.org` | `inside` (from your own domains, DMARC passing) or `outside`. |
 | `facts.layout`, `facts.mailChecks` | How the email hides its text, and what mail systems found in its headers, when either applies. |
+| `facts.identity` | What the sender checks found about who the sender claims to be, when there is something: the brand or agency the sender's name claims (`brand`) and whether the domain is its own (`owner`: `yes`, `no`, `unsure`, `personal` for a free mailbox), `lookalike` (the domain imitates a well-known brand), `colleague` (the name is someone's in your organization, on an outside address). Never a person's name. |
+| `facts.replyTo` | The domains replies go to, when they aren't the sender's own (your domain becomes [OUR-DOMAIN]). |
+| `facts.attachments` | The attached files' kinds: each name is cut to `file` and its last endings (`file.pdf.html`), with its type. |
 
 The model never sees the file as it is. It reads one line built from the facts. For the example above:
 
@@ -202,7 +205,7 @@ it before it is uploaded. Upload the file, with this request:
 > 2. Lightly reword "subject" and "bodyText" so they aren't the original wording. Keep the meaning, tone,
 >    length, mistakes and tricks (urgency, threats, rewards, requests for passwords, payments or gift
 >    cards), and keep "your name" as it is.
-> 3. Don't change "name", "label", "note", "senderAddress", "auth", "org", "layout", "mailChecks", or any
+> 3. Don't change "name", "label", "note", "senderAddress", "auth", "org", "layout", "mailChecks", "identity", "replyTo", "attachments", or any
 >    link's "host", "destHost" or "finding", except for replacing [OUR-DOMAIN].
 > 4. If anything still looks personal (a real-looking name, an address, a number, a detail about a
 >    student), replace it with something made up, and tell me which lines.

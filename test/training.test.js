@@ -235,3 +235,15 @@ test('the dashboard: allowed in Settings, then a download (JSONL, with counts in
         assert.ok(ev.some(e => e.kind === 'training'), 'listed under what admins did');
     } finally { await new Promise(r => srv.close(r)); }
 });
+
+test('the retraining export keeps input format 2\'s facts without anything personal', () => {
+    const out = T.deidentify({ subject: 'x', senderName: 'PayPal', senderAddress: 'service@paypal-review.example', auth: { dmarc: 'fail', spf: 'softfail', dkim: 'pass' },
+        identity: { brand: 'PayPal', owner: 'no', lookalike: true, extra: 'Jordan' }, replyTo: [`desk.${ORG}`, 'freemail.example'],
+        attachments: [{ name: 'file.pdf.html', type: 'text/html' }, { name: 'Jordan Fakewell.docx', type: '' }], links: [], bodyText: 'x' }, { people: {}, mailbox: ME, orgDomains: [ORG], label: 1 });
+    assert.deepEqual(out.identity, { brand: 'PayPal', owner: 'no', lookalike: true });
+    assert.deepEqual(out.auth, { dmarc: 'fail', spf: 'softfail' });
+    assert.ok(!out.replyTo.some(d => d.includes('maple-schools')), JSON.stringify(out.replyTo));
+    assert.ok(out.replyTo.includes('freemail.example'));
+    assert.equal(out.attachments[0].name, 'file.pdf.html');
+    assert.ok(!JSON.stringify(out).includes('Jordan'), JSON.stringify(out));
+});

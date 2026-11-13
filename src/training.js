@@ -213,11 +213,23 @@ function deidentify(aiFacts, { people = {}, mailbox = '', orgDomains = [], label
         subject: clean(cut(f.subject, 200)),
         senderName: dropSender ? (f.senderName ? SENDER : '') : clean(cut(f.senderName, 80)),
         senderAddress: sender ? `${E.isSharedMailbox(sender) ? local : 'sender'}@${replaceOrg(domain, orgDomains)}` : '',
-        auth: f.auth && f.auth.dmarc ? { dmarc: f.auth.dmarc } : null,
+        auth: f.auth && f.auth.dmarc ? Object.assign({ dmarc: f.auth.dmarc }, /^(fail|softfail|permerror)$/.test(f.auth.spf || '') ? { spf: f.auth.spf } : {}, /^(fail|permerror)$/.test(f.auth.dkim || '') ? { dkim: f.auth.dkim } : {}) : null,
         links: (f.links || []).slice(0, 8).map(l => ({ text: clean(cut(l.text, 60)), host: replaceOrg(l.host || '', orgDomains), destHost: replaceOrg(l.destHost || '', orgDomains), finding: clean(NO_TRAINING_RE.test(l.finding || '') ? '' : l.finding || '', { names: false, mark: false }) })),
         bodyText: clean(cut(f.bodyText, BODY_CHARS))
     };
     if (f.org) out.org = f.org;
+    // Input format 2's facts, with nothing personal: the identity is a brand's name and yes/no answers; Reply-To
+    // domains with the organization's replaced (a person's own domain is a free-mail service's or theirs:
+    // only the domain); attachments are endings and types only (aiAttachmentFacts already dropped the names).
+    if (f.identity && typeof f.identity === 'object') {
+        const id = {};
+        if (f.identity.brand && ['yes', 'no', 'unsure', 'personal'].includes(f.identity.owner)) { id.brand = String(f.identity.brand).slice(0, 40); id.owner = f.identity.owner; }
+        if (f.identity.lookalike) id.lookalike = true;
+        if (f.identity.colleague) id.colleague = true;
+        if (Object.keys(id).length) out.identity = id;
+    }
+    if (f.replyTo && f.replyTo.length) out.replyTo = f.replyTo.slice(0, 5).map(d => replaceOrg(String(d).split('@').pop().toLowerCase(), orgDomains));
+    if (f.attachments && f.attachments.length) out.attachments = E.aiAttachmentFacts(f.attachments);
     if (f.layout && f.layout.length) out.layout = f.layout.slice();
     if (f.mailChecks && f.mailChecks.length) out.mailChecks = f.mailChecks.slice();
     return out;

@@ -82,6 +82,10 @@ function load() {
         SENDER_DOMAIN_RE: get('SENDER_DOMAIN_RE'),
         SIGNIN_INTENT_RE: get('SIGNIN_INTENT_RE'),
         modelInputText: fn('modelInputText'),
+        // The AI model's input format 2 facts (analyze.js): what the sender checks found.
+        aiSenderIdentity: fn('aiSenderIdentity'),
+        aiReplyToDomains: fn('aiReplyToDomains'),
+        aiAttachmentFacts: fn('aiAttachmentFacts'),
         // For the retraining export (src/training.js): the model's own redaction, as in training.
         redactForAi: fn('redactForAi'),
         maskRecipient: fn('maskRecipient'),
