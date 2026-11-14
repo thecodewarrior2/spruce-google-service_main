@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.48: phish-tiny 0.16.0, which reads what the sender checks found (input format 2)
+
+- **The AI model is phish-tiny 0.16.0** (TinyPhishLLM `78706ea`, `vendor/spruce/VENDOR.json`; was 0.13.0), the
+  first that reads **input format 2**: besides the email, the facts 0.5.47 started giving it (who the sender's
+  name claims to be and whether the domain is theirs, other Reply-To domains, the attached files' kinds, failing
+  SPF/DKIM) and a subject or text in capitals. `modelInputParts` in `vendor/spruce/ai.js` is TinyPhishLLM's
+  `tools/model-input.js` at that commit (`modelInputParts(facts, format)`), and the engine builds the format
+  the loaded model names (`model.json` `inputFormat`; 1 for a model that names none), so an older model would
+  still get its own text.
+- **What changes for a district:** against 0.14.0 on the training repository's held-out published emails,
+  0.16.0 misses fewer phishing emails (13 instead of 19 of 681 variants at 50%; 19 instead of 23 at the 90%
+  move line) and calls far fewer genuine ones phishing (20 instead of 33 at 50%; 10 instead of 17 at 90%);
+  genuine look-alikes of spear phishing (a DocuSign envelope, a phone system's voicemail) are now right. It
+  still trusts routine sign-in wording from a calm impostor more than it should; the rules' own sender signs
+  weigh those whatever it says. The full scores: TinyPhishLLM's `CHANGELOG.md`. Not yet scored on a district's
+  own held-out examples (`tools/score-examples.js`): do that before relying on it.
+- Tests: the references (`test/fixtures/model-reference.json`, `model-input-format.jsonl`: 94 cases, 12 new for
+  format 2) are 0.16.0's; the native engine matches its answers; `npm test` all green.
+
 ## 0.5.47: The AI model's facts carry what the sender checks found (for the model's input format 2)
 
 - **What the model is given** (`analyze.js`, `aiFacts`) now also has what the rule checks already found, so a

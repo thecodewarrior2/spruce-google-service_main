@@ -24,7 +24,8 @@ const BATCH = 32;             // texts in one run at most (the explanation passe
 class Model {
     constructor({ file, manifest, tokenizer, modelInputParts, ort = null }) {
         this.file = file; this.meta = manifest; this.cfg = manifest.config;
-        this.tok = tokenizer; this.parts = modelInputParts;
+        // The input format the model was trained on (model.json inputFormat; 1 for a model that names none).
+        this.tok = tokenizer; this.parts = (facts) => modelInputParts(facts, (manifest && manifest.inputFormat) || 1);
         this.ort = ort; this.session = null; this.margins = new Map();
         // For Status: not loaded, loading, ready or failed; when, how long, why; the self-check's scores.
         this.state = 'not loaded'; this.loadedAt = null; this.loadMs = null; this.error = null; this.check = null;
