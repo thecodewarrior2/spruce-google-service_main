@@ -175,3 +175,24 @@ test('0.5.22: a colleague\'s Drive share as Google sends it (text, AMP and HTML 
     const withFile = Buffer.from(raw.toString().replace(`--${b}--`, `--${b}\r\nContent-Type: text/x-amp-html; name="page.html"\r\nContent-Disposition: attachment; filename="page.html"\r\n\r\n<p>x</p>\r\n--${b}--`));
     assert.equal((await readMessage(withFile)).attachments.length, 1);
 });
+
+test('0.5.49: the platform the sender\'s name says it comes "via" must belong to the domain\'s company', async () => {
+    // "via Dropbox" from Google's own notification address, its sender check passing: not Google's
+    // notification, and red, whoever shared it.
+    const mismatch = await readMessage(mail([`From: "Dana Madeup (via Dropbox)" <drive-shares-dm-noreply@google.com>`, `Reply-To: "Dana Madeup" <dana.madeup@${ORG}>`, `To: ${USER}`,
+        'Subject: Dana Madeup shared "Budget" with you', 'Message-ID: <m1@docs-share.google.com>', GOOGLE], '<p>Dana Madeup shared a file with you</p>'));
+    assert.equal(platformNotification(mismatch, [ORG]), null);
+    const r = await analyze(mismatch, { mailbox: USER, orgDomains: [ORG], colleagues });
+    assert.ok(r.signals.some(s => s.kind === 'platform-mismatch' && s.weight === 5 && /via Dropbox \(Dropbox's\), but it was sent from google\.com, which is Google's/.test(s.text)), JSON.stringify(r.signals));
+    assert.equal(r.status, 'flagged');
+    // The matching name: Google's notification, judged by the person (inside: nothing).
+    const ok = await readMessage(driveShare({ name: 'Dana Madeup', replyTo: `dana.madeup@${ORG}` }));
+    assert.equal(platformNotification(ok, [ORG]).platform, 'Google');
+    assert.deepEqual(N.platformClaimSigns(E, ok), []);
+    // DocuSign named on DocuSign's domain: fine; Box named on a domain that isn't any platform's: red; Google named
+    // on one: left to the brand check (which says so).
+    assert.deepEqual(N.platformClaimSigns(E, { senderName: 'Dana Madeup via Docusign', senderAddress: 'dse@docusign.net' }), []);
+    assert.deepEqual(N.platformClaimSigns(E, { senderName: 'Dana Madeup (via Box)', senderAddress: 'notify@box-files.example' }).map(s => s.kind), ['platform-claim']);
+    assert.deepEqual(N.platformClaimSigns(E, { senderName: 'Dana Madeup (via Google Docs)', senderAddress: 'share@google-docs-share.example' }), []);
+    assert.deepEqual(N.platformClaimSigns(E, { senderName: 'Dana Madeup (Finance)', senderAddress: 'dana@vendor.example' }), [], 'a name in brackets that is no platform');
+});

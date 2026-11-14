@@ -15,16 +15,54 @@
 
 // The platforms' own sending domains (the domain the sender check passed for), and their notification
 // mailboxes (an employee's own address at the platform is not a notification).
+// owner: the company the domain belongs to (0.5.49), which the platform named in the sender's name must belong to.
 const PLATFORMS = [
-    { name: 'Google', domain: 'google.com' },
-    { name: 'DocuSign', domain: 'docusign.net' },
-    { name: 'DocuSign', domain: 'docusign.com' },
-    { name: 'Dropbox', domain: 'dropbox.com' },
-    { name: 'Dropbox', domain: 'dropboxmail.com' },
-    { name: 'Adobe Acrobat Sign', domain: 'adobesign.com' },
-    { name: 'Adobe Acrobat Sign', domain: 'echosign.com' },
-    { name: 'SharePoint', domain: 'sharepointonline.com' }
+    { name: 'Google', domain: 'google.com', owner: 'Google' },
+    { name: 'DocuSign', domain: 'docusign.net', owner: 'DocuSign' },
+    { name: 'DocuSign', domain: 'docusign.com', owner: 'DocuSign' },
+    { name: 'Dropbox', domain: 'dropbox.com', owner: 'Dropbox' },
+    { name: 'Dropbox', domain: 'dropboxmail.com', owner: 'Dropbox' },
+    { name: 'Adobe Acrobat Sign', domain: 'adobesign.com', owner: 'Adobe' },
+    { name: 'Adobe Acrobat Sign', domain: 'echosign.com', owner: 'Adobe' },
+    { name: 'Adobe Acrobat', domain: 'adobe.com', owner: 'Adobe' },
+    { name: 'SharePoint', domain: 'sharepointonline.com', owner: 'Microsoft' },
+    { name: 'Box', domain: 'box.com', owner: 'Box' }
 ];
+// (0.5.49) The platform a sender's name says it comes "via", by the company it belongs to: "via Dropbox" from
+// google.com is not Google's notification (the name and the domain don't belong to the same company).
+const PLATFORM_NAMES = [
+    { owner: 'Google', re: /\b(google(\s+(docs?|drive|sheets|slides|forms|sites|classroom|calendar|meet|chat|keep|photos))?|classroom|docs|drive|sheets|slides|forms)\b/i },
+    { owner: 'Microsoft', re: /\b(onedrive|one drive|sharepoint|microsoft(\s+(365|teams|forms|office|onedrive|sharepoint|stream|loop))?|teams|office\s*365)\b/i },
+    { owner: 'DocuSign', re: /\bdocu\s?sign\b/i },
+    { owner: 'Dropbox', re: /\bdropbox\b/i },
+    { owner: 'Adobe', re: /\b(adobe(\s+(acrobat(\s+sign)?|sign|document cloud))?|acrobat(\s+sign)?|echosign)\b/i },
+    { owner: 'Box', re: /^box(\s+notifications?)?$/i }
+];
+// What the sender's name says about a platform: { name, via, claimed: the company of the platform named } or null.
+function platformClaim(senderName) {
+    const shown = String(senderName || '').trim();
+    const m = VIA_PARENS.exec(shown) || VIA_WORD.exec(shown);
+    if (!m) return null;
+    const via = m[2].trim(), hit = PLATFORM_NAMES.find(p => p.re.test(via));
+    return hit ? { name: m[1].trim().replace(/^["']+|["']+$/g, ''), via, claimed: hit.owner } : null;
+}
+// (0.5.49) A sender's name naming one platform, sent from another platform's domain ("via Dropbox" from
+// google.com), or from a domain that isn't any platform's while the brand check doesn't know that platform
+// (Box): red (5). Whatever the sender check says: the name and the sender don't belong together.
+function platformClaimSigns(E, facts) {
+    const f = facts || {};
+    const claim = platformClaim(f.senderName);
+    if (!claim) return [];
+    const domain = domainOf(String(f.senderAddress || '').toLowerCase());
+    const platform = PLATFORMS.find(p => domain === p.domain || domain.endsWith(`.${p.domain}`));
+    if (platform && platform.owner !== claim.claimed) {
+        return [{ weight: 5, kind: 'platform-mismatch', text: `The sender's name says it comes via ${claim.via} (${claim.claimed}'s), but it was sent from ${domain}, which is ${platform.owner}'s: the platform named and the one that sent it don't match.` }];
+    }
+    if (!platform && !E.displayNameBrand(`${claim.name} ${claim.via}`.trim())) {
+        return [{ weight: 5, kind: 'platform-claim', text: `The sender's name says it comes via ${claim.via}, but ${domain} isn't ${claim.claimed}'s.` }];
+    }
+    return [];
+}
 const NOTIFICATION_MAILBOX = /(^|[-_.])(no-?reply|noreply|notifications?|drive-shares|shares|comments|receipts|calendar|classroom|dse)([-_.]|$)|^dse(_[a-z0-9]+)?$/i;
 // "Name (via Google Docs)", "Name (Classroom)", "Name (Google Forms)", "Name via Docusign".
 const VIA_PARENS = /^(.*?)\s*\((?:via\s+)?([^()]{2,40})\)\s*$/i;
@@ -50,6 +88,9 @@ function platformNotification(facts, orgDomains = []) {
     const domain = domainOf(sender), local = sender.split('@')[0] || '';
     const a = f.auth || {};
     const platform = PLATFORMS.find(p => domain === p.domain || domain.endsWith(`.${p.domain}`));
+    // (0.5.49) The platform the name says it comes "via" must belong to the domain's company.
+    const claim = platformClaim(f.senderName);
+    if (platform && claim && claim.claimed !== platform.owner) return null;
     // Proven: the receiver's DMARC check passed for the platform's own domain (Gmail's verdict, which a sender
     // can't write: mime.receiverAuth reads only the receiver's own Authentication-Results).
     if (!platform || a.dmarc !== 'pass' || !a.headerFrom || !(domain === a.headerFrom || domain.endsWith(`.${a.headerFrom}`))
@@ -162,4 +203,4 @@ function massShareSigns(reach) {
     return reach >= MASS_SHARE ? [{ weight: 2, kind: 'mass-share', text: `The same outside account sent this to ${reach} of your people within the hour.` }] : [];
 }
 
-module.exports = { platformNotification, shareSource, relaySigns, colleagueMentionSigns, shareLureSigns, massShareSigns, isShareLink, MASS_SHARE, PLATFORMS };
+module.exports = { platformClaim, platformClaimSigns, platformNotification, shareSource, relaySigns, colleagueMentionSigns, shareLureSigns, massShareSigns, isShareLink, MASS_SHARE, PLATFORMS };

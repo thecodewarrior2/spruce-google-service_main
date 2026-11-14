@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.49: a platform notification's name and domain must belong to the same company
+
+- **A share or notification is the platform's own only when the platform its name says it comes "via" belongs
+  to the same company as its domain** (`platformClaim` in `src/engine/notifications.js`), besides Gmail's DMARC
+  check passing for the platform's domain and a notification mailbox, as before. "Dana Madeup (via Dropbox)"
+  sent from drive-shares-dm-noreply@google.com, its sender check passing, was taken for Google's notification
+  and judged by Dana's address; it is now no notification, and red (`platformClaimSigns`, 5, kind
+  `platform-mismatch`). A platform named on a domain that isn't any platform's is red too when the brand check
+  doesn't already say so (Box: kind `platform-claim`; for Google, Microsoft, DocuSign, Dropbox and Adobe the
+  brand check flags it). Adobe Acrobat's own sharing domain (adobe.com) and Box (box.com) are platforms now.
+  The S.P.R.U.C.E+ extension does the same since 5.102.
+- Tests: `notifications.test.js` (the mismatch is no notification and flagged; the matching name is Google's;
+  DocuSign on its domain; Box on another domain; Google on another domain left to the brand check; a name in
+  brackets that is no platform). Made-up people and districts.
+
 ## 0.5.48: phish-tiny 0.16.0, which reads what the sender checks found (input format 2)
 
 - **The AI model is phish-tiny 0.16.0** (TinyPhishLLM `78706ea`, `vendor/spruce/VENDOR.json`; was 0.13.0), the

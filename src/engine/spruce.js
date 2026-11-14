@@ -43,6 +43,7 @@ function load() {
         parseRawHeaders: fn('parseRawHeaders'),
         displayNameAnomalies: fn('displayNameAnomalies'),
         nameAddressSigns: fn('nameAddressSigns'),
+        displayNameBrand: fn('displayNameBrand'),
         colleagueNameHash: fn('colleagueNameHash'),
         colleagueLineSigns: fn('colleagueLineSigns'),
         ownDomainLookalike: fn('ownDomainLookalike'),

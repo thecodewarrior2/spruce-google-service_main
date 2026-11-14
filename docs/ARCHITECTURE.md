@@ -331,9 +331,12 @@ Their data is never exported for retraining: their terms don't allow it to train
 ## Platform notifications and outside shares
 
 A share or notification that a platform sends for a person (Google Classroom, Drive, Docs, Forms, Calendar;
-DocuSign; Dropbox; Adobe Acrobat Sign; SharePoint) carries the platform's address and passes the
+DocuSign; Dropbox; Adobe Acrobat and Acrobat Sign; SharePoint; Box) carries the platform's address and passes the
 platform's sender check, whoever the person is. `src/engine/notifications.js` recognizes one only when
-Gmail's DMARC check passed for the platform's own domain and the sender is a notification mailbox, then
+Gmail's DMARC check passed for the platform's own domain, the sender is a notification mailbox, and (0.5.49) the
+platform its name says it comes "via" belongs to the same company as the domain (`platformClaim`: "via Dropbox"
+from google.com is no notification, and `platformClaimSigns` makes it red, as a platform named on a domain that
+isn't any platform's while the brand check doesn't know it, such as Box), then
 judges it by the person's own address: the Reply-To the platform set, or the "Name (address)" in its text
 (none for Classroom: unknown). An outside share (such a notification for a person outside, or an outside
 email linking a document, form or signature request) gets the colleague-name, sign-in and mass-share checks;

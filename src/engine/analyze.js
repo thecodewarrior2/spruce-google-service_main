@@ -95,6 +95,8 @@ async function analyze(facts, ctx = {}) {
     const signals = [
         ...headerSigns,
         ...safe(() => E.displayNameAnomalies(facts.senderName)),
+        // (0.5.49) A sender's name naming one platform, sent from another's domain (or from no platform's).
+        ...safe(() => N.platformClaimSigns(E, facts)),
         // ctx.colleagues: one-way hashes of the organization's people's names (Service.colleagueNames).
         // A platform's notification for a person (Classroom, a Drive share, DocuSign…: notifications.js) is
         // judged by the person's own address, never by the platform's (0.5.16); any other email by its own.
