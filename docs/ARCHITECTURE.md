@@ -57,7 +57,7 @@ worker ──▶ security.cloudflare-dns.com    host names (blocked = 0.0.0.0)
    inside the organization (and "AI on inside mail" is off) or the email is clearly not in English.
    It is given the email's facts (`aiFacts` in `src/engine/analyze.js`): subject, sender, DMARC, links and what
    the link checks found, layout, header findings, the text; and, for the model's input format 2 (since
-   phish-tiny 0.16.0; the current model, 0.18.0, reads it too; a format-1 model leaves them out), what the sender checks found: who the
+   phish-tiny 0.16.0; the current model, 0.19.0, reads it too; a format-1 model leaves them out), what the sender checks found: who the
    sender's name claims to be and whether the domain is theirs (`aiSenderIdentity`), Reply-To domains that
    aren't the sender's, the attached files' kinds (never their names) and failing SPF/DKIM.
 8. **The policy decides** (`src/policy.js`, `decide`): allowlisted and DMARC passing, nothing; the rules
@@ -366,7 +366,7 @@ writing system, or the commonest words of other languages), and then the model i
 gives no score, saying why (the rules run as always).
 
 The model runs in ONNX Runtime (`src/engine/model.js`, from `models/phish-tiny/model.onnx`). Since 0.5.50 it
-is phish-tiny 0.18.0, an ELECTRA-small network (12 layers; 14 MB): about 68 ms for a full-length pass on one
+is an ELECTRA-small network (phish-tiny 0.18.0, and 0.19.0 since 0.5.54; 12 layers; 14 MB): about 68 ms for a full-length pass on one
 Cloud Run CPU, one thread, at the "basic" graph optimization level (the higher levels turn the 8-bit weights
 into 8-bit arithmetic, which changes the answers); the BERT-tiny models before it took about 6 ms. An email's
 explanation passes (its sentences) run as one batch, and only for an email the model leans toward phishing.

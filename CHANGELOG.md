@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.54: phish-tiny 0.19.0, far fewer false alarms on a district's own mail
+
+- **The AI model is phish-tiny 0.19.0** (TinyPhishLLM `a5e17c7`, `vendor/spruce/VENDOR.json` `modelSource`; was
+  0.18.0). Same architecture (ELECTRA-small), size, vocabulary and input format (2): `modelInputParts` and the
+  engine are unchanged (the sync checked all 94 reference cases; `test/fixtures/model-reference.json` is 0.19.0's).
+  It was trained with one district's own de-identified examples from a retraining export (`docs/RETRAINING.md`;
+  the export's files are in no repository) and two new training losses.
+- **What changes**, against 0.18.0 at the service's 90% line (held-out sets, never trained on): the district's
+  held-out genuine emails called phishing 12 of 29 → 0 (the one phishing email among them still caught); published
+  phishing missed 13 of 681 variants → 6; published genuine called phishing 4 of 705 → 3.
+- **Worse:** two more of the 14 platform-share check cases (a document shared through DocuSign or Adobe by another
+  organization's account) fall under 90%; they stay above 50%. The AI score alone still never moves mail from
+  inside the organization.
+- **Checks level 2:** the model changes how email is judged, so after this update the service checks again the
+  mail delivered in the last `RECHECK_AFTER_UPDATE_HOURS` that is still in the Inbox. No change to the
+  installation (`installLevel` 5). Docs: `docs/ARCHITECTURE.md`.
+- Tests: the update re-check tests (`test/recheck.test.js`) take the level from `package.json` and raise it by one,
+  instead of assuming level 1.
+
 ## 0.5.53: Settings → Mailboxes can switch from the pilot to the whole domain; the mailbox list in pages
 
 - **Who is checked: the pilot (always the default) or the whole domain.** A new setting, `watchScope`

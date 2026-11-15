@@ -282,6 +282,9 @@ test('0.5.51: the hashes also hold the sender\'s domain and its Reply-To domains
     assert.equal(A.recheckReason({ source: 'lookalike', list: 'marked', site: 'x.example' }), 'An admin marked x.example a threat');
 });
 
+// The level this version runs (package.json): the tests raise it by one to stand for an update that changes the checks.
+const LEVEL = require('../src/checks-level').checksLevel();
+
 test('0.5.51: an update that changes the checks (checksLevel raised) re-checks the mail of the last 24 hours still in the Inbox, newest first, once; one that doesn\'t, nothing', async () => {
     const t = setup();
     const VERSION = require('../package.json').version;
@@ -290,7 +293,7 @@ test('0.5.51: an update that changes the checks (checksLevel raised) re-checks t
     await t.store.setState('installedAt', t.clock.get() - 30 * DAY);
     // The first run of a version with checks levels: the level is recorded, nothing is checked again.
     let out = await t.svc.syncFeeds();
-    assert.equal((await t.store.getState('checksLevel')).level, 1);
+    assert.equal((await t.store.getState('checksLevel')).level, LEVEL);
     assert.ok(!out.checksUpdate && !(await t.store.getState('updateRecheck')));
     await t.deliver(`old@${ORG}`, 'o1', lure(`old@${ORG}`, 9));
     t.clock.add(30 * HOUR);
@@ -309,7 +312,7 @@ test('0.5.51: an update that changes the checks (checksLevel raised) re-checks t
     assert.ok(!out.checksUpdate && !out.rechecked);
     assert.equal(await t.store.getRecord(`ana@${ORG}|m1`), null);
     // A version that changes them: the two emails of the last 24 hours, not the one from 31 hours ago.
-    t.svc.checksLevel = () => 2;
+    t.svc.checksLevel = () => LEVEL + 1;
     t.clock.add(HOUR);
     out = await t.svc.syncFeeds();
     assert.equal(out.checksUpdate.queued, 2);
@@ -327,7 +330,7 @@ test('0.5.51: an update that changes the checks (checksLevel raised) re-checks t
     t.clock.add(HOUR);
     out = await t.svc.syncFeeds();
     assert.ok(!out.rechecked && (!out.checksUpdate || out.checksUpdate.queued === 0));
-    t.svc.checksLevel = () => 1;
+    t.svc.checksLevel = () => LEVEL;
     t.clock.add(HOUR);
     out = await t.svc.syncFeeds();
     assert.ok(!out.rechecked);
@@ -340,7 +343,7 @@ test('0.5.51: RECHECK_AFTER_UPDATE_HOURS=0, or re-checking off: the update is no
         await t.store.setState('feedsAttemptedAt', t.clock.get());
         await t.svc.syncFeeds();
         await t.deliver(`ana@${ORG}`, 'm1', lure(`ana@${ORG}`, 1));
-        t.svc.checksLevel = () => 2;
+        t.svc.checksLevel = () => LEVEL + 1;
         t.clock.add(HOUR);
         const out = await t.svc.syncFeeds();
         assert.ok(!out.rechecked && !(await t.store.getState('updateRecheck')));
@@ -356,7 +359,7 @@ test('0.5.51: the sweep after an update takes copies that arrived in the same mi
     const now = t.clock.get();
     for (let i = 0; i < 7; i++) t.store.seenIds.set(`u${i}@${ORG}|x${i}`, { at: now, state: 'done', ix: ['d0'], rx: now - HOUR });
     for (let i = 7; i < 10; i++) t.store.seenIds.set(`u${i}@${ORG}|x${i}`, { at: now, state: 'done', ix: ['d0'], rx: now - 2 * HOUR });
-    t.svc.checksLevel = () => 2;
+    t.svc.checksLevel = () => LEVEL + 1;
     t.svc.runRechecks = async () => null;                 // (only the queueing here)
     // Room for 3 at a time (the queue nearly full).
     await t.store.setState('recheckQueue', Array.from({ length: 2997 }, (_, i) => ({ user: `q${i}@${ORG}`, id: `q${i}` })));
