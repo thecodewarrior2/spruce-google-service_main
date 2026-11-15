@@ -10,7 +10,7 @@ const bool = (v, d) => (v === undefined || v === '' ? d : /^(1|true|yes|on)$/i.t
 // The settings an admin can also change on the dashboard (Settings → Policy, Settings → Allowlist). They read from a live
 // copy that only setPolicyValues changes (src/pipeline.js: refreshPolicy, setPolicy); envPolicy keeps what
 // the environment (deploy/settings.env) says. The rest of the configuration is frozen.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'retentionDays'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'retentionDays', 'watchScope'];
 function withLivePolicy(c) {
     const envPolicy = Object.freeze(Object.fromEntries(POLICY_KEYS.map(k => [k, c[k]])));
     const live = Object.assign({}, envPolicy);
@@ -38,6 +38,10 @@ function loadConfig(env = process.env) {
         pilotGroups: list(env.PILOT_GROUP),
         pilotOu: env.PILOT_OU || '',
         pilotUsers: list(env.PILOT_USERS),
+        // Who is checked (0.5.53; a policy setting, Settings → Mailboxes): 'pilot' (the default, always: PILOT_GROUP,
+        // PILOT_OU, PILOT_USERS) or 'domain' (every active mailbox of ORG_DOMAINS, from the directory: needs the
+        // Users → Read privilege and the admin.directory.user.readonly scope, as the colleague-name check does).
+        watchScope: String(env.WATCH_SCOPE || '').trim().toLowerCase() === 'domain' ? 'domain' : 'pilot',
         // What moves an email: the extension's own verdict "flagged" (score 5 or more), and/or the AI
         // model's score at or above the threshold.
         moveOnRules: bool(env.MOVE_ON_RULES, true),
@@ -152,7 +156,7 @@ function loadConfig(env = process.env) {
         adminEmails: list(env.ADMIN_EMAILS),
         // A group whose members may use the dashboard too (read as DIRECTORY_ADMIN; groups inside it count).
         adminGroups: list(env.ADMIN_GROUP),
-        // The Cloud Scheduler job the dashboard's "Update group membership now" runs
+        // The Cloud Scheduler job the dashboard's "Read the directory again now" runs
         // (projects/PROJECT/locations/REGION/jobs/spruce-renew-watches; deploy/install.sh sets it).
         renewJob: env.RENEW_JOB || '',
         // The job Settings → Update runs (projects/PROJECT/locations/REGION/jobs/spruce-update; install.sh
@@ -172,10 +176,10 @@ function configProblems(c) {
     if (!c.delegatedServiceAccount) p.push('DELEGATED_SA is not set (the service account with domain-wide delegation).');
     if (worker) {
         if (c.safeBrowsing && !c.safeBrowsingKey && !c.safeBrowsingSecret) p.push('SAFE_BROWSING=true needs SAFE_BROWSING_KEY (an API key restricted to the Safe Browsing API, from Secret Manager).');
-        if (!c.pilotGroups.length && !c.pilotOu && !c.pilotUsers.length) p.push('None of PILOT_GROUP, PILOT_OU or PILOT_USERS is set: no mailbox would be watched.');
+        if (c.watchScope !== 'domain' && !c.pilotGroups.length && !c.pilotOu && !c.pilotUsers.length) p.push('None of PILOT_GROUP, PILOT_OU or PILOT_USERS is set: no mailbox would be watched.');
         if (!c.pubsubTopic) p.push('PUBSUB_TOPIC is not set.');
         if (!c.pushAudience || !c.pushServiceAccount) p.push('PUSH_AUDIENCE and PUSH_SERVICE_ACCOUNT must be set, so only Pub/Sub and Cloud Scheduler can call the worker.');
-        if ((c.pilotOu || c.pilotGroups.length) && !c.directoryAdmin) p.push('DIRECTORY_ADMIN is not set (an admin the service may act as to list the members of PILOT_GROUP or the users of PILOT_OU).');
+        if ((c.pilotOu || c.pilotGroups.length || c.watchScope === 'domain') && !c.directoryAdmin) p.push('DIRECTORY_ADMIN is not set (an admin the service may act as to list the members of PILOT_GROUP or the users of PILOT_OU).');
     }
     if (admin) {
         if (!c.iapAudience) p.push('IAP_AUDIENCE is not set: the dashboard must sit behind Identity-Aware Proxy.');

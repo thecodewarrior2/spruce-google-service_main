@@ -90,7 +90,7 @@ button { font: inherit; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
 .live.paused .live-dot { background: var(--axis); }
 .live.stale .live-dot { background: var(--warning); }
-/* Settings: "Update group membership now" and when the group was last read. */
+/* Settings: "Read the directory again now" and when the group was last read. */
 .renew { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 10px; }
 .renew-bad { color: var(--critical-text); font-size: 12.5px; }
 
@@ -409,3 +409,7 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .credits { line-height: 1.7; }
 .donate-row a { display: inline-block; padding: 5px 14px; border-radius: 14px; background: #0070ba; color: #fff; font-weight: 600; text-decoration: none; margin-right: 8px; }
 .donate-row a:hover, .donate-row a:focus-visible { background: #005ea6; }
+
+/* 0.5.53: Settings → Mailboxes */
+.mailbox-search { font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--text); width: min(420px, 100%); margin: 8px 0; }
+.pager { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }

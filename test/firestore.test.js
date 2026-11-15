@@ -309,3 +309,16 @@ test('0.5.51: the re-check hashes are found by hash, and by arrival time newest 
     assert.equal(recent.find(x => x.id === 'fx2').user, U);
     assert.equal((await s.listIndexedSince(base - 24 * 3600 * 1000, base - 2 * 3600 * 1000, 10)).filter(x => /^fx/.test(x.id)).map(x => x.id).join(), 'fx1');
 });
+
+test('0.5.53: the watched mailboxes, a page at a time by address, and by the start of an address', { skip }, async () => {
+    const s = getStore();
+    for (let i = 0; i < 45; i++) await s.putUser(`pg${String(i).padStart(2, '0')}@maple-schools.example`, { watched: i !== 3 });
+    let page = await s.listWatchedPage({ prefix: 'pg', limit: 20 });
+    assert.equal(page.items.length, 20); assert.equal(page.items[0].email, 'pg00@maple-schools.example');
+    assert.ok(!page.items.some(u => u.email === 'pg03@maple-schools.example'), 'only watched');
+    page = await s.listWatchedPage({ prefix: 'pg', after: page.next, limit: 20 });
+    assert.equal(page.items[0].email, 'pg21@maple-schools.example');
+    page = await s.listWatchedPage({ prefix: 'pg', after: page.next, limit: 20 });
+    assert.equal(page.items.length, 4); assert.equal(page.next, null);
+    assert.deepEqual((await s.listWatchedPage({ prefix: 'pg4', limit: 20 })).items.map(u => u.email.slice(0, 4)), ['pg40', 'pg41', 'pg42', 'pg43', 'pg44']);
+});

@@ -304,9 +304,16 @@ Donate button (`DONATE_BUTTON=off` hides it).
     - Each setting says where its value comes from: settings.env, or changed here, by whom and when.
   - **Allowlist:** the domains and addresses never moved (when Gmail's DMARC check passes for them),
     changed the same way, one per line. Your own domains can't be added; single addresses in them can.
-  - **Mailboxes:** each watched mailbox with the last time Gmail notified the service about it, and
-    **Update group membership now**, which re-reads the pilot group at once instead of waiting for the
-    daily run, and says whether that reached the service.
+  - **Mailboxes:** **who is checked**: the pilot (always the default: `PILOT_GROUP`, `PILOT_OU`,
+    `PILOT_USERS`) or the whole domain (0.5.53: every active mailbox of `ORG_DOMAINS`, from the directory).
+    Switching shows how many mailboxes each would watch, and needs a ticked box, the project ID and the
+    signed-in admin's own address, either way; the directory is read again at once, and a large domain is
+    watched (or, back to the pilot, the others stopped) over the next hours, each hourly run continuing. The
+    whole domain needs the **Users → Read** privilege and the `admin.directory.user.readonly` scope
+    (docs/INSTALL.md, "The whole domain"). Below, the watched mailboxes, 100 a page by address with a search,
+    each with the last time Gmail notified the service about it, and **Read the directory again now**, which
+    re-reads who is checked at once instead of waiting for the daily run, and says whether that reached the
+    service.
   - **Weekly summary** (off by default): every Monday from 7 AM (`TIME_ZONE`), the week's numbers, what
     waits, and the largest campaigns go into each dashboard admin's Inbox. **Preview** and **Send one
     now** are next to it.
@@ -448,7 +455,7 @@ training examples, and a better AI model.
 | `src/gmail/` | Keyless domain-wide delegation, Gmail and Directory API calls |
 | `src/store/` | Firestore (production) and memory (demo, tests) |
 | `src/auth/verify.js` | OIDC for Pub/Sub and Scheduler; Identity-Aware Proxy and ADMIN_EMAILS / ADMIN_GROUP for the dashboard |
-| `src/scheduler.js` | Cloud Scheduler, for the dashboard's "Update group membership now" (runs the daily re-read job) and Settings → Update (runs the spruce-update job) |
+| `src/scheduler.js` | Cloud Scheduler, for the dashboard's "Read the directory again now" (runs the daily re-read job) and Settings → Update (runs the spruce-update job) |
 | `src/releases.js`, `src/update.js` | Settings → Update: the newest approved version and its changelog (read from GitHub), and the request |
 | `src/training.js`, `src/names.js` | The retraining export: an email → a training example, with the people taken out |
 | `src/digest.js` | The weekly summary email (put in admins' Inboxes; never judged by the service) |

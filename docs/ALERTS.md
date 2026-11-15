@@ -43,7 +43,7 @@ These matter most: while one lasts, some mail isn't checked.
 - **When:** some mailboxes' watches end within a day and weren't renewed.
 - **What it means for mail:** once a watch ends, Gmail stops notifying the service about that mailbox, and
   its new mail isn't checked.
-- **What to do:** Settings → Mailboxes → **Update group membership now**. If it keeps happening, the daily
+- **What to do:** Settings → Mailboxes → **Read the directory again now**. If it keeps happening, the daily
   renewal job (`spruce-renew-watches`) is failing: Status → Service status, or `bash deploy/doctor.sh`.
 
 ### The service fell behind (`gaps`)
@@ -72,7 +72,7 @@ These matter most: while one lasts, some mail isn't checked.
   with that account, or a bug.
 - **What to do:**
   1. Settings → Mailboxes: when did Gmail last notify the service about it?
-  2. Settings → Mailboxes → **Update group membership now** (it renews every watch).
+  2. Settings → Mailboxes → **Read the directory again now** (it renews every watch).
   3. Admin console → Users: is the account active and licensed, with Gmail on?
   4. If it goes on, it may be a bug: note the mailbox and the times (Status → Activity, search for the
      mailbox) and report it.

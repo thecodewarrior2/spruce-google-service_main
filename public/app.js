@@ -854,19 +854,103 @@
             h('div', { class: 'alert warning' }, h('div', {}, h('b', { text: 'Add only senders you trust. ' }), 'If one of their accounts is taken over, the phishing it sends isn\'t caught. Your own domains can\'t be added: a staff account taken over would never be moved. Single addresses in them can.')),
             policyCard(d, ALLOW_ROWS, 'Allowlisted senders', 'A change applies within 30 seconds and is noted in Status → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.')];
     }
+    // Settings → Mailboxes (0.5.53): who is checked (the pilot, the default, or the whole domain, switched here with
+    // a ticked box, the project ID and the admin's own address), and the mailboxes watched, a page of 100 at a time
+    // with a search by address (a whole district has 10,000).
     async function mailboxes() {
-        const d = await settingsData('?mailboxes=1');   // (only this page lists them)
-        return [h('h1', { text: 'Mailboxes' }), h('p', { class: 'sub', text: 'Who is watched, and whether Gmail\'s notifications arrive for each. The pilot group and unit are set when the service is deployed (deploy/settings.env).' }),
-            h('section', { class: 'card' }, h('dl', { class: 'kv' },
-                kvRow('Organization', d.orgDomains.join(', ') || '–'),
-                kvRow('Mailboxes watched', `${num(d.watched)}${[...(d.pilotGroups || []).map(g => `group ${g}`), d.pilotOu ? `unit ${d.pilotOu}` : ''].filter(Boolean).map(x => ` (${x})`).join('')}`))),
-            h('section', { class: 'card spaced' }, h('h2', { text: 'Mailboxes watched' }),
-                renewBar(d.renew),
-                h('div', { class: 'sub', text: 'When Gmail last said each mailbox changed. "None yet" for a mailbox that does get mail means its notifications don\'t arrive. Status → Activity says, after each daily re-read of the group, how many people it found and why any were left out.' }),
-                d.mailboxes && d.mailboxes.length < d.watched ? h('div', { class: 'small muted', text: `The first ${num(d.mailboxes.length)} of ${num(d.watched)}, by address.` }) : null,
-                d.mailboxes && d.mailboxes.length
-                    ? dataTable([{ name: 'Mailbox', get: m => m.email }, { name: 'Last notification', get: m => (m.lastNotification ? when(m.lastNotification) : 'None yet') }, { name: 'Watch renews by', get: m => (m.watchExpiration ? when(m.watchExpiration) : '–') }], d.mailboxes)
-                    : h('div', { class: 'empty', text: 'None: run the spruce-renew-watches job (docs/INSTALL.md, step 7).' }))];
+        const d = await settingsData();
+        const first = await api('/api/mailboxes');
+        const domainScope = d.watchScope === 'domain';
+        const pilotWhat = [...(d.pilotGroups || []).map(g => `group ${g}`), d.pilotOu ? `unit ${d.pilotOu}` : '', d.pilotUsers ? `${num(d.pilotUsers)} address${d.pilotUsers === 1 ? '' : 'es'} from PILOT_USERS` : ''].filter(Boolean).join(', ') || 'nothing set (deploy/settings.env)';
+        const domains = (d.orgDomains || []).join(', ') || 'ORG_DOMAINS';
+        return [h('h1', { text: 'Mailboxes' }),
+            h('p', { class: 'sub', text: 'Who is checked, and whether Gmail\'s notifications arrive for each mailbox. The service starts with the pilot; it checks the whole domain only once an admin switches it here.' }),
+            h('section', { class: 'card' }, h('h2', { text: 'Who is checked' }), h('dl', { class: 'kv' },
+                kvRow('Organization', domains),
+                kvRow('Now', domainScope ? `The whole domain: every active mailbox of ${domains}` : `The pilot: ${pilotWhat}`),
+                kvRow('Mailboxes watched', `${num(first.watched)}${first.left ? `; ${num(first.left)} more being ${domainScope ? 'added' : 'stopped or added'} over the next hours (each hourly run continues)` : ''}`),
+                kvRow('Watches ending within a day', first.ending == null ? '–' : `${num(first.ending)} (each is renewed before it ends; a watch lasts 7 days)`)),
+                scopeForm(d, domainScope, pilotWhat, domains)),
+            mailboxList(first, d)];
+    }
+    function scopeForm(d, domainScope, pilotWhat, domains) {
+        const err = h('div', { class: 'policy-error', role: 'alert' });
+        const radio = (v, label) => h('label', { class: 'choice' }, h('input', { type: 'radio', name: 'watch-scope', value: v, checked: (v === 'domain') === domainScope }), h('span', { text: label }));
+        const choices = h('div', { class: 'choices' }, radio('pilot', `The pilot (the default): ${pilotWhat}`), radio('domain', `The whole domain: every active mailbox of ${domains}`));
+        const counts = h('div', { class: 'small muted', text: 'Reading the directory…' });
+        const warn = h('div', { class: 'alert warning', hidden: true });
+        const agree = h('input', { type: 'checkbox' });
+        const agreeText = h('span');
+        const project = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', placeholder: 'project-id', 'aria-label': 'Google Cloud project ID' });
+        const email = h('input', { type: 'email', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', placeholder: 'you@district', 'aria-label': 'Your admin address' });
+        const go = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Switch');
+        let preview = null;
+        const choice = () => choices.querySelector('input:checked').value;
+        const update = () => {
+            const v = choice(), changing = (v === 'domain') !== domainScope;
+            warn.hidden = !changing;
+            warn.textContent = '';
+            if (changing && v === 'domain') warn.append(h('div', {}, h('b', { text: `Every active mailbox of ${domains} will be checked${preview && preview.domain != null ? `: ${num(preview.domain)} mailboxes` : ''}. ` }),
+                `They are watched from the directory's next read (started when you switch; a large domain takes a few hours), and checked in ${d.mode === 'enforce' ? 'enforce mode: emails the policy flags are moved to Spam' : 'monitor mode: nothing is moved, only recorded'}, with the brakes. Processing and Firestore costs grow with the number of mailboxes (Help → Costs).`));
+            if (changing && v === 'pilot') warn.append(h('div', {}, h('b', { text: `Only the pilot will be checked${preview && preview.pilot != null ? ` (${num(preview.pilot)} mailboxes)` : ''}. ` }), 'The other mailboxes\' watches are stopped from the directory\'s next read (started when you switch): their mail is no longer checked or moved.'));
+            agreeText.textContent = v === 'domain' ? `I understand: every active mailbox of ${domains}${preview && preview.domain != null ? ` (${num(preview.domain)})` : ''} will be checked.` : 'I understand: only the pilot\'s mailboxes will be checked from now on.';
+            go.disabled = !changing || !agree.checked || !project.value.trim() || !email.value.trim() || (v === 'domain' && preview && preview.domain === null && !preview.demo);
+        };
+        [agree, project, email].forEach(e => e.addEventListener('input', update));
+        agree.addEventListener('change', update);
+        choices.addEventListener('change', () => { agree.checked = false; update(); });
+        const box = h('div', { class: 'policy-form sb-form', hidden: true }, choices, counts, warn,
+            h('label', { class: 'choice' }, agree, agreeText),
+            h('label', { class: 'project' }, h('span', { text: 'Google Cloud project ID, to confirm' }), project),
+            h('label', { class: 'project' }, h('span', { text: 'Your admin address (the one you are signed in with), to confirm' }), email),
+            d.demo ? h('div', { class: 'small muted', text: 'Demo mode: the project ID is demo-project, and you are signed in as demo-admin@example.org.' }) : null,
+            h('div', { class: 'actions' }, go, h('button', { class: 'btn', type: 'button', onclick: () => { box.hidden = true; opener.hidden = false; } }, 'Cancel')), err);
+        const opener = h('button', { class: 'btn', type: 'button', onclick: async () => {
+            box.hidden = false; opener.hidden = true; update();
+            try {
+                preview = await api('/api/scope-preview');
+                counts.textContent = `The directory now: the pilot, ${preview.pilot != null ? `${num(preview.pilot)} mailboxes` : `couldn't be read (${preview.pilotError})`}; the whole domain, ${preview.domain != null ? `${num(preview.domain)} active mailboxes` : `couldn't be read: ${preview.domainError}`}. Watched now: ${num(preview.watched)}.`;
+            } catch (e) { counts.textContent = `Couldn't read the directory: ${e.message}`; }
+            update();
+        } }, 'Change who is checked');
+        go.addEventListener('click', async () => {
+            err.textContent = ''; go.disabled = true; acting++;
+            try {
+                const v = choice();
+                await api('/api/policy', { method: 'POST', body: { key: 'watchScope', value: v, projectId: project.value, adminEmail: email.value, agree: agree.checked } });
+                toast(v === 'domain' ? 'Switched to the whole domain: the directory is being read again; mailboxes are added over the next hours.' : 'Switched to the pilot: the other mailboxes\' watches are being stopped.');
+                render();
+            } catch (e) { err.textContent = e.message; update(); }
+            finally { acting--; }
+        });
+        return h('div', { class: 'spaced' }, opener, box);
+    }
+    function mailboxList(first, d) {
+        const body = h('div');
+        const search = h('input', { type: 'search', placeholder: 'Search by address (its beginning)', 'aria-label': 'Search mailboxes by address', class: 'mailbox-search' });
+        const back = [];                            // the cursors of the pages before
+        let cur = '', timer = null;
+        const draw = (r) => {
+            body.textContent = '';
+            if (!r.mailboxes.length) { body.append(h('div', { class: 'empty', text: search.value.trim() ? 'No watched mailbox starts with that.' : 'None: run the spruce-renew-watches job (docs/INSTALL.md, step 7).' })); return; }
+            body.append(dataTable([{ name: 'Mailbox', get: m => m.email }, { name: 'Last notification', get: m => (m.lastNotification ? when(m.lastNotification) : 'None yet') }, { name: 'Watch renews by', get: m => (m.watchExpiration ? when(m.watchExpiration) : '–') }], r.mailboxes),
+                h('div', { class: 'actions pager' },
+                    back.length ? h('button', { class: 'btn', type: 'button', onclick: () => load(back.pop(), false) }, `Previous ${r.mailboxes.length}`) : null,
+                    h('span', { class: 'small muted', text: `${num(back.length * 100 + 1)}–${num(back.length * 100 + r.mailboxes.length)}${search.value.trim() ? '' : ` of ${num(r.watched)}`}` }),
+                    r.next ? h('button', { class: 'btn', type: 'button', onclick: () => { back.push(cur); load(r.next, false); } }, 'Next 100') : null));
+        };
+        const load = async (after, reset = true) => {
+            if (reset) back.length = 0;
+            cur = after || '';
+            try { draw(await api(`/api/mailboxes?after=${encodeURIComponent(cur)}&q=${encodeURIComponent(search.value.trim().toLowerCase())}`)); }
+            catch (e) { body.textContent = `Couldn't read the mailboxes: ${e.message}`; }
+        };
+        search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => load(''), 300); });
+        draw(first);
+        return h('section', { class: 'card spaced' }, h('h2', { text: 'Mailboxes watched' }),
+            renewBar(d.renew),
+            h('div', { class: 'sub', text: 'When Gmail last said each mailbox changed, 100 at a time, by address. "None yet" for a mailbox that does get mail means its notifications don\'t arrive. Status → Activity says, after each read of the directory, how many were found and why any were left out.' }),
+            search, body);
     }
     async function summary() {
         const d = await settingsData();
@@ -1654,16 +1738,16 @@
         } catch (e) { /* the next tick tries again */ }
     }
 
-    // "Update group membership now" (Settings): runs the daily re-read of the pilot group at once, and
+    // "Read the directory again now" (Settings; "Update group membership now" before 0.5.53): runs the daily re-read of who is checked at once, and
     // says when the group was last read and whether that reached the service.
     function renewBar(r) {
         if (!r) return null;
         const last = r.last;
         const status = !last ? null
-            : last.error ? h('span', { class: 'muted small', text: `Couldn't read when the group was last read: ${last.error}` })
-            : !last.at ? h('span', { class: 'muted small', text: 'The group hasn\'t been read yet.' })
-            : last.code ? h('span', { class: 'renew-bad', text: `Group last read ${when(last.at)}, but that didn't reach the service (Cloud Scheduler status ${last.code}): no mailbox is watched or checked. docs/INSTALL.md, Troubleshooting, "The jobs and notifications are refused".` })
-            : h('span', { class: 'muted small', text: `Group last read ${when(last.at)}: it reached the service.` });
+            : last.error ? h('span', { class: 'muted small', text: `Couldn't read when the directory was last read: ${last.error}` })
+            : !last.at ? h('span', { class: 'muted small', text: 'The directory hasn\'t been read yet.' })
+            : last.code ? h('span', { class: 'renew-bad', text: `Directory last read ${when(last.at)}, but that didn't reach the service (Cloud Scheduler status ${last.code}): no mailbox is watched or checked. docs/INSTALL.md, Troubleshooting, "The jobs and notifications are refused".` })
+            : h('span', { class: 'muted small', text: `Directory (who is checked) last read ${when(last.at)}: it reached the service.` });
         const button = r.available ? h('button', { class: 'btn', type: 'button', onclick: async (e) => {
             const b = e.currentTarget;
             b.disabled = true; acting++;
@@ -1673,7 +1757,7 @@
                 setTimeout(() => { if (/mailboxes/.test(currentHash())) render({ quiet: true }); }, 10000);
             } catch (err) { toast(`Couldn't do that: ${err.message}`); b.disabled = false; }
             finally { acting--; }
-        } }, 'Update group membership now') : null;
+        } }, 'Read the directory again now') : null;
         return h('div', { class: 'renew' }, button, status);
     }
 

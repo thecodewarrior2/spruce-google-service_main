@@ -172,3 +172,30 @@ test('the AI suspicious line on the dashboard: never above the move threshold, n
     assert.ok(configProblems(loadConfig(Object.assign({}, ENV, { AI_SUSPICIOUS_THRESHOLD: '0.95' }))).some(p => /AI_MOVE_THRESHOLD must be between AI_SUSPICIOUS_THRESHOLD/.test(p)));
     assert.ok(configProblems(loadConfig(Object.assign({}, ENV, { AI_SUSPICIOUS_THRESHOLD: '0.3' }))).some(p => /AI_SUSPICIOUS_THRESHOLD must be between 0\.5 and 1/.test(p)));
 });
+
+test('0.5.53: switching who is checked (the pilot or the whole domain) needs the box ticked, the project ID and the admin\'s own address, both ways', async () => {
+    const cfg = loadConfig({ DEMO: '1', ORG_DOMAINS: ORG });
+    assert.equal(cfg.watchScope, 'pilot', 'the pilot by default');
+    const s = await serve(cfg, new MemoryStore());
+    try {
+        let r = await s.post({ key: 'watchScope', value: 'domain', projectId: 'demo-project', adminEmail: 'demo-admin@example.org' });
+        assert.equal(r.status, 400); assert.match(r.body.error, /Tick the box/);
+        r = await s.post({ key: 'watchScope', value: 'domain', projectId: 'demo-project', agree: true });
+        assert.equal(r.status, 403); assert.match(r.body.error, /Type your own admin address/);
+        r = await s.post({ key: 'watchScope', value: 'domain', projectId: 'demo-project', agree: true, adminEmail: 'someone.else@example.org' });
+        assert.equal(r.status, 403);
+        r = await s.post({ key: 'watchScope', value: 'domain', projectId: 'wrong-project', agree: true, adminEmail: 'demo-admin@example.org' });
+        assert.equal(r.status, 403); assert.match(r.body.error, /isn't the Google Cloud project ID/);
+        assert.equal(cfg.watchScope, 'pilot', 'nothing changed');
+        r = await s.post({ key: 'watchScope', value: 'everyone', projectId: 'demo-project', agree: true, adminEmail: 'demo-admin@example.org' });
+        assert.equal(r.status, 400); assert.match(r.body.error, /the pilot or the whole domain/);
+        r = await s.post({ key: 'watchScope', value: 'domain', projectId: 'demo-project', agree: true, adminEmail: ' Demo-Admin@Example.org ' });
+        assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(cfg.watchScope, 'domain');
+        assert.equal((await s.settings()).watchScope, 'domain');
+        // Back to the pilot: the same three.
+        r = await s.post({ key: 'watchScope', value: 'pilot', projectId: 'demo-project', adminEmail: 'demo-admin@example.org' });
+        assert.equal(r.status, 400);
+        r = await s.post({ key: 'watchScope', value: 'pilot', projectId: 'demo-project', agree: true, adminEmail: 'demo-admin@example.org' });
+        assert.equal(r.status, 200); assert.equal(cfg.watchScope, 'pilot');
+    } finally { await s.close(); }
+});

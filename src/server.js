@@ -73,7 +73,7 @@ const POLICY_TRIES = 5, POLICY_LOCK_MS = 10 * 60 * 1000;
 // What a policy change is for, in Activity's words (a wrong project ID, 0.5.30).
 const POLICY_WHAT = { mode: 'the mode', aiThreshold: 'the AI move threshold', aiSuspicious: 'the AI suspicious line', aiScansInside: 'whether the AI reads inside mail',
     aiMovesInside: 'whether the AI alone moves inside mail', safeBrowsing: 'Google Safe Browsing (on or off)', spamhaus: 'Spamhaus (on or off)', abusech: 'abuse.ch (on or off)', suspiciousLabel: 'the Suspicious label', recheck: 're-checking delivered mail', brakePerHour: 'the brake', timeZone: 'the time zone',
-    allowDomains: 'the allowlisted domains', allowAddresses: 'the allowlisted addresses', retentionDays: 'how long records are kept' };
+    allowDomains: 'the allowlisted domains', allowAddresses: 'the allowlisted addresses', retentionDays: 'how long records are kept', watchScope: 'who is checked (the pilot or the whole domain)' };
 // The project ID a policy change must be confirmed with ('' when the dashboard doesn't know it).
 const expectedProject = (cfg) => cfg.project || (cfg.demo ? DEMO_PROJECT : '');
 
@@ -292,9 +292,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         const last = mb.lastNotification || 0;
         add('notifications', mb.watched > 0 && !!last && now - last < cfg.quietHours * 3600 * 1000,
             !mb.watched ? 'No mailbox is watched.' : last ? `Gmail's last notification: ${Math.round((now - last) / 60000)} minutes ago, for ${mb.watched} watched mailboxes.` : 'No notification from Gmail yet.',
-            !mb.watched ? 'Settings → Mailboxes → Update group membership now, then the list below it.' : 'Send a test email to a watched mailbox; if nothing comes, run bash deploy/doctor.sh.');
+            !mb.watched ? 'Settings → Mailboxes → Read the directory again now, then the list below it.' : 'Send a test email to a watched mailbox; if nothing comes, run bash deploy/doctor.sh.');
         const expiring = mb.ending;
-        add('watches', !expiring, expiring ? `${expiring} mailbox watches end within a day.` : 'Every watch is renewed in time.', 'Settings → Mailboxes → Update group membership now.');
+        add('watches', !expiring, expiring ? `${expiring} mailbox watches end within a day.` : 'Every watch is renewed in time.', 'Settings → Mailboxes → Read the directory again now.');
         if (service.intel && service.intel.feeds) {
             const lists = await service.intel.feeds.status().catch(() => []);
             const oldest = Math.min(...lists.map(l => l.updated || 0));
@@ -497,6 +497,20 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const E = spruce.load();
             return Object.assign(A.modelHealth(records, Date.now(), nDays(q), { orgDomains: cfg.orgDomains, aiSuspicious: cfg.aiSuspicious, aiThreshold: cfg.aiThreshold }), { current: `${E.modelInfo.name} ${E.modelInfo.version}`, threshold: cfg.aiThreshold, trainingExport: !!tx.enabled });
         },
+        // (0.5.53) Settings → Mailboxes: how many mailboxes the pilot and the whole domain would watch (the directory,
+        // read at most every 10 minutes), and the mailboxes watched, a page at a time: by address after `after`, or
+        // starting with `q`; 100 a page (10,000 mailboxes aren't sent at once).
+        'GET /api/scope-preview': async () => {
+            if (cfg.demo) return { domain: 4200, pilot: 42, domainError: '', pilotError: '', watched: (await mailboxes()).watched, scope: cfg.watchScope, demo: true };
+            return service.scopePreview();
+        },
+        'GET /api/mailboxes': async (q) => {
+            const limit = Math.min(200, Math.max(10, Number(q.get('limit')) || 100));
+            const page = await store.listWatchedPage({ after: String(q.get('after') || '').toLowerCase().slice(0, 320), prefix: String(q.get('q') || '').trim().toLowerCase().slice(0, 320), limit });
+            const mb = await mailboxes();
+            return { mailboxes: page.items.map(u => ({ email: u.email, lastNotification: u.lastNotification || null, watchExpiration: u.watchExpiration || null })), next: page.next, watched: mb.watched,
+                     ending: mb.ending == null ? null : mb.ending, scope: cfg.watchScope, left: ((await store.getState('watchLeft')) || {}).left || 0 };
+        },
         'GET /api/settings': async (q) => {
             const E = spruce.load();
             const renew = { available: canRenew() || cfg.demo, last: await lastRenew() };
@@ -508,7 +522,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const listed = q && q.get && q.get('mailboxes') ? await store.listWatched(500) : null;
             return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
                      brakeLimit: await service.brakeLimit(), campaignHoldAfter: cfg.campaignHoldAfter, alertEmail: cfg.alertEmail || '',
-                     orgDomains: cfg.orgDomains, pilotGroups: cfg.pilotGroups, pilotOu: cfg.pilotOu, pilotUsers: cfg.pilotUsers.length, allowDomains: cfg.allowDomains, allowAddresses: cfg.allowAddresses.length,
+                     orgDomains: cfg.orgDomains, pilotGroups: cfg.pilotGroups, pilotOu: cfg.pilotOu, pilotUsers: cfg.pilotUsers.length, watchScope: cfg.watchScope, allowDomains: cfg.allowDomains, allowAddresses: cfg.allowAddresses.length,
                      retentionDays: cfg.retentionDays, storeSubjects: cfg.storeSubjects, storeAiQuotes: cfg.storeAiQuotes, movedLabel: cfg.movedLabel,
                      model: E.modelInfo, engine: E.vendor, watched: mb.watched, demo: cfg.demo,
                      // Each watched mailbox, and when Gmail last said it changed: none since the watch
@@ -714,11 +728,30 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (key === 'mode' && body.value === 'enforce' && cfg.mode !== 'enforce' && body.agree !== true) return { error: 'Tick "I agree" to switch to enforce mode. Nothing was changed.', status: 400 };
             // The AI alone moving colleagues' mail is a step away from the cautious default: agreed to, too.
             if (key === 'aiMovesInside' && /^(true|on|yes|1)$/i.test(String(body.value)) && !cfg.aiMovesInside && body.agree !== true) return { error: 'Tick "I agree" to let the AI alone move mail from inside. Nothing was changed.', status: 400 };
+            // (0.5.53) Who is checked (the pilot or the whole domain): ticked, and the signed-in admin's own address typed
+            // too, both ways. The whole domain only when its mailboxes can be read from the directory.
+            if (key === 'watchScope') {
+                if (body.agree !== true) return { error: 'Tick the box to confirm who will be checked. Nothing was changed.', status: 400 };
+                if (String(body.adminEmail || '').trim().toLowerCase() !== String(admin.email || '').toLowerCase()) return { error: 'Type your own admin address (the one you are signed in with) to confirm. Nothing was changed.', status: 403 };
+                if (body.value === 'domain' && cfg.watchScope !== 'domain' && !cfg.demo) {
+                    const p = await service.scopePreview({ force: true });
+                    if (p.domain === null) return { error: `The directory's mailboxes couldn't be read: ${p.domainError} Nothing was changed.`, status: 409 };
+                    if (!p.domain) return { error: `The directory has no active mailbox in ${cfg.orgDomains.join(', ')}. Nothing was changed.`, status: 409 };
+                }
+            }
             // Safe Browsing on needs a key that can be used.
             if (key === 'safeBrowsing' && /^(true|on|yes|1)$/i.test(String(body.value)) && !(sbKey() && await sbKey().get().catch(() => null))) return { error: 'Save an API key first (Settings → Safe Browsing). Nothing was changed.', status: 400 };
             // Spamhaus and abuse.ch on (0.5.37) need their key saved first.
             if ((key === 'spamhaus' || key === 'abusech') && /^(true|on|yes|1)$/i.test(String(body.value)) && !(apiKey(key) && await apiKey(key).get().catch(() => null))) return { error: `Save a key first (Settings → ${key === 'spamhaus' ? 'Spamhaus' : 'abuse.ch'}). Nothing was changed.`, status: 400 };
-            try { return { changed: await service.setPolicy(key, body.value, admin.email), policy: service.policyInfo() }; }
+            try {
+                const changed = await service.setPolicy(key, body.value, admin.email);
+                // (0.5.53) A new scope: the directory read again now (the renew-watches job), not at night.
+                if (key === 'watchScope' && !changed.unchanged) {
+                    service.scopeCache = null;
+                    if (canRenew()) { try { await scheduler.run(cfg.renewJob); renewAskedAt = Date.now(); renewStatusAt = 0; } catch (e) { /* the hourly job continues it anyway */ } }
+                }
+                return { changed, policy: service.policyInfo() };
+            }
             catch (e) { if (e.status) return { error: `${e.message} Nothing was changed.`, status: e.status }; throw e; }
         },
         // The retraining export: allowed or not (off by default), and the download (docs/RETRAINING.md).
@@ -769,7 +802,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 brakeLimit: await service.brakeLimit(), holdAfter: cfg.campaignHoldAfter, watched: mb.watched,
                 lastNotification: mb.lastNotification, quietHours: cfg.quietHours, renew: await lastRenew() }) };
         },
-        // "Update group membership now": runs the daily re-read job at once (it calls the worker; the
+        // "Read the directory again now" ("Update group membership now" before 0.5.53): runs the daily re-read job at once (it calls the worker; the
         // dashboard doesn't). Said in Recent activity, with who asked.
         'POST /api/renew-watches': async (q, body, admin) => {
             if (Date.now() - renewAskedAt < RENEW_GAP_MS) return { error: 'Asked less than a minute ago. The list updates once that re-read has run.', status: 429 };
@@ -777,12 +810,12 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 try { await scheduler.run(cfg.renewJob); }
                 catch (e) { return { error: `Couldn't start the re-read: ${e.message}`, status: 502 }; }
                 renewAskedAt = Date.now(); renewStatusAt = 0;
-                await store.addEvent({ kind: 'watch-asked', text: `${admin.email} asked for the pilot group to be read again.` });
+                await store.addEvent({ kind: 'watch-asked', text: `${admin.email} asked for the directory (who is checked) to be read again.` });
                 return { ok: true };
             }
             if (cfg.demo) {
                 renewAskedAt = Date.now();
-                await store.addEvent({ kind: 'watch-asked', text: `${admin.email} asked for the pilot group to be read again (demo: nothing is read).` });
+                await store.addEvent({ kind: 'watch-asked', text: `${admin.email} asked for the directory (who is checked) to be read again (demo: nothing is read).` });
                 return { ok: true };
             }
             return { error: 'Not set up here: RENEW_JOB isn\'t set. Run deploy/install.sh again (docs/DEPLOY.md).', status: 503 };

@@ -27,7 +27,9 @@ function fakeGmail(messages) {
         watch: async (user) => { g.watched.push(user); return { historyId: '100', expiration: String(Date.now() + 7 * DAY) }; },
         stop: async (user) => { g.stopped.push(user); },
         usersInOu: async () => g.ouUsers,
-        groupMembers: async (admin, group) => { if (!g.groups[group]) throw new GoogleApiError(404, 'no such group', 'members'); return g.groups[group]; }
+        groupMembers: async (admin, group) => { if (!g.groups[group]) throw new GoogleApiError(404, 'no such group', 'members'); return g.groups[group]; },
+        // (0.5.53) the whole domain: every active mailbox of the organization's domains
+        domainUsers: async () => { if (g.domainError) throw new GoogleApiError(403, g.domainError, 'users'); return g.domainList || []; }
     });
     return g;
 }
@@ -438,7 +440,7 @@ test('watches at scale: 10 at a time within the time limit, the oldest first, th
     const daysLeft = (u) => staff.indexOf(u) % 6 + 1;
     assert.ok(first.every(u => daysLeft(u) <= daysLeft(first[first.length - 1])), first.join());
     assert.ok(first.every(u => daysLeft(u) === 1 || first.length > 10), 'the ones expiring in a day came first');
-    assert.match(store.events.filter(e => e.kind === 'watch').pop().text, new RegExp(`^Watching 60 mailboxes\\. Renewed now: ${r.renewed}; ${r.left} more at the next run \\(a watch lasts 7 days; the oldest are renewed first\\)\\.`));
+    assert.match(store.events.filter(e => e.kind === 'watch').pop().text, new RegExp(`^Watching 60 mailboxes\\. Renewed now: ${r.renewed}; ${r.left} more within the next hours \\(each hourly run continues; a watch lasts 7 days; new mailboxes and the oldest watches first\\)\\.`));
     assert.equal(await store.getState('watchedCount'), 60, 'the automatic brake counts every watched mailbox');
     // The next run: the rest, not the ones just renewed, and not staff59 (renewed an hour ago).
     gmail.watched.length = 0;
@@ -642,4 +644,63 @@ test('emails at once (0.5.0): at most 12 downloaded and checked per instance, at
     assert.ok(dlMost <= 12, `downloads at once: ${dlMost}`);
     assert.ok(readingMost <= 2 && readingMost >= 1, `large ones read at once: ${readingMost}`);
     assert.ok(await store.seen('reader@maple-schools.example', 'x39'));
+});
+
+test('0.5.53: who is checked: the pilot by default; the whole domain watches every active mailbox from the directory; back to the pilot stops the others; the hourly job continues what is left', async () => {
+    const ENV = { PILOT_USERS: '', PILOT_GROUP: 'spruce-pilot@maple-schools.example', DIRECTORY_ADMIN: 'admin@maple-schools.example' };
+    assert.equal(cfgOf(ENV).watchScope, 'pilot', 'the pilot by default');
+    assert.equal(cfgOf(Object.assign({}, ENV, { WATCH_SCOPE: 'everyone' })).watchScope, 'pilot', 'anything but "domain" is the pilot');
+    const { store, gmail, svc } = await setup(ENV);
+    gmail.groups['spruce-pilot@maple-schools.example'] = ['p1@maple-schools.example', 'p2@maple-schools.example'];
+    gmail.domainList = Array.from({ length: 30 }, (_, i) => `staff${String(i).padStart(2, '0')}@maple-schools.example`).concat(['p1@maple-schools.example', 'p2@maple-schools.example']);
+    assert.deepEqual(await svc.renewWatches(), { watched: 2, renewed: 2, left: 0, failed: 0 });
+    // The whole domain (as the dashboard sets it): the directory's active mailboxes, all of them.
+    await svc.setPolicy('watchScope', 'domain', 'it.head@maple-schools.example');
+    assert.match((await store.listEvents()).find(e => e.kind === 'settings').text, /switched the service to the whole domain on the dashboard \(confirmed with the project ID and their own address, and agreed\): every active mailbox of maple-schools\.example/);
+    // A short run: some now, the rest left for the hourly job.
+    const watch = gmail.watch;
+    gmail.watch = async (u) => { await new Promise(r => setTimeout(r, 20)); return watch(u); };
+    const r = await svc.renewWatches({ budgetMs: 30 });
+    assert.ok(r.renewed > 0 && r.left > 0, JSON.stringify(r));
+    assert.equal((await store.getState('watchLeft')).left, r.left);
+    assert.match(store.events.filter(e => e.kind === 'watch').pop().text, /The whole domain \(Settings → Mailboxes\): 32 active mailboxes of maple-schools\.example in the directory\./);
+    gmail.watch = watch;
+    await store.setState('feedsAttemptedAt', Date.now());
+    const out = await svc.syncFeeds();
+    assert.equal(out.watches && out.watches.left, 0, 'the hourly job continued them');
+    assert.equal(await store.getState('watchedCount'), 32);
+    assert.equal((await store.getState('watchLeft')).left, 0);
+    // Nothing left: the hourly job doesn't read the directory again.
+    assert.ok(!(await svc.syncFeeds()).watches);
+    // A failed directory read stops nothing, and says what the whole domain needs.
+    gmail.domainError = 'Not Authorized to access this resource/api';
+    await assert.rejects(svc.renewWatches(), /Not Authorized/);
+    assert.equal(await store.getState('watchedCount'), 32);
+    assert.ok((await store.listEvents()).some(e => e.kind === 'error' && /whole domain needs the Users → Read privilege .* admin\.directory\.user\.readonly scope .* Nothing was stopped/.test(e.text)));
+    delete gmail.domainError;
+    // Back to the pilot: everyone else's watch is stopped.
+    await svc.setPolicy('watchScope', 'pilot', 'it.head@maple-schools.example');
+    await svc.renewWatches();
+    assert.equal(gmail.stopped.length, 30);
+    assert.equal(await store.getState('watchedCount'), 2);
+    assert.match(store.events.filter(e => e.kind === 'watch').pop().text, /Stopped watching 30 mailboxes no longer in the pilot\./);
+    // The counts Settings → Mailboxes shows before switching.
+    const p = await svc.scopePreview({ force: true });
+    assert.deepEqual([p.domain, p.pilot, p.watched, p.scope], [32, 2, 2, 'pilot']);
+    gmail.domainError = 'Not Authorized to access this resource/api';
+    const q = await svc.scopePreview({ force: true });
+    assert.equal(q.domain, null); assert.match(q.domainError, /Users → Read privilege/);
+});
+
+test('0.5.53: the watched mailboxes, a page at a time by address, and by the start of an address', async () => {
+    const store = new MemoryStore();
+    for (let i = 0; i < 250; i++) await store.putUser(`u${String(i).padStart(3, '0')}@maple-schools.example`, { watched: i !== 5 });
+    let page = await store.listWatchedPage({ limit: 100 });
+    assert.equal(page.items.length, 100); assert.equal(page.items[0].email, 'u000@maple-schools.example'); assert.ok(!page.items.some(u => u.email === 'u005@maple-schools.example'), 'only watched');
+    page = await store.listWatchedPage({ after: page.next, limit: 100 });
+    assert.equal(page.items[0].email, 'u101@maple-schools.example');
+    page = await store.listWatchedPage({ after: page.next, limit: 100 });
+    assert.equal(page.items.length, 49); assert.equal(page.next, null);
+    const found = await store.listWatchedPage({ prefix: 'u12', limit: 100 });
+    assert.deepEqual(found.items.map(u => u.email.slice(0, 4)), Array.from({ length: 10 }, (_, i) => `u12${i}`));
 });

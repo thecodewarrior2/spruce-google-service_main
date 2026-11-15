@@ -63,6 +63,24 @@ class FirestoreStore {
         return { watched: watched.data().count, lastNotification: latest.empty ? null : (Number(latest.docs[0].data().lastNotification) || null), ending: ending.data().count };
     }
     // Watched mailboxes for Settings → Mailboxes, at most limit (by address).
+    // (0.5.53) A page of the watched mailboxes for Settings → Mailboxes (a district has 10,000): by address, after
+    // `after`, those starting with `prefix` only. Ordered by the address alone (its automatic single-field index;
+    // "watched" is filtered here, so no composite index is needed): a few more are read than shown.
+    async listWatchedPage({ after = '', prefix = '', limit = 100 } = {}) {
+        const items = [];
+        let cursor = after, more = true;
+        for (let round = 0; round < 10 && items.length <= limit && more; round++) {
+            let q = this.col('users').orderBy('email');
+            if (prefix) q = q.where('email', '>=', prefix).where('email', '<', `${prefix}\uf8ff`);
+            if (cursor) q = q.startAfter(cursor);
+            const got = (await q.limit(limit * 2).get()).docs.map(d => d.data());
+            more = got.length === limit * 2;
+            for (const u of got) if (u.watched && items.length <= limit) items.push(u);
+            if (got.length) cursor = String(got[got.length - 1].email);
+        }
+        const page = items.slice(0, limit);
+        return { items: page, next: items.length > limit ? String(page[page.length - 1].email) : null };
+    }
     async listWatched(limit = 500) {
         return (await this.col('users').where('watched', '==', true).limit(limit).get()).docs.map(d => d.data()).sort((a, b) => String(a.email).localeCompare(String(b.email)));
     }

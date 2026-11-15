@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.5.53: Settings → Mailboxes can switch from the pilot to the whole domain; the mailbox list in pages
+
+- **Who is checked: the pilot (always the default) or the whole domain.** A new setting, `watchScope`
+  (`WATCH_SCOPE` in settings.env, `pilot` unless it says `domain`; also on the dashboard), chooses whether the
+  service watches the pilot (`PILOT_GROUP`, `PILOT_OU`, `PILOT_USERS`, as before) or every active mailbox of
+  `ORG_DOMAINS` (`domainUsers` in `src/gmail/client.js`: the directory's users at those domains, not suspended or
+  archived). The whole domain needs the Users → Read privilege and the `admin.directory.user.readonly` scope (the
+  colleague-name check's); a failed read stops nothing and says what's missing.
+- **Switching on the dashboard** (Settings → Mailboxes → Who is checked → Change who is checked): it reads the
+  directory and shows how many mailboxes the pilot and the whole domain would watch (`GET /api/scope-preview`, at
+  most every 10 minutes), what happens (every mailbox checked in the current mode, costs), and needs a ticked box,
+  the Google Cloud project ID and the signed-in admin's own address, both ways (`POST /api/policy`, key
+  `watchScope`). The whole domain isn't switched to when the directory's mailboxes can't be read. The directory is
+  read again at once (the renew-watches job); noted in Status → Activity → What admins did.
+- **A large domain catches up within hours.** The daily renewal covers about 5,000 mailboxes in its time; what it
+  leaves (`state/watchLeft`: watches to start, or to stop after switching back) is continued by each hourly job
+  with what is left of its time, so a domain of 10,000 is watched within hours, not days.
+- **Settings → Mailboxes for 10,000 mailboxes:** the watched mailboxes 100 a page by address, with Next and
+  Previous and a search by the start of an address (`GET /api/mailboxes`, `listWatchedPage` in both stores:
+  Firestore orders by the address alone, its single-field index), instead of the first 500 at once; the counts
+  (watched, being added or stopped, watches ending within a day) at the top. "Update group membership now" is
+  "Read the directory again now".
+- No change in how email is checked (checks level 1); no change to the installation (`installLevel` 5).
+- Docs: `README.md`, `docs/INSTALL.md` ("The whole domain"), `docs/DEPLOY.md` (`WATCH_SCOPE`), `docs/SCALING.md`,
+  `docs/ALERTS.md`. Tests: `pipeline.test.js` (the pilot by default; the whole domain watched from the directory,
+  continued by the hourly job; a failed read stops nothing; back to the pilot stops the others; the counts; the
+  pages), `policy.test.js` (the box, the project ID and the admin's own address, both ways), `firestore.test.js`
+  (the pages against the emulator), `server.test.js`. Made-up mailboxes.
+
 ## 0.5.52: the dashboard says every reason delivered mail is re-checked
 
 - **Settings → Policy, "Re-check delivered mail"**: its choices and explanation said only that a phishing list's new

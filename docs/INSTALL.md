@@ -73,6 +73,18 @@ hashes):
 Without them the check is off and **Status** says so; nothing else changes. To turn it off on purpose,
 set `COLLEAGUE_NAMES=off` on both services (docs/DEPLOY.md, the settings table).
 
+### The whole domain (optional; Settings → Mailboxes, 0.5.53)
+
+The service always starts with the pilot. To check every mailbox of `ORG_DOMAINS` instead, an admin switches
+**Settings → Mailboxes → Who is checked** to the whole domain: it shows how many active mailboxes the
+directory has, and needs a ticked box, the project ID and the admin's own address (the one they are signed in
+with). It needs the same two things as the colleague-name check above: **Users → Read** in the
+`SPRUCE group reader` role, and the `admin.directory.user.readonly` scope in the domain-wide delegation; without
+them the switch says so and changes nothing. The directory is read again at once; a domain of 10,000 is
+watched over the next hours (each hourly run continues the renewal). Switching back to the pilot (the same
+three confirmations) stops the other mailboxes' watches the same way. Before switching, look at
+Status → Readiness and Help → Costs: everyone's mail is checked in the current mode.
+
 ### Link clicks (optional, off by default)
 
 For each email found to be phishing **after** it was delivered (Email → Re-checked, 0.5.35), the service can
@@ -250,7 +262,7 @@ When it finishes, it prints the **dashboard address**.
   - The choice is written into `deploy/settings.env`. Once the new build is deployed, the dashboard's
     copy is removed and Activity notes what was chosen, so the two say the same thing again.
 - **Add or remove people** in the security group. It applies daily, or at once with **Settings →
-  Mailboxes → Update group membership now** in the dashboard, or with:
+  Mailboxes → Read the directory again now** in the dashboard, or with:
 
   ```bash
   gcloud scheduler jobs run spruce-renew-watches --location=REGION

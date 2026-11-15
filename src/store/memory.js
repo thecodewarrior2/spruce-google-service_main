@@ -22,6 +22,13 @@ class MemoryStore {
     }
     async listWatched(limit = 500) { return (await this.listUsers()).filter(u => u.watched).sort((a, b) => String(a.email).localeCompare(String(b.email))).slice(0, limit); }
     async listUsers() { return [...this.users.values()]; }
+    // (0.5.53) A page of the watched mailboxes, by address (see store/firestore.js).
+    async listWatchedPage({ after = '', prefix = '', limit = 100 } = {}) {
+        const all = (await this.listUsers()).filter(u => u.watched && (!prefix || String(u.email).startsWith(prefix)) && String(u.email) > after)
+            .sort((a, b) => (String(a.email) < String(b.email) ? -1 : 1));
+        const items = all.slice(0, limit);
+        return { items, next: all.length > limit ? String(items[items.length - 1].email) : null };
+    }
     // The mailbox's sync position, only ever moved forward. Returns the position kept.
     async raiseHistoryId(email, historyId, extra = {}) {
         const u = this.users.get(email);

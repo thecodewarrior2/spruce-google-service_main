@@ -22,7 +22,7 @@ Run's processor speed. A load test on a spare project is what settles them (belo
 
 | | 0.3.12 | 0.4.0 |
 |---|---|---|
-| Watch renewal, 10,000 mailboxes | one at a time: 26.6 minutes, cut off at 120 s, so about 700 renewed a day; the others stop being checked within 7 days | 10 at a time, within 95 s: about 5,800 a run, the oldest first, so each mailbox every two days or so |
+| Watch renewal, 10,000 mailboxes (0.5.53: also continued each hour while some are left, so a whole domain just switched to is watched within hours) | one at a time: 26.6 minutes, cut off at 120 s, so about 700 renewed a day; the others stop being checked within 7 days | 10 at a time, within 95 s: about 5,800 a run, the oldest first, so each mailbox every two days or so |
 | Processor time per email (the made-up mix) | 217 ms (95th percentile 391 ms) | 97 ms (199 ms) |
 | A newsletter the model scores 50% or more | 1.10 s | 0.51 s |
 | One model pass, 256 / 32 tokens | 289 / 30 ms | 146 / 17 ms, the same answers to the bit (3,230 passes compared) |

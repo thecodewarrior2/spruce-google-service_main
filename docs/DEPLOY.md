@@ -109,7 +109,7 @@ it, its build).
 gcloud projects add-iam-policy-binding PROJECT --member=serviceAccount:spruce-run@PROJECT.iam.gserviceaccount.com --role=roles/run.viewer
 ```
 
-For the dashboard's "Update group membership now": run the re-read job, and read when it last ran.
+For the dashboard's "Read the directory again now": run the re-read job, and read when it last ran.
 
 ```bash
 gcloud projects add-iam-policy-binding PROJECT --member=serviceAccount:spruce-run@PROJECT.iam.gserviceaccount.com --role=roles/cloudscheduler.jobRunner
@@ -262,7 +262,7 @@ Creator** on `spruce-invoker`. Check Google's push-authentication docs.)
   `vendor/spruce/VENDOR.json`. When an admin clicks **Update to …** (with I agree, the project ID and
   their own email address), it writes `state/updateRequest` (the version, the exact commit, who, when)
   and runs the `spruce-update` job (`UPDATE_JOB`). It needs no new role: `spruce-run` already has
-  **Cloud Scheduler Job Runner** for "Update group membership now". It can't change the job.
+  **Cloud Scheduler Job Runner** for "Read the directory again now". It can't change the job.
 - **The `spruce-update` job** (Cloud Scheduler, HTTP) calls the Cloud Build API with a fixed build,
   signed as `spruce-updater`. Its schedule is once a year (it then does nothing): it is there to be run.
 - **The build** runs as `spruce-updater` and logs to Cloud Logging (tag `spruce-update`). Its steps
@@ -328,12 +328,13 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `ORG_DOMAINS` | none | your own domains, comma-separated |
 | `PILOT_GROUP` | none | which mailboxes are watched: the members of this group (or groups, separated by semicolons), with the groups inside it; only active accounts in `ORG_DOMAINS` |
 | `PILOT_OU` / `PILOT_USERS` | none | also watched: a unit with its sub-units, and/or addresses |
-| `DIRECTORY_ADMIN` | none | admin the service acts as to read `PILOT_GROUP` or `PILOT_OU` |
+| `WATCH_SCOPE` | `pilot` | who is checked (0.5.53): `pilot` (`PILOT_GROUP`, `PILOT_OU`, `PILOT_USERS`; always the default) or `domain` (every active mailbox of `ORG_DOMAINS`, from the directory: needs the Users → Read privilege and the `admin.directory.user.readonly` scope). Also on the dashboard: Settings → Mailboxes → Who is checked (a ticked box, the project ID and the admin's own address) |
+| `DIRECTORY_ADMIN` | none | admin the service acts as to read `PILOT_GROUP` or `PILOT_OU`, or the whole domain's users |
 | `DELEGATED_SA` | none | the delegation service account |
 | `PUBSUB_TOPIC` | none | `projects/PROJECT/topics/gmail-spruce` |
 | `PUSH_AUDIENCE`, `PUSH_SERVICE_ACCOUNT` | none | the OIDC tokens the worker accepts (Pub/Sub and Scheduler) |
 | `IAP_AUDIENCE` | none | the dashboard's Identity-Aware Proxy audience |
-| `RENEW_JOB` (dashboard) | none | the job "Update group membership now" runs: `projects/PROJECT/locations/REGION/jobs/spruce-renew-watches`. Without it the button isn't shown |
+| `RENEW_JOB` (dashboard) | none | the job "Read the directory again now" runs: `projects/PROJECT/locations/REGION/jobs/spruce-renew-watches`. Without it the button isn't shown |
 | `UPDATE_JOB` (dashboard) | none | the job Settings → Update runs: `projects/PROJECT/locations/REGION/jobs/spruce-update`. Without it the page says to run `deploy/update.sh` once |
 | `RELEASES_REPO` (dashboard) | `thecodewarrior2/Google_service_main` | where Settings → Update reads the approved versions and their changelog (GitHub, anonymously). install.sh takes it from `SPRUCE_RELEASES` |
 | `ADMIN_EMAILS`, `ADMIN_GROUP` | none | who may use the dashboard: addresses, and/or the members of a group (needs `DIRECTORY_ADMIN` on the dashboard too); at least one |

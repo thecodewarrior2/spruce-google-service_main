@@ -205,7 +205,7 @@ Their data is never exported for retraining: their terms don't allow it to train
   Real admin quarantine needs an inbound gateway; Google offers no API that puts messages there.
 - **Two services, one image.** Pub/Sub and Scheduler can't sign in through Identity-Aware Proxy. So the
   worker is private (only `spruce-invoker` may call it) and has no dashboard, and the dashboard has no
-  worker routes. The dashboard's "Update group membership now" doesn't call the worker either: it asks
+  worker routes. The dashboard's "Read the directory again now" doesn't call the worker either: it asks
   Cloud Scheduler to run the daily `spruce-renew-watches` job at once (`src/scheduler.js`), which calls
   the worker as every day.
 - **Updates from the dashboard, without giving it the right to deploy.** Settings → Update only records

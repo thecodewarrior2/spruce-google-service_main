@@ -144,10 +144,11 @@ function takeAdded(out) {
 
 // "Watching 3 mailboxes. spruce-pilot@…: 5 entries, 3 people watched; left out: 1 not active, 1 outside
 // your domains (elsewhere.example). 1 couldn't be watched (see the error)."
-function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, renewed = null, left = 0 }) {
+function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, renewed = null, left = 0, domain = null }) {
     const n = (k, one, many = `${one}s`) => `${k} ${k === 1 ? one : many}`;
     const parts = [`Watching ${n(ok, 'mailbox', 'mailboxes')}.`];
-    if (renewed !== null && left) parts.push(`Renewed now: ${renewed}${left ? `; ${left} more at the next run (a watch lasts 7 days; the oldest are renewed first)` : ''}.`);
+    if (renewed !== null && left) parts.push(`Renewed now: ${renewed}${left ? `; ${left} more within the next hours (each hourly run continues; a watch lasts 7 days; new mailboxes and the oldest watches first)` : ''}.`);
+    if (domain !== null) parts.push(`The whole domain (Settings → Mailboxes): ${n(domain, 'active mailbox', 'active mailboxes')} of ${orgDomains.join(', ')} in the directory.`);
     for (const g of groups) {
         const out = [];
         if (g.inactive) out.push(`${g.inactive} not active (suspended or archived)`);
@@ -158,7 +159,7 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
     if (ou) parts.push(`Plus the users of ${ou}.`);
     if (extra) parts.push(`Plus ${n(extra, 'address', 'addresses')} from PILOT_USERS.`);
     if (failed) parts.push(`${n(failed, 'mailbox', 'mailboxes')} couldn't be watched (see the errors).`);
-    if (stopped) parts.push(`Stopped watching ${n(stopped, 'mailbox', 'mailboxes')} no longer in the pilot.`);
+    if (stopped) parts.push(`Stopped watching ${n(stopped, 'mailbox', 'mailboxes')} no longer ${domain !== null ? 'in the domain' : 'in the pilot'}.`);
     return parts.join(' ');
 }
 
@@ -169,7 +170,7 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 // by, at }) and applies to every instance within POLICY_REFRESH_MS. It records the settings.env value it
 // replaced (env): when settings.env later has another value for the same setting (changed, then
 // install.sh), that one is newer and applies. The most recent change wins, wherever it was made.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'retentionDays'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'retentionDays', 'watchScope'];
 const LIST_KEYS = ['allowDomains', 'allowAddresses'];
 const MAX_ALLOWED = 500;
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -201,6 +202,7 @@ function policyValue(key, v, now = {}) {
         return items;
     }
     if (key === 'mode') return v === 'monitor' || v === 'enforce' ? v : bad('The mode is monitor or enforce.');
+    if (key === 'watchScope') return v === 'pilot' || v === 'domain' ? v : bad('Who is checked is the pilot or the whole domain.');
     const pc = (x) => `${Math.round(Number(x) * 1000) / 10}%`;
     if (key === 'aiThreshold') {
         const n = Number(v), floor = typeof now.aiSuspicious === 'number' ? now.aiSuspicious : 0.5;
@@ -226,6 +228,7 @@ function policyValue(key, v, now = {}) {
 function policyWords(key, v) {
     if (LIST_KEYS.includes(key)) { const l = asList(v); return l.length ? (l.length > 5 ? `${l.length} entries` : l.join(', ')) : 'none'; }
     if (key === 'mode') return v === 'enforce' ? 'enforce' : 'monitor';
+    if (key === 'watchScope') return v === 'domain' ? 'the whole domain' : 'the pilot';
     if (key === 'aiThreshold' || key === 'aiSuspicious') return `${Math.round(Number(v) * 1000) / 10}%`;
     if (key === 'brakePerHour') return Number(v) ? `${Number(v).toLocaleString('en-US')} moves an hour` : 'automatic (half the watched mailboxes, at least 100)';
     if (key === 'retentionDays') return `${Number(v)} days`;
@@ -334,7 +337,7 @@ class Service {
         const rec = { value, env: this.cfg.envPolicy[key], before, by, at: this.now() };
         await this.store.setState(`policy-${key}`, rec);
         this.policyState[key] = rec; this.applyPolicy();
-        const how = key === 'mode' && value === 'enforce' ? 'confirmed with the project ID, and agreed' : 'confirmed with the project ID';
+        const how = key === 'watchScope' ? 'confirmed with the project ID and their own address, and agreed' : key === 'mode' && value === 'enforce' ? 'confirmed with the project ID, and agreed' : 'confirmed with the project ID';
         const listChange = () => {
             const was = asList(before), now = asList(value);
             const added = now.filter(x => !was.includes(x)), removed = was.filter(x => !now.includes(x));
@@ -342,6 +345,9 @@ class Service {
             return `${by} changed the allowlisted ${key === 'allowDomains' ? 'domains' : 'addresses'} on the dashboard (${how}): ${[part('added', added), part('removed', removed)].filter(Boolean).join('; ')}. Mail from them is never moved when Gmail's DMARC check passes for it.`;
         };
         const text = LIST_KEYS.includes(key) ? listChange()
+            : key === 'watchScope' ? (value === 'domain'
+                ? `${by} switched the service to the whole domain on the dashboard (${how}): every active mailbox of ${this.cfg.orgDomains.join(', ')} is watched and checked from the next re-read of the directory (started now), not only the pilot. The mode (${this.cfg.mode}) and the brakes apply to all of them.`
+                : `${by} switched the service back to the pilot on the dashboard (${how}): only the pilot's mailboxes are checked; the others' watches are stopped at the next re-read (started now).`)
             : key === 'aiScansInside' ? `${by} turned ${value ? 'on' : 'off'} the AI for mail from inside the organization on the dashboard (${how}): ${value ? `the AI reads it too now; its score alone ${this.cfg.aiMovesInside ? `moves it at ${policyWords('aiThreshold', this.cfg.aiThreshold)} or more ("AI alone moves inside mail" is on)` : 'still doesn\'t move it'}` : this.cfg.aiMovesInside ? 'but "AI alone moves inside mail" is on and needs it, so the AI keeps reading inside mail until that is off' : 'the rule checks alone read it now (its links, its headers and the rest)'}.`
             : key === 'aiMovesInside' ? (value
                 ? `${by} turned on "AI alone moves inside mail" on the dashboard (${how}): an email from inside the organization that the AI scores ${policyWords('aiThreshold', this.cfg.aiThreshold)} or more is ${this.cfg.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} on the AI score alone, as outside mail is. The AI reads inside mail for it.`
@@ -892,7 +898,7 @@ class Service {
                 + `What happened: each time, Gmail no longer had the list of what changed in that mailbox since the service last looked, so the service started again and checked the mail still in its Inbox. `
                 + `What it means for mail: mail that arrived meanwhile reached the Inbox before it was checked; mail deleted or moved out of the Inbox meanwhile wasn't checked. `
                 + `Why: once in a while is normal; this often for one mailbox usually means Gmail stops notifying the service about it, a problem with that account, or a bug. Other mailboxes aren't affected unless they have their own alert. `
-                + `What to do: 1) Settings → Mailboxes: when did Gmail last notify the service about it? 2) Settings → Mailboxes → Update group membership now (it renews every watch). 3) Admin console → Users: is the account active, licensed, with Gmail on? If it goes on, it may be a bug: note the mailbox and the times (Status → Activity, search for it). `
+                + `What to do: 1) Settings → Mailboxes: when did Gmail last notify the service about it? 2) Settings → Mailboxes → Read the directory again now (it renews every watch). 3) Admin console → Users: is the account active, licensed, with Gmail on? If it goes on, it may be a bug: note the mailbox and the times (Status → Activity, search for it). `
                 + `More: docs/ALERTS.md, "The service fell behind on one mailbox".`, { user }, { key: `gaps-${senderHash(user)}` })) out.alerted.push('gaps-mailbox');
         }
         return out;
@@ -1096,17 +1102,23 @@ class Service {
         await this.refreshPolicy();
         const users = new Set(this.cfg.pilotUsers);
         const groups = [];
+        const whole = this.cfg.watchScope === 'domain';
+        let domainCount = null;
         // A failed directory read stops here, before any watch is stopped by mistake, and says so.
         try {
-            for (const g of this.cfg.pilotGroups) {
+            // (0.5.53) The whole domain: every active mailbox of ORG_DOMAINS (Settings → Mailboxes).
+            if (whole) { const all = await this.gmail.domainUsers(this.cfg.directoryAdmin, this.cfg.orgDomains); domainCount = all.length; for (const u of all) users.add(u); }
+            else for (const g of this.cfg.pilotGroups) {
                 const found = {};
                 const members = await this.gmail.groupMembers(this.cfg.directoryAdmin, g, this.cfg.orgDomains, found);
                 for (const u of members) users.add(u);
                 groups.push(Object.assign({ group: g, people: members.length, entries: members.length, inactive: 0, outside: 0, outsideDomains: [], everyone: 0, groups: 0 }, found));
             }
-            if (this.cfg.pilotOu) for (const u of await this.gmail.usersInOu(this.cfg.directoryAdmin, this.cfg.pilotOu)) users.add(u);
+            if (!whole && this.cfg.pilotOu) for (const u of await this.gmail.usersInOu(this.cfg.directoryAdmin, this.cfg.pilotOu)) users.add(u);
         } catch (e) {
-            await this.alert('error', `Couldn't read who is in the pilot (${[...this.cfg.pilotGroups, this.cfg.pilotOu].filter(Boolean).join(', ')}) as ${this.cfg.directoryAdmin}: ${String(e.message).slice(0, 200)}. Check the admin's role and the domain-wide delegation scopes.`);
+            await this.alert('error', whole
+                ? `Couldn't read the directory's mailboxes for the whole domain (${this.cfg.orgDomains.join(', ')}) as ${this.cfg.directoryAdmin}: ${String(e.message).slice(0, 200)}. The whole domain needs the Users → Read privilege in that admin's role and the admin.directory.user.readonly scope in the domain-wide delegation (docs/INSTALL.md, "The colleague-name check"). Nothing was stopped.`
+                : `Couldn't read who is in the pilot (${[...this.cfg.pilotGroups, this.cfg.pilotOu].filter(Boolean).join(', ')}) as ${this.cfg.directoryAdmin}: ${String(e.message).slice(0, 200)}. Check the admin's role and the domain-wide delegation scopes.`);
             throw e;
         }
         // Every mailbox's state in one read (not one read per mailbox).
@@ -1145,12 +1157,36 @@ class Service {
         const ok = [...users].filter(u => (out.get(u) || expiry(u)) > now).length;
         const left = todo.length - out.size - failed;
         await this.store.setState('watchedCount', ok);
+        // (0.5.53) Mailboxes still to watch, and watches still to stop: the hourly job continues them (syncFeeds).
+        await this.store.setState('watchLeft', { left: left + Math.max(0, gone.length - stopped), at: now, scope: whole ? 'domain' : 'pilot' });
         // What was found, for Recent activity (and the log, without addresses): so a count that looks
         // wrong says why.
-        const text = watchSummary({ ok, failed, stopped, groups, extra: this.cfg.pilotUsers.length, ou: this.cfg.pilotOu, orgDomains: this.cfg.orgDomains, renewed: out.size, left });
+        const text = watchSummary({ ok, failed, stopped, groups, extra: this.cfg.pilotUsers.length, ou: whole ? '' : this.cfg.pilotOu, orgDomains: this.cfg.orgDomains, renewed: out.size, left, domain: domainCount });
         await this.store.addEvent({ kind: 'watch', text });
         if (this.log.info) this.log.info(`renew-watches: ${text}`);
         return { watched: ok, renewed: out.size, left, failed };
+    }
+
+    // (0.5.53) Settings → Mailboxes: how many mailboxes each choice watches, read from the directory now (at most
+    // every 10 minutes): { domain: count | null, domainError, pilot: count | null, pilotError, watched, scope }.
+    // The whole domain's count needs the Users → Read privilege and the admin.directory.user.readonly scope.
+    async scopePreview({ force = false } = {}) {
+        if (!force && this.scopeCache && Date.now() - this.scopeCache.at < 10 * 60 * 1000) return Object.assign({}, this.scopeCache.v, { watched: Number(await this.store.getState('watchedCount')) || 0, scope: this.cfg.watchScope });
+        const v = { domain: null, domainError: '', pilot: null, pilotError: '' };
+        const msg = (e) => String((e && e.message) || e).slice(0, 200);
+        if (!this.cfg.directoryAdmin) v.domainError = v.pilotError = 'DIRECTORY_ADMIN isn\'t set.';
+        else {
+            try { v.domain = (await this.gmail.domainUsers(this.cfg.directoryAdmin, this.cfg.orgDomains)).length; }
+            catch (e) { v.domainError = `${msg(e)}. The whole domain needs the Users → Read privilege in ${this.cfg.directoryAdmin}'s admin role and the admin.directory.user.readonly scope in the domain-wide delegation (docs/INSTALL.md, "The colleague-name check").`; }
+            try {
+                const pilot = new Set(this.cfg.pilotUsers);
+                for (const g of this.cfg.pilotGroups) for (const u of await this.gmail.groupMembers(this.cfg.directoryAdmin, g, this.cfg.orgDomains)) pilot.add(u);
+                if (this.cfg.pilotOu) for (const u of await this.gmail.usersInOu(this.cfg.directoryAdmin, this.cfg.pilotOu)) pilot.add(u);
+                v.pilot = pilot.size;
+            } catch (e) { v.pilotError = msg(e); }
+        }
+        this.scopeCache = { at: Date.now(), v };
+        return Object.assign({}, v, { watched: Number(await this.store.getState('watchedCount')) || 0, scope: this.cfg.watchScope });
     }
 
     // Switching the service off: Gmail stops notifying for every watched mailbox. (Also remove the
@@ -1225,6 +1261,13 @@ class Service {
             try { const m = await require('./update').checkManualInstall({ cfg: this.cfg, store: this.store, releases: this.releases, cloudrun: this.cloudrun || null, alert: (t) => this.alert('update-manual', t) }); if (m) out.manualInstall = m.manual.version; }
             catch (e) { /* GitHub not reachable: the page says so */ }
         }
+        // (0.5.53) Watches the daily renewal didn't get to (a whole domain of 10,000 mailboxes, just switched to, or
+        // back): continued here each hour, with what is left of the request's time.
+        try {
+            const wl = await this.store.getState('watchLeft');
+            const budget = Math.min(45 * 1000, 95 * 1000 - (Date.now() - started));
+            if (wl && wl.left > 0 && budget >= 15 * 1000) out.watches = await this.renewWatches({ budgetMs: budget });
+        } catch (e) { out.watches = { error: String(e.message || e).slice(0, 200) }; this.log.error('watches, continued:', e); }
         const budgetMs = Math.min(30 * 1000, 105 * 1000 - (Date.now() - started));
         if (budgetMs > 0) { try { out.purged = await this.purge({ budgetMs }); } catch (e) { out.purged = { error: String(e.message || e).slice(0, 200) }; } }
         return out;

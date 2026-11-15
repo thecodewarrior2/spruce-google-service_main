@@ -107,6 +107,29 @@ class GmailClient {
         } while (pageToken);
         return out;
     }
+    // (0.5.53) Every active mailbox of the organization's own domains (Settings → Mailboxes, "the whole domain"):
+    // acting as a Workspace admin with the Users → Read privilege and the admin.directory.user.readonly scope (the
+    // ones the colleague-name check uses). Suspended and archived users are left out, and anyone whose primary
+    // address isn't at one of orgDomains. Addresses only.
+    async domainUsers(admin, orgDomains = []) {
+        const out = new Set();
+        const domains = orgDomains.length ? orgDomains : [null];
+        for (const domain of domains) {
+            let pageToken;
+            do {
+                const r = await this.call(admin, 'GET', '', { scope: SCOPES.directory, base: DIRECTORY,
+                    query: Object.assign(domain ? { domain } : { customer: 'my_customer' }, { maxResults: '500', projection: 'basic', fields: 'users(primaryEmail,suspended,archived),nextPageToken' }, pageToken ? { pageToken } : {}) });
+                for (const u of r.users || []) {
+                    const email = String(u.primaryEmail || '').toLowerCase();
+                    if (!email || u.suspended || u.archived) continue;
+                    if (orgDomains.length && !orgDomains.includes(email.split('@')[1] || '')) continue;
+                    out.add(email);
+                }
+                pageToken = r.nextPageToken;
+            } while (pageToken);
+        }
+        return [...out];
+    }
     // The full names of the organization's users (acting as a Workspace admin: the Users → Read privilege and
     // the admin.directory.user.readonly scope), for the colleague-name check. Names only, never stored: the
     // service keeps a one-way hash of each (see Service.colleagueNames).

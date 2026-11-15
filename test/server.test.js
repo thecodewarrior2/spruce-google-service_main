@@ -84,7 +84,7 @@ test('Cloud Scheduler client: runs a job and reads its last run', async () => {
     await assert.rejects(sch.run(job), /HTTP 403: The caller does not have permission/);
 });
 
-test('"Update group membership now": runs the re-read job, at most once a minute, said in Recent activity; Settings shows its last run', async () => {
+test('"Read the directory again now" ("Update group membership now" before 0.5.53): runs the re-read job, at most once a minute, said in Recent activity; Settings shows its last run', async () => {
     const cfg = loadConfig({ DEMO: '1', ORG_DOMAINS: 'maple-schools.example', RENEW_JOB: 'projects/p/locations/us-east1/jobs/spruce-renew-watches' });
     const store = new MemoryStore();
     const runs = [];
@@ -98,7 +98,7 @@ test('"Update group membership now": runs the re-read job, at most once a minute
         const ok = await post();
         assert.equal(ok.status, 200); assert.equal((await ok.json()).ok, true);
         assert.deepEqual(runs, ['projects/p/locations/us-east1/jobs/spruce-renew-watches']);
-        assert.ok((await store.listEvents()).some(e => e.kind === 'watch-asked' && /asked for the pilot group to be read again/.test(e.text)));
+        assert.ok((await store.listEvents()).some(e => e.kind === 'watch-asked' && /asked for the directory \(who is checked\) to be read again/.test(e.text)));
         const again = await post();
         assert.equal(again.status, 429); assert.match((await again.json()).error, /less than a minute ago/);
         const st = await (await fetch(`${base}/api/settings`)).json();
