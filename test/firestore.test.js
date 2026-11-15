@@ -121,8 +121,9 @@ test('records, events and the shared phishing lists round-trip; purge deletes wh
     assert.equal('expireAt' in (await s.getRecord(`${U}|r1`)), false);
     assert.equal((await s.listRecords({ sinceMs: Date.now() - 3600 * 1000 })).some(r => 'expireAt' in r), false);
     assert.equal((await s.listEvents(old - 1)).some(e => 'expireAt' in e), false);
+    // Activity (events) is kept for the audit period instead (AUDIT_DAYS, 0.5.29: a year by default).
     const ev = (await s.db.collection('events').where('text', '==', 'new').get()).docs[0].data();
-    assert.ok(ev.expireAt.toMillis() > Date.now() + 34 * 24 * 3600 * 1000 && ev.expireAt.toMillis() < Date.now() + 36 * 24 * 3600 * 1000);
+    assert.ok(ev.expireAt.toMillis() > Date.now() + 364 * 24 * 3600 * 1000 && ev.expireAt.toMillis() < Date.now() + 366 * 24 * 3600 * 1000, 'at + 365 days');
     // Several counters in one write.
     await s.incStats('2026-11-11', { scanned: 40, moved: 2 });
     const st = (await s.getStats('2026-11-11', '2026-11-11'))[0];

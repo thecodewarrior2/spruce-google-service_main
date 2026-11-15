@@ -19,6 +19,9 @@
   (`docs/SCALING.md`, `docs/ARCHITECTURE.md`).
 - The comments and notes that described the model (`src/engine/model.js`, `vendor/spruce/ai.js`,
   `vendor/spruce/VENDOR.json`, `docs/ARCHITECTURE.md`) now describe ELECTRA-small.
+- Tests: `firestore.test.js` (run only against the Firestore emulator, on GitHub) expected Activity entries to
+  expire with the records (35 days); since 0.5.29 they are kept for the audit period (`AUDIT_DAYS`, 365 days by
+  default), so GitHub's Firestore check failed. It now expects the audit period.
 - Tests: the references (`test/fixtures/model-reference.json`) are 0.18.0's. The re-check tests' email
   (`recheck.test.js`) is now an ordinary newsletter: the old payroll "statement" with a sign-in link is flagged
   by the new model on arrival, leaving nothing for the re-check to find. Made-up people and districts.
