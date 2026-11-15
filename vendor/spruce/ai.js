@@ -1,8 +1,9 @@
 // ai.js — EXPERIMENT (branch llm_testing): the extension's own small language model reads an opened
 // email and gives its opinion on whether it is phishing, and which sentences made it think so.
 //
-// The model (models/phish-tiny/) is a BERT-tiny classifier (2 layers, 4.4 million parameters, about
-// 4.5 MB with 8-bit weights) that WE train, in TinyPhishLLM (the model's own repository, shared with the
+// The model (models/phish-tiny/) is an ELECTRA-small classifier since phish-tiny 0.18.0 (12 layers, 13.5 million
+// parameters, about 14 MB with 8-bit weights; the BERT-tiny model before it is kept in TinyPhishLLM as
+// phish-tiny-old and not used) that WE train, in TinyPhishLLM (the model's own repository, shared with the
 // extension; tools/sync-model.js brings it here): its training/ generates the training emails, fine-tunes the
 // model and exports it. In this service it runs in the native engine (src/engine/model.js, ONNX Runtime,
 // nothing sent anywhere); this file builds its input and splits it into tokens.

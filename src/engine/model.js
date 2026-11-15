@@ -1,15 +1,16 @@
 'use strict';
-// The AI model, phish-tiny (a BERT-tiny classifier, 4.4 million parameters), run by the native engine:
-// ONNX Runtime (onnxruntime-node, MIT), from models/phish-tiny/model.onnx (made from model.bin by
-// TinyPhishLLM's training/export-onnx.py, synced by tools/sync-model.js). About 25× faster than the plain JavaScript that ran it until 0.4.1: about 6 ms for a
-// 256-token pass instead of 146 ms, with the same answers to rounding (test/engine.test.js holds them to
-// the JavaScript engine's own, on a reference set).
+// The AI model, phish-tiny (an ELECTRA-small classifier since 0.18.0, service 0.5.50: 12 layers, 13.5 million
+// parameters), run by the native engine: ONNX Runtime (onnxruntime-node, MIT), from models/phish-tiny/model.onnx
+// (made from model.bin by TinyPhishLLM's training/export-onnx.py, synced by tools/sync-model.js); model.onnx is
+// the whole network, so the engine doesn't depend on the architecture. About 68 ms for a 256-token pass (the
+// BERT-tiny models before it took about 6 ms, and the plain JavaScript that ran them until 0.4.1 146 ms), with
+// the reference's answers to rounding (test/engine.test.js holds them to test/fixtures/model-reference.json).
 //
 // The input text and the tokens come from ai.js (modelInputParts, WordPiece), as in training. The
 // engine runs at the "basic" level of graph optimization: the higher levels turn the 8-bit weights into
 // 8-bit arithmetic, which changes the answers (by up to 0.36 in the margin); basic keeps them, and is as
 // fast at full length. One thread, no spinning: a Cloud Run instance has one vCPU, and the event loop
-// gets it back between passes (each takes milliseconds).
+// gets it back between passes (each takes tens of milliseconds).
 const crypto = require('crypto');
 const path = require('path');
 

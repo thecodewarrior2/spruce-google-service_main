@@ -17,6 +17,8 @@
   about 50 ms, one the model flags (with its explanation) about 420 ms. One worker instance checks roughly 15
   emails a second instead of 28; a district of 100,000 emails a day still needs one instance outside campaigns
   (`docs/SCALING.md`, `docs/ARCHITECTURE.md`).
+- The comments and notes that described the model (`src/engine/model.js`, `vendor/spruce/ai.js`,
+  `vendor/spruce/VENDOR.json`, `docs/ARCHITECTURE.md`) now describe ELECTRA-small.
 - Tests: the references (`test/fixtures/model-reference.json`) are 0.18.0's. The re-check tests' email
   (`recheck.test.js`) is now an ordinary newsletter: the old payroll "statement" with a sign-in link is flagged
   by the new model on arrival, leaving nothing for the re-check to find. Made-up people and districts.
