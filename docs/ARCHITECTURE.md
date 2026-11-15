@@ -350,14 +350,17 @@ needs it): the rules alone judge it (`src/engine/analyze.js`). The model reads E
 writing system, or the commonest words of other languages), and then the model isn't run and the AI
 gives no score, saying why (the rules run as always).
 
-The model runs in ONNX Runtime (`src/engine/model.js`, from `models/phish-tiny/model.onnx`): about 6 ms
-for a full-length pass on one Cloud Run CPU, one thread, at the "basic" graph optimization level (the
-higher levels turn the 8-bit weights into 8-bit arithmetic, which changes the answers). An email's
-explanation passes (its sentences) run as one batch. All of an email takes about 10 ms of processor time
-on average; the rest is waiting for Gmail and Firestore. So each worker instance takes 32 requests at a
-time (`--concurrency=32`) and checks at most 12 emails at once, 2 of them large (over 4 MB): about 28
-emails a second per instance, measured with realistic delays. A district of 10,000 mailboxes (about
-100,000 emails a day) needs one instance outside campaigns.
+The model runs in ONNX Runtime (`src/engine/model.js`, from `models/phish-tiny/model.onnx`). Since 0.5.50 it
+is phish-tiny 0.18.0, an ELECTRA-small network (12 layers; 14 MB): about 68 ms for a full-length pass on one
+Cloud Run CPU, one thread, at the "basic" graph optimization level (the higher levels turn the 8-bit weights
+into 8-bit arithmetic, which changes the answers); the BERT-tiny models before it took about 6 ms. An email's
+explanation passes (its sentences) run as one batch, and only for an email the model leans toward phishing.
+An ordinary email takes about 50 ms of processor time; one the model flags, with its explanation, about
+420 ms; the rest is waiting for Gmail and Firestore. So each worker instance takes 32 requests at a time
+(`--concurrency=32`) and checks at most 12 emails at once, 2 of them large (over 4 MB): roughly 15 emails a
+second per instance before its processor is full (it was about 28 with the old model). A district of 10,000
+mailboxes (about 100,000 emails a day, about 1 a second on average) still needs one instance outside
+campaigns; during one, Cloud Run adds instances up to `WORKER_MAX_INSTANCES`.
 
 Gmail API quota is per user and per project. Every call names its user (`quotaUser`), so a busy
 mailbox can't use up everyone's quota.

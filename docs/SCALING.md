@@ -88,9 +88,24 @@ read of the last 32 days of records (about 96,000 reads, $0.03 in `us-central1`,
 each time a dashboard that went idle is opened again, so a dashboard opened 5–10 times a day pays back
 $4–9 of it in `us-central1` ($9–17 in `us-east1`), and its pages open at once.
 
+**0.5.50** (phish-tiny 0.18.0, ELECTRA-small, in the same engine; measured on this container's processor,
+made-up emails):
+
+| | 0.5.49 (BERT-tiny) | 0.5.50 (ELECTRA-small) |
+|---|---|---|
+| One model pass, full length (256 tokens) | about 6 ms | about 68 ms |
+| An ordinary email (one pass, no explanation) | about 10 ms of processor time | about 50 ms |
+| An email the model flags, with its explanation (26 sentences in one batch) | about 30 ms | about 420 ms |
+| One worker instance, processor full | about 28 emails/s at 32 | roughly 15 emails/s (estimated from the times above) |
+| The model file | 4.6 MB | 14 MB |
+
+A district of 100,000 emails a day (about 1 a second) still fits one instance outside campaigns; a campaign
+starts more instances sooner (`WORKER_MAX_INSTANCES`, 30 by default). The model's answers are held to its
+reference (400 made-up inputs, `test/fixtures/model-reference.json`) as before.
+
 **Per email** after 0.5.0: about 3 Firestore reads and 3 writes for the email's own notification, 1
 read for each notification that brings nothing new (2 an email), about 1 delete when it expires;
-about 10 ms of processor time; 67 Gmail quota units (free below 80 million a day).
+about 10 ms of processor time (about 50 ms since 0.5.50's larger model); 67 Gmail quota units (free below 80 million a day).
 
 **Prices checked on Google's pricing page** (Firestore Standard edition, per 100,000): `us-east1`
 reads $0.06, writes $0.18, deletes $0.02; `us-central1`, `us-west1`, `us-east5`, `us-west8` $0.03,

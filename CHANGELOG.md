@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.50: phish-tiny 0.18.0, an ELECTRA-small model
+
+- **The AI model is phish-tiny 0.18.0** (TinyPhishLLM `2f596de`, `vendor/spruce/VENDOR.json`; was 0.16.0), an
+  ELECTRA-small network (12 layers, 13.5 million parameters, `model.onnx` 14 MB) instead of BERT-tiny. Same
+  input format (2) and vocabulary, so `modelInputParts` is unchanged; `model.onnx` is the whole network, so the
+  engine (`src/engine/model.js`, ONNX Runtime at the "basic" level) runs it as it is. The BERT-tiny model is kept
+  in TinyPhishLLM as `phish-tiny-old` and is not used here.
+- **What changes for a district:** on the training repository's held-out published emails, against the BERT-tiny
+  0.17.0, it misses fewer phishing emails (8 instead of 14 of 681 variants at 50%; 14 instead of 18 at 95%) and
+  calls far fewer genuine ones phishing (5 instead of 20 of 705 at 50%; 4 instead of 14 at 95%); every regression
+  case is right, and it recognizes documents shared through Google Docs, OneDrive, DocuSign, Dropbox or Adobe by
+  another organization's account naming the district's leaders (14 of 14 check cases). One training run; a
+  district's own examples are not in it.
+- **It costs more processor time:** about 68 ms per full-length pass instead of about 6 ms; an ordinary email
+  about 50 ms, one the model flags (with its explanation) about 420 ms. One worker instance checks roughly 15
+  emails a second instead of 28; a district of 100,000 emails a day still needs one instance outside campaigns
+  (`docs/SCALING.md`, `docs/ARCHITECTURE.md`).
+- Tests: the references (`test/fixtures/model-reference.json`) are 0.18.0's. The re-check tests' email
+  (`recheck.test.js`) is now an ordinary newsletter: the old payroll "statement" with a sign-in link is flagged
+  by the new model on arrival, leaving nothing for the re-check to find. Made-up people and districts.
+
 ## 0.5.49: a platform notification's name and domain must belong to the same company
 
 - **A share or notification is the platform's own only when the platform its name says it comes "via" belongs

@@ -86,9 +86,12 @@ function setup({ mode = 'enforce', recheck = true } = {}) {
     };
     return { svc, store, feeds, gmail, boxes, listed, deliver, cfg, clock: { get: () => now, add: (ms) => { now += ms; } } };
 }
-const lure = (to, n = 1) => Buffer.from([`From: Payroll Center <notices@payroll-center.example>`, `To: ${to}`, 'Subject: Your November statement', `Message-ID: <st${n}@payroll-center.example>`,
+// An email nobody knows is bad on arrival (0.5.50: an ordinary newsletter; the earlier payroll "statement" with a
+// sign-in link reads as phishing to phish-tiny 0.18.0 on arrival, so there was nothing left for the re-check to find),
+// its link on the site a list adds a day later.
+const lure = (to, n = 1) => Buffer.from([`From: Payroll Center <notices@payroll-center.example>`, `To: ${to}`, 'Subject: November newsletter', `Message-ID: <st${n}@payroll-center.example>`,
     'Authentication-Results: mx.google.com; dkim=pass header.i=@payroll-center.example; spf=pass; dmarc=pass header.from=payroll-center.example',
-    'Content-Type: text/html; charset=utf-8', '', '<p>Hello, your November statement is ready.</p><p><a href="https://login.fresh-phish.example/statement">View statement</a></p><p>Payroll Center</p>'].join('\r\n'));
+    'Content-Type: text/html; charset=utf-8', '', '<p>Hello, here is our November newsletter: this month\'s office hours and the holiday schedule.</p><p><a href="https://www.fresh-phish.example/news">Read the newsletter</a></p><p>Payroll Center</p>'].join('\r\n'));
 
 test('a list adds a site after the email was delivered: every copy still in an Inbox is found, checked again and moved; the admins are alerted; opened is said', async () => {
     const t = setup();
