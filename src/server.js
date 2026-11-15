@@ -458,7 +458,10 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const { records } = await load(q);
             const cl = await service.clickLogs();
             return { groups: A.rechecked(records, Date.now(), nDays(q)), recheck: !!cfg.recheck, recheckDays: cfg.recheckDays, mode: cfg.mode,
-                     clickLogs: { on: !!cl.on, admin: cl.admin || '' }, seenAt: await store.getState('recheckSeenAt'), queued: ((await store.getState('recheckQueue')) || []).length };
+                     clickLogs: { on: !!cl.on, admin: cl.admin || '' }, seenAt: await store.getState('recheckSeenAt'), queued: ((await store.getState('recheckQueue')) || []).length,
+                     // (0.5.51) Re-checks after an update that changed the checks, and the last such update.
+                     afterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, afterUpdateMax: cfg.recheckAfterUpdateMax,
+                     updateSweep: (({ version, queued, max, startedAt, doneAt } = {}) => version ? { version, queued, max, startedAt, doneAt: doneAt || null } : null)((await store.getState('updateRecheck')) || {}) };
         },
         // "Mark as seen": the banners on the Overview and Messages go until something new is found.
         'POST /api/rechecked/seen': async (q, body, admin) => {

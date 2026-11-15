@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.52: the dashboard says every reason delivered mail is re-checked
+
+- **Settings → Policy, "Re-check delivered mail"**: its choices and explanation said only that a phishing list's new
+  entry re-checks delivered mail. They now name every reason (0.5.51): a list's new site or sender, a look-alike of
+  the district's domain found or marked a threat, an update that changes how email is checked (with
+  `RECHECK_AFTER_UPDATE_HOURS`), and the second look at suspicious mail an hour and a day after it arrived; and that
+  an update that only changes the dashboard, wording or documentation re-checks nothing.
+- **Email → Re-checked**: its introduction and its "Re-checking" line say the same, and a new "After updates" line
+  says what an update re-checks and how the last one went (its version, when, how many emails), from
+  `state/updateRecheck` (`GET /api/rechecked`: `afterUpdateHours`, `afterUpdateMax`, `updateSweep`).
+- No change in how email is checked: the checks level stays 1.
+
 ## 0.5.51: re-checks after a look-alike is found or marked a threat, and after an update that changes the checks
 
 - **A look-alike of the district's domain re-checks delivered mail.** When the look-alike watch finds a new
