@@ -292,3 +292,20 @@ test('deploy/cloud-update.sh against Firestore: reads the dashboard\'s request, 
         assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /No update was asked for: nothing to do/);
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
+
+test('0.5.51: the re-check hashes are found by hash, and by arrival time newest first (the sweep after an update)', { skip }, async () => {
+    const s = getStore();
+    const base = Date.UTC(2026, 10, 10, 12);
+    await s.markSeen(`${U}`, 'fx1', { ix: ['dabc'], rx: base - 3 * 3600 * 1000 });
+    await s.markSeen(`${U}`, 'fx2', { ix: ['dabc', 'sdef'], rx: base - 1 * 3600 * 1000 });
+    await s.markSeen(`${U}`, 'fx3', { ix: ['sdef'], rx: base - 1 * 3600 * 1000 });
+    await s.markSeen(`${U}`, 'fx4', { ix: ['dzzz'], rx: base - 30 * 3600 * 1000 });
+    const byHash = (await s.findIndexed(['dabc'], base - 24 * 3600 * 1000)).map(x => x.id).sort();
+    assert.deepEqual(byHash, ['fx1', 'fx2']);
+    const recent = await s.listIndexedSince(base - 24 * 3600 * 1000, base, 10);
+    assert.deepEqual(recent.map(x => x.id).filter(id => /^fx/.test(id)).slice(0, 3).sort(), ['fx1', 'fx2', 'fx3']);
+    assert.ok(recent.every((x, i) => i === 0 || recent[i - 1].receivedAt >= x.receivedAt), 'newest first');
+    assert.ok(!recent.some(x => x.id === 'fx4'), 'not older than the window');
+    assert.equal(recent.find(x => x.id === 'fx2').user, U);
+    assert.equal((await s.listIndexedSince(base - 24 * 3600 * 1000, base - 2 * 3600 * 1000, 10)).filter(x => /^fx/.test(x.id)).map(x => x.id).join(), 'fx1');
+});

@@ -108,6 +108,11 @@ function loadConfig(env = process.env) {
         // DNS resolver, a pass a day; the new ones are alerts and strong signs in mail.
         lookalikeWatch: bool(env.LOOKALIKE_WATCH, true),
         recheckDays: Math.min(30, Math.max(1, Math.round(num(env.RECHECK_DAYS, 7)))),
+        // After an update that changes how email is checked (package.json checksLevel raised, 0.5.51): the mail
+        // delivered in the last RECHECK_AFTER_UPDATE_HOURS that is still in the Inbox is checked again, newest
+        // first, at most RECHECK_AFTER_UPDATE_MAX emails (0 hours: none). Only with RECHECK on.
+        recheckAfterUpdateHours: Math.min(72, Math.max(0, Math.round(num(env.RECHECK_AFTER_UPDATE_HOURS, 24)))),
+        recheckAfterUpdateMax: Math.min(50000, Math.max(0, Math.round(num(env.RECHECK_AFTER_UPDATE_MAX, 5000)))),
         suspiciousLabelName: env.SUSPICIOUS_LABEL_NAME || 'SPRUCE/Suspicious',
         // Status → Activity (what admins did, alerts, errors) is kept this many days (0.5.29; the email records
         // RETENTION_DAYS). 30 to 1,825. It holds no email text: mailbox addresses, sender domains, admins.

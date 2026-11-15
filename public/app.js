@@ -574,7 +574,11 @@
         const r = m.recheck;
         if (!r) return null;
         const c = r.clicks;
-        const why = r.source === 'lists' ? `${r.list || 'A phishing list'} listed ${r.site || 'one of its sites'} after it was delivered` : `A second look ${r.round === 2 ? 'a day' : 'an hour'} after it arrived`;
+        // (the same words as src/recheck.js foundWords)
+        const why = r.source === 'lists' ? `${r.list || 'A phishing list'} listed ${r.site || 'one of its sites'} after it was delivered`
+            : r.source === 'lookalike' ? (r.list === 'marked' ? `An admin marked ${r.site || 'a look-alike'} a threat after it was delivered` : `The look-alike watch found ${r.site || 'a domain'} imitating your domain after it was delivered`)
+            : r.source === 'update' ? `Version ${r.version || 'a new version'} changed how email is checked after it was delivered`
+            : `A second look ${r.round === 2 ? 'a day' : 'an hour'} after it arrived`;
         const did = { moved: `It was moved to Spam ${when(r.movedAt || r.at)}.`, 'would-move': 'Monitor mode: it was recorded as "would move" and left in the Inbox.', held: 'A brake left it in the Inbox.',
             'not-in-inbox': `It had already left the Inbox (${WHERE[r.where] || r.where}), so it wasn't moved.`, flag: 'It is now suspicious, and was left in the Inbox.' }[r.outcome] || '';
         return h('div', { class: `rescan recheck-box${RECHECK_BAD.includes(r.outcome) ? ' bad' : ''}` },
@@ -1444,7 +1448,7 @@
             : 'Off: the AI score alone never moves mail from inside the organization (your domains, Gmail\'s DMARC check passing); the rules still can (a staff account taken over), and a forged inside address is outside mail') },
         { key: 'suspiciousLabel', label: 'Suspicious label', show: (v, d) => (v ? `On: an email that is suspicious but not moved gets the label ${d.suspiciousLabelName || 'SPRUCE/Suspicious'} in its mailbox, so its reader sees it (in monitor mode too). Nothing is moved by it`
             : 'Off: suspicious emails that aren\'t moved stay in the Inbox unmarked; only the dashboard lists them (Email → Review)') },
-        { key: 'recheck', label: 'Re-check delivered mail', show: (v, d) => (v ? `On: when a phishing list adds a site or sender that an email of the last ${num(d.recheckDays || 7)} days has, every copy still in an Inbox is checked again in full and ${d.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} if the checks now say so; suspicious mail is also looked at again an hour and a day after it arrived. Email → Re-checked lists what was found`
+        { key: 'recheck', label: 'Re-check delivered mail', show: (v, d) => (v ? `On: when a phishing list adds a site or sender that an email of the last ${num(d.recheckDays || 7)} days has, every copy still in an Inbox is checked again in full and ${d.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} if the checks now say so; suspicious mail is also looked at again an hour and a day after it arrived; so is mail from, replying to or linking to a look-alike of your domain once it is found or marked a threat${d.recheckAfterUpdateHours ? `, and the mail of the last ${num(d.recheckAfterUpdateHours)} hours still in the Inbox after an update that changes how email is checked (not one that only changes the dashboard or wording)` : ''}. Email → Re-checked lists what was found`
             : 'Off: mail is checked once, when it arrives. Nothing is kept to find it again') },
         { key: 'brakePerHour', label: 'Brake (whole domain)', show: (v, d) => (v ? `${num(v)} moves an hour, then moving stops everywhere until an admin resumes` : `Automatic: ${num(d.brakeLimit)} moves an hour now (half the watched mailboxes, at least 100), then moving stops until an admin resumes`) },
         { key: 'timeZone', label: 'Time zone', show: (v) => `${v || 'UTC'}: the dashboard's days (the charts and daily counts), the weekly summary, and the nightly jobs` },
@@ -1732,7 +1736,7 @@
         const mark = (e) => {
             const choices = [['ours', 'It\'s ours'], ['harmless', 'Harmless'], ['threat', 'A threat'], ['watch', 'Watch as found']].filter(([k]) => k !== e.status && !(k === 'watch' && (e.status === 'new' || e.status === 'baseline')));
             const sel = h('select', { 'aria-label': `Mark ${e.domain}` }, choices.map(([k, l]) => h('option', { value: k, text: l })));
-            return h('div', { class: 'mark-lookalike' }, sel, confirmForm('Mark', '/api/lookalikes/mark', () => ({ domain: e.domain, status: sel.value }), (o) => `${o.entry.domain}: ${(STATUS[o.entry.status] || [o.entry.status])[0]}.`));
+            return h('div', { class: 'mark-lookalike' }, sel, confirmForm('Mark', '/api/lookalikes/mark', () => ({ domain: e.domain, status: sel.value }), (o) => `${o.entry.domain}: ${(STATUS[o.entry.status] || [o.entry.status])[0]}.${o.recheck && o.recheck.queued ? ` ${o.recheck.queued} delivered ${o.recheck.queued === 1 ? 'email' : 'emails'} from it, replying to it or linking to it will be checked again within the hour.` : ''}`));
         };
         const pass = !d.on ? 'Off (LOOKALIKE_WATCH=off).' : !d.candidates ? 'Starting: the first names are asked at the next hourly run.'
             : `${num(d.candidates)} look-alike names of ${d.orgDomains.join(', ')} are asked of Cloudflare's public DNS once a day, about 80 an hour. ${d.cursor < d.candidates ? `This pass: ${num(d.cursor)} of ${num(d.candidates)} asked.` : `Last full pass ${when(d.lastPassAt)}.`}${d.baselineDone ? '' : ' The first pass takes stock: what exists already is listed without an alert.'}`;

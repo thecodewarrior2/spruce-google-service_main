@@ -49,6 +49,19 @@ class MemoryStore {
         if (!this.seenIds.has(k) && this.seenIds.size > 200000) this.seenIds.delete(this.seenIds.keys().next().value);
         this.seenIds.set(k, v);
     }
+    // (0.5.51) The emails with re-check hashes delivered between sinceMs and untilMs (both included), newest
+    // first, at most limit (see store/firestore.js).
+    async listIndexedSince(sinceMs, untilMs, limit = 1000) {
+        const out = [];
+        for (const [k, v] of this.seenIds) {
+            if (!Array.isArray(v.ix) || !v.ix.length) continue;
+            const rx = Number(v.rx) || 0;
+            if (!rx || rx < sinceMs || rx > untilMs) continue;
+            const i = k.lastIndexOf('|');
+            out.push({ user: k.slice(0, i), id: k.slice(i + 1), receivedAt: rx });
+        }
+        return out.sort((a, b) => b.receivedAt - a.receivedAt || (a.user + a.id < b.user + b.id ? 1 : -1)).slice(0, limit);
+    }
     // The emails whose re-check hashes include any of these (see store/firestore.js).
     async findIndexed(hashes, sinceMs = 0, limit = 5000) {
         const want = new Set(hashes), out = [];

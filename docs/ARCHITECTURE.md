@@ -122,8 +122,9 @@ the worker's 120-second request time. In order:
 2. **The weekly summary**, on Monday from 7 AM, when it is on.
 3. **The phishing lists:** downloaded once a day for everyone (and abuse.ch's, when on); a list that missed its
    download is tried again 3 hours later. What a download adds is looked for in delivered mail (below).
-4. **Re-checks:** suspicious mail an hour and a day old is queued; the queue is checked for up to 40 seconds
-   (the rest the next hour).
+4. **Re-checks:** suspicious mail an hour and a day old is queued, and (0.5.51) after an update that changes
+   how email is checked, the next of the recent mail still in the Inbox; the queue is checked for up to 40
+   seconds (the rest the next hour).
 5. **Link clicks** (when on): Gmail's logs for the re-checked mail, up to 15 seconds.
 6. **The look-alike watch:** the next 80 look-alike names, up to 12 seconds (a pass a day).
 7. **Updates:** an update from the dashboard that failed or stalled, an approved version that needs a manual
@@ -138,7 +139,21 @@ Phishing sites are often listed hours after their email arrived (0.5.35, `src/re
 reports what it added since its previous copy; those entries are hashed the same way as the emails' link
 sites and senders, and Firestore finds the `seen` markers holding any of them (`array-contains-any`, 30 at a
 time). Each email found is read from Gmail again and checked in full, and the policy acts as on arrival
-(through the brakes): moved, would move, or suspicious. An email its reader archived or deleted, or one an
+(through the brakes): moved, would move, or suspicious.
+
+Since 0.5.51 the hashes also hold the sender's domain and its Reply-To domains (with the domains above
+them; never a personal mailbox provider's or the organization's), so a look-alike of the district's domain
+that the watch finds, or that an admin marks a threat, finds the mail from it, replying to it or linking to
+it the same way. And an update that changes how email is checked re-checks recent mail: `package.json`'s
+`checksLevel` is raised in a version that changes a rule, a sign, the AI model, how the lists are matched or
+what the policy does (`src/checks-level.js`; `test/checks-level.test.js` keeps a fingerprint of the files that
+judge email, so such a change can't go out without that decision: either the level raised or the change
+recorded as cosmetic). The hourly job remembers the level it last ran (`state/checksLevel`); a higher one
+starts a sweep (`state/updateRecheck`) of the `seen` markers of the mail delivered in the
+`RECHECK_AFTER_UPDATE_HOURS` before this instance started (by `rx`, newest first, on its single-field index),
+queued as the queue has room (1,500 an hour at most), up to `RECHECK_AFTER_UPDATE_MAX`. Mail that arrived
+after the instance started was judged by the new version already and isn't taken. A version that changes
+only the dashboard, wording or documentation keeps the level and re-checks nothing. An email its reader archived or deleted, or one an
 admin decided on, is never moved. Email → Re-checked lists them with who got each copy and whether they opened
 it; with Link clicks on, Gmail's logs (Admin SDK Reports API) add who clicked a link in it.
 

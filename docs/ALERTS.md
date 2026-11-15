@@ -191,9 +191,11 @@ Mail is still checked; one source of evidence is missing until it comes back.
 
 ### Re-checked mail (`recheck`)
 - **When:** an email already delivered to an Inbox is found to be phishing on a re-check: a phishing list
-  added one of its link sites or its sender after it arrived, or a second look an hour or a day after it
-  arrived found more (a site Safe Browsing or a list has by then). One alert per hourly run, for every email
-  found in it.
+  added one of its link sites or its sender after it arrived, a second look an hour or a day after it
+  arrived found more (a site Safe Browsing or a list has by then), or (0.5.51) the look-alike watch found a
+  domain imitating yours that it came from, replies to or links to (or an admin marked one a threat), or an
+  update changed how email is checked (the mail of the last 24 hours still in the Inbox is checked again).
+  One alert per hourly run, for every email found in it; it says which of these it was.
 - **What it means for mail:** people had the email in their Inbox for a while. The re-check did what a
   check on arrival would have: moved each copy still in an Inbox to Spam (enforce mode, through the
   brakes), or recorded it as "would move" (monitor mode). A copy its reader had already archived or

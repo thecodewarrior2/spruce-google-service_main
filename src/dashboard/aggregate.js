@@ -7,6 +7,14 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
     const DAY = 24 * 60 * 60 * 1000;
+    // Why an email was checked again (a record's recheck), as src/recheck.js foundWords says it (0.5.51: also a
+    // look-alike found or marked a threat, and an update that changed the checks).
+    const recheckReason = (rc) => {
+        if (rc.source === 'lists') return `${rc.list || 'A phishing list'} listed ${rc.site || 'one of its sites'}`;
+        if (rc.source === 'lookalike') return rc.list === 'marked' ? `An admin marked ${rc.site || 'a look-alike'} a threat` : `The look-alike watch found ${rc.site || 'a domain'} imitating your domain`;
+        if (rc.source === 'update') return `Version ${rc.version || 'a new version'} changed how email is checked`;
+        return 'A second look after it arrived';
+    };
     // Days are the organization's (0.5.27): the calendar day in its time zone (Settings → Policy, TIME_ZONE),
     // not UTC's. In New York an email at 10 PM on the 12th is the 12th's, not the 13th's.
     const fmts = new Map();
@@ -164,7 +172,7 @@
                 clicked: cl ? !!cl.clicked : null, clickedAt: cl && cl.clickedAt ? cl.clickedAt : null, clicksCheckedAt: cl ? cl.checkedAt : null,
                 movedAt: rc && rc.movedAt ? rc.movedAt : r.state === 'moved' ? (r.heldMovedAt || r.processedAt) : null, released: r.state === 'released' });
             if (rc) {
-                g.reasons.add(rc.source === 'lists' ? `${rc.list || 'A phishing list'} listed ${rc.site || 'one of its sites'}` : 'A second look after it arrived');
+                g.reasons.add(recheckReason(rc));
                 g.lastRecheck = Math.max(g.lastRecheck, rc.at);
             }
             g.firstReceived = Math.min(g.firstReceived, r.receivedAt || r.processedAt);
@@ -302,5 +310,5 @@
         error: (e) => e.kind === 'error' || e.kind === 'gap', watch: (e) => ['watch', 'watch-asked', 'mode'].includes(e.kind) };
     function activity(events, kind) { return ACTIVITY[kind] ? events.filter(ACTIVITY[kind]) : events; }
 
-    return { DAY, dayOf, dayIn, addDays, setTimeZone, TRIGGERS, signalCategory, summary, trend, topReasons, campaigns, users, filterRecords, modelHealth, readiness, toCsv, activity, isAdminAction, activityCsv, rechecked, recheckAlert };
+    return { DAY, dayOf, dayIn, addDays, setTimeZone, TRIGGERS, signalCategory, summary, trend, topReasons, campaigns, users, filterRecords, modelHealth, readiness, toCsv, activity, isAdminAction, activityCsv, rechecked, recheckAlert, recheckReason };
 });

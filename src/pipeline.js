@@ -22,7 +22,8 @@ const A = require('./dashboard/aggregate');
 const { looksLikeReply } = require('./engine/replychain');
 const training = require('./training');
 const spruce = require('./engine/spruce');
-const { indexOf: recheckIndex, lookFor, eventNames, eventHasMessageId, eventType } = require('./recheck');
+const { indexOf: recheckIndex, lookFor, foundWords, eventNames, eventHasMessageId, eventType } = require('./recheck');
+const { checksLevel: currentChecksLevel } = require('./checks-level');
 const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOKALIKE_NEW_DAYS } = require('./lookalike');
 const sims = require('./simulations');
 
@@ -36,6 +37,10 @@ const MAX_TRIES = 3;
 // at once, and the hourly run's time for them.
 const RECHECK_QUEUE_MAX = 3000, RECHECK_FIND_MAX = 3000, RECHECK_PARALLEL = 12, RECHECK_BUDGET_MS = 40 * 1000;
 const RECHECK_RANK = { none: 0, flag: 1, 'would-move': 2, move: 3 };
+// After an update that changes the checks (0.5.51): emails queued per hourly run at most (as the queue has room).
+const UPDATE_QUEUE_STEP = 1500;
+const PROCESS_STARTED = Date.now();   // this instance runs the version it started with: mail after it was judged by it
+const PKG_VERSION = require('../package.json').version;
 // The look-alike watch (0.5.36): candidates asked per hourly run.
 const LOOKALIKE_BATCH = 80;
 const WHERE_WORDS = { archived: 'archived by its reader', spam: 'in Spam', trash: 'in the Trash', inbox: 'in the Inbox' };
@@ -231,8 +236,9 @@ function policyWords(key, v) {
 class Service {
     // statFlushMs: the day's counters of checked emails are added up here and written at most this often
     // (one write for all of them; 0, as in the tests: each at once). The worker uses STAT_FLUSH_MS.
-    constructor({ cfg, store, gmail, intel = null, now = () => Date.now(), log = console, waitForOthersMs = WAIT_FOR_OTHERS_MS, statFlushMs = 0 }) {
+    constructor({ cfg, store, gmail, intel = null, now = () => Date.now(), log = console, waitForOthersMs = WAIT_FOR_OTHERS_MS, statFlushMs = 0, checksLevel = currentChecksLevel }) {
         this.cfg = cfg; this.store = store; this.gmail = gmail; this.intel = intel; this.now = now; this.log = log;
+        this.checksLevel = checksLevel;   // (0.5.51) package.json's checksLevel; the tests give another
         this.waitForOthersMs = waitForOthersMs;
         this.statFlushMs = statFlushMs; this.statBuf = new Map(); this.statFlushedAt = Date.now();
         // What deploy/settings.env says (the environment), before any change made on the dashboard
@@ -752,7 +758,7 @@ class Service {
     withIndex(out, msg, facts, result) {
         if (!this.cfg.recheck) return out;
         try {
-            const ix = recheckIndex(spruce.load(), { urls: result.linkUrls || [], sender: facts.senderAddress, orgDomains: this.cfg.orgDomains });
+            const ix = recheckIndex(spruce.load(), { urls: result.linkUrls || [], sender: facts.senderAddress, replyTo: facts.replyTo || [], orgDomains: this.cfg.orgDomains });
             if (ix.length) Object.defineProperty(out, 'recheckIndex', { value: { ix, rx: Number(msg.internalDate) || this.now() }, enumerable: false });
         } catch (e) { this.log.error('re-check index:', e); }
         return out;
@@ -1196,6 +1202,8 @@ class Service {
         // Re-checks (0.5.35): suspicious mail an hour and a day old is queued; the queue is checked within the
         // request's time (the rest at the next run); then Gmail's logs for the re-checked (Link clicks).
         try {
+            // (0.5.51) An update that changed how email is checked: recent delivered mail, queued.
+            try { const u = await this.checksUpdate(); if (u) out.checksUpdate = u; } catch (e) { out.checksUpdate = { error: String(e.message || e).slice(0, 200) }; this.log.error('re-check after an update:', e); }
             await this.queueLaterChecks();
             const budget = Math.min(RECHECK_BUDGET_MS, 75 * 1000 - (Date.now() - started));
             if (budget > 0) { const r = await this.runRechecks({ budgetMs: budget }); if (r) out.rechecked = r; }
@@ -1272,7 +1280,12 @@ class Service {
     //   - a phishing list's daily download adds a site or a sender that an email of the last RECHECK_DAYS
     //     days has (found by its hashes, src/recheck.js), in every mailbox that got a copy;
     //   - an email found suspicious on arrival (not moved) is an hour old, and again when a day old: a
-    //     site too new to be on a list or blocked by Safe Browsing often is by then.
+    //     site too new to be on a list or blocked by Safe Browsing often is by then;
+    //   - (0.5.51) the look-alike watch finds a new domain imitating the district's, or an admin marks one a
+    //     threat: the emails of the last RECHECK_DAYS days from it, asking for replies to it or linking to it;
+    //   - (0.5.51) an update changes how email is checked (package.json checksLevel raised; an update that
+    //     only changes the dashboard, wording or documentation doesn't): the mail delivered in the last
+    //     RECHECK_AFTER_UPDATE_HOURS that is still in the Inbox, newest first (checksUpdate).
     // What the check says now is done as on arrival: moved to Spam (enforce mode, through the brakes),
     // recorded as "would move" (monitor mode), or recorded as suspicious. Never moved: an email no longer
     // in the Inbox (its reader archived, deleted or reported it), one an admin released or marked, one its
@@ -1303,7 +1316,7 @@ class Service {
         const hits = await this.store.findIndexed([...want.keys()], this.now() - this.cfg.recheckDays * DAY, RECHECK_FIND_MAX);
         const items = hits.map(h => {
             const w = (h.ix || []).map(x => want.get(x)).find(Boolean) || {};
-            return { user: h.user, id: h.id, receivedAt: h.receivedAt || null, source: 'lists', site: String(w.site || '').slice(0, 200), list: w.list || '' };
+            return { user: h.user, id: h.id, receivedAt: h.receivedAt || null, source: w.source || 'lists', site: String(w.site || '').slice(0, 200), list: w.list || '' };
         });
         return { entries: want.size, found: hits.length, queued: await this.queueRechecks(items) };
     }
@@ -1315,6 +1328,56 @@ class Service {
         const due = recs.filter(r => r.action === 'flag' && r.state === 'inbox' && r.falseAlarm == null && !r.userPlaced && !r.recheck
             && ((r.laterChecks || 0) === 0 || ((r.laterChecks || 0) === 1 && now - r.processedAt >= DAY)));
         return this.queueRechecks(due.slice(0, 1000).map(r => ({ user: r.user, id: r.messageId, receivedAt: r.receivedAt || null, source: 'later', round: (r.laterChecks || 0) + 1 })));
+    }
+    // (0.5.51) After an update that changes how email is checked. state/checksLevel: the level last run
+    // ({ level, version, at }); none yet (this version's first run): recorded, nothing checked again.
+    // A higher level starts a sweep (state/updateRecheck: { level, version, since, until, boundary, queued,
+    // max, startedAt, doneAt }) of the "checked" markers of the mail delivered since RECHECK_AFTER_UPDATE_HOURS
+    // before it, still in the Inbox (only those keep re-check hashes), newest first: each hourly run queues
+    // the next ones as the queue has room, up to RECHECK_AFTER_UPDATE_MAX. Mail that arrived after this
+    // instance started was judged by this version already: not taken. A lower level (a version rolled back)
+    // is recorded, nothing checked again.
+    async checksUpdate() {
+        const level = this.checksLevel(), now = this.now();
+        const st = await this.store.getState('checksLevel');
+        if (!st || typeof st.level !== 'number') { await this.store.setState('checksLevel', { level, version: PKG_VERSION, at: now }); return null; }
+        let started = null;
+        if (st.level !== level) {
+            await this.store.setState('checksLevel', { level, version: PKG_VERSION, at: now, previous: st.level });
+            const hours = this.cfg.recheckAfterUpdateHours, max = this.cfg.recheckAfterUpdateMax;
+            if (level > st.level && this.cfg.recheck && hours > 0 && max > 0) {
+                const until = Math.min(now, PROCESS_STARTED);
+                started = { level, version: PKG_VERSION, since: until - hours * HOUR, until, boundary: [], queued: 0, max, startedAt: now, doneAt: null };
+                await this.store.setState('updateRecheck', started);
+                await this.store.addEvent({ kind: 'recheck', text: `Version ${PKG_VERSION} changes how email is checked: the mail delivered in the last ${hours} hours that is still in the Inbox is being checked again, newest first (at most ${max.toLocaleString('en-US')} emails).` });
+            } else if (level > st.level) {
+                await this.store.addEvent({ kind: 'recheck', text: `Version ${PKG_VERSION} changes how email is checked; delivered mail isn't checked again (${this.cfg.recheck ? 'RECHECK_AFTER_UPDATE_HOURS or RECHECK_AFTER_UPDATE_MAX is 0' : 're-checking delivered mail is off'}).` });
+            }
+        }
+        const sw = started || await this.store.getState('updateRecheck');
+        if (!sw || sw.doneAt || !this.cfg.recheck) return started ? { started: true } : null;
+        const q = (await this.store.getState('recheckQueue')) || [];
+        const room = Math.min(RECHECK_QUEUE_MAX - q.length, UPDATE_QUEUE_STEP, sw.max - sw.queued);
+        if (room <= 0) {
+            if (sw.queued >= sw.max) { sw.doneAt = now; await this.store.setState('updateRecheck', sw); }
+            return { version: sw.version, queued: 0, total: sw.queued, done: !!sw.doneAt };
+        }
+        // Newest first; the emails at the boundary's exact time already taken are left out (copies of one
+        // email often arrive in the same millisecond).
+        const boundary = new Set(sw.boundary || []);
+        const got = await this.store.listIndexedSince(sw.since, sw.until, room + boundary.size);
+        const fresh = got.filter(g => !boundary.has(`${g.user}|${g.id}`)).slice(0, room);
+        const n = await this.queueRechecks(fresh.map(g => ({ user: g.user, id: g.id, receivedAt: g.receivedAt || null, source: 'update', version: sw.version })));
+        sw.queued += n;
+        if (got.length < room + boundary.size || !fresh.length) sw.doneAt = now;
+        else {
+            const last = fresh[fresh.length - 1].receivedAt;
+            const at = fresh.filter(g => g.receivedAt === last).map(g => `${g.user}|${g.id}`);
+            sw.boundary = (last === sw.until ? [...boundary, ...at] : at).slice(-5000);
+            sw.until = last;
+        }
+        await this.store.setState('updateRecheck', sw);
+        return { version: sw.version, queued: n, total: sw.queued, done: !!sw.doneAt };
     }
     // The queue, RECHECK_PARALLEL at a time, until budgetMs is spent (the rest at the next hourly run).
     // An email whose check fails is tried again (3 tries in all).
@@ -1338,7 +1401,7 @@ class Service {
         return { checked: results.length, left: queue.length + retry.length, moved: count('moved'), wouldMove: count('would-move') + count('held'), notInInbox: count('not-in-inbox'), suspicious: count('flag') };
     }
 
-    // One email checked again (item: { user, id, source: 'lists'|'later', site, list, round }).
+    // One email checked again (item: { user, id, source: 'lists'|'lookalike'|'update'|'later', site, list, round, version }).
     async recheckMessage(item) {
         const { user, id } = item;
         const key = recordKey(user, id), now = this.now();
@@ -1389,10 +1452,10 @@ class Service {
             try { await this.gmail.modify(user, id, [await this.gmail.labelId(user, this.cfg.suspiciousLabelName)], []); labeled = true; }
             catch (e) { this.log.error(`suspicious label ${user} ${id}:`, e); }
         }
-        const found = item.source === 'lists' ? `${item.list || 'a phishing list'} listed ${item.site || 'one of its sites'} after it was delivered` : `checked again ${item.round === 2 ? 'a day' : 'an hour'} after it arrived`;
+        const found = foundWords(item);
         decision = Object.assign({}, decision, { why: `found on a re-check (${found}): ${decision.why}` });
         const outcome = state === 'moved' ? 'moved' : decision.action === 'would-move' ? (held ? 'held' : 'would-move') : where !== 'inbox' ? 'not-in-inbox' : 'flag';
-        const recheck = { at: now, source: item.source, site: item.site || null, list: item.list || null, round: item.round || null,
+        const recheck = { at: now, source: item.source, site: item.site || null, list: item.list || null, round: item.round || null, version: item.version || null,
             before: was, beforeScore: before ? before.score : null, outcome, where, opened, movedAt: state === 'moved' ? now : null, clicks: null };
         const rec = this.recordOf(user, msg, facts, result, decision, { now, campaign, campaignLabel, senderDomain, held, state, labeled });
         rec.recheck = recheck;
@@ -1409,7 +1472,7 @@ class Service {
             await this.store.saveRecord(rec);
         }
         await this.count(this.dayOf(now), state === 'moved' ? 'moved' : decision.action === 'would-move' ? 'wouldMove' : 'flagged');
-        return { item, outcome, key, user, opened, where, sender: rec.sender.address, campaign: campaign.key, campaignLabel, site: item.site || '', list: item.list || '' };
+        return { item, outcome, key, user, opened, where, sender: rec.sender.address, campaign: campaign.key, campaignLabel, site: item.site || '', list: item.list || '', source: item.source, version: item.version || null };
     }
 
     // The admins are told what a run found: an alert (emailed) when phishing had been delivered, in Activity
@@ -1420,7 +1483,7 @@ class Service {
         if (bad.length) {
             const n = (o) => bad.filter(r => r.outcome === o).length;
             const camps = [...new Set(bad.map(r => r.campaignLabel))];
-            const why = [...new Set(bad.filter(r => r.list).map(r => `${r.list} listed ${r.site}`))].slice(0, 3);
+            const why = [...new Set(bad.filter(r => r.source && r.source !== 'later').map(r => foundWords(r, { delivered: false })))].slice(0, 3);
             const parts = [n('moved') ? `${n('moved')} moved to Spam` : '', n('would-move') ? `${n('would-move')} would be moved (monitor mode: left in the Inbox)` : '',
                 n('held') ? `${n('held')} left in the Inbox by a brake` : '', n('not-in-inbox') ? `${n('not-in-inbox')} had already left the Inbox` : ''].filter(Boolean);
             const opened = bad.filter(r => r.opened).length;
@@ -1566,6 +1629,11 @@ class Service {
         w.candidates = cands.length;
         await this.store.setState('lookalikeWatch', w);
         this.lookalikeCache = null;
+        // (0.5.51) Delivered mail from them, asking for replies to them or linking to them: checked again.
+        if (newly.length) {
+            try { await this.recheckFromLists([{ name: 'found', source: 'lookalike', kind: 'domain', entries: newly.map(e => e.domain) }]); }
+            catch (e) { this.log.error('re-check, look-alikes:', e); }
+        }
         if (newly.length) {
             const words = (e) => `${e.domain} (mail servers: ${e.mx ? 'yes' : 'no'}; a website: ${e.web ? 'yes' : 'no'}${typeof e.ageDays === 'number' ? `; registered ${e.ageDays} day${e.ageDays === 1 ? '' : 's'} ago` : ''})`;
             await this.alert('lookalike', `${newly.length === 1 ? 'A domain that imitates yours was registered' : `${newly.length} domains that imitate yours were registered`}: ${newly.slice(0, 5).map(words).join('; ')}${newly.length > 5 ? ` and ${newly.length - 5} more` : ''}. `
@@ -1582,13 +1650,21 @@ class Service {
         if (!e) return { error: 'That domain isn\'t on the list.', status: 404 };
         // (what the watch found it as, for "watch it again")
         if (!e.firstStatus) e.firstStatus = e.status === 'new' || e.status === 'baseline' ? e.status : 'baseline';
+        const weightBefore = lookalikeWeight(e);
         e.status = status === 'watch' ? e.firstStatus : status;
         Object.assign(e, { by, at: this.now() });
         await this.store.setState('lookalikeWatch', w);
         this.lookalikeCache = null;
         const words = { ours: 'the district\'s own (no sign in mail)', harmless: 'someone else\'s, harmless (no sign in mail)', threat: 'a threat (a strong sign in mail)', watch: 'watched as found' }[status];
         await this.adminNotice('lookalike-mark', `${by} marked the look-alike ${e.domain} as ${words}.`);
-        return { entry: e };
+        // (0.5.51) Marked a threat (it was a weak sign or none): delivered mail from it, asking for replies to it
+        // or linking to it is checked again, at the next hourly run.
+        let recheck = null;
+        if (status === 'threat' && lookalikeWeight(e) === 'strong' && weightBefore !== 'strong') {
+            try { recheck = await this.recheckFromLists([{ name: 'marked', source: 'lookalike', kind: 'domain', entries: [e.domain] }]); }
+            catch (err) { this.log.error('re-check, look-alike marked:', err); }
+        }
+        return { entry: e, recheck };
     }
 
     // --- Phishing-training emails (0.5.44; Settings → Phishing training) ------------------------------------

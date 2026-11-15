@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.5.51: re-checks after a look-alike is found or marked a threat, and after an update that changes the checks
+
+- **A look-alike of the district's domain re-checks delivered mail.** When the look-alike watch finds a new
+  domain imitating the district's, or an admin marks one a threat on Status → Look-alikes (it was a weak sign
+  or none), the mail of the last `RECHECK_DAYS` days sent from it, asking for replies to it or linking to it is
+  checked again in full, as for a list's new entry. For that, an email's re-check hashes (`src/recheck.js`
+  `indexOf`) now also hold its sender's domain and its Reply-To domains, with the domains above them (never a
+  personal mailbox provider's such as gmail.com, nor the organization's own); so a phishing list's new domain
+  also finds the mail sent from it. Mail delivered before 0.5.51 has only its link sites and sender address.
+  The dashboard says, after marking, how many emails will be checked again.
+- **An update that changes how email is checked re-checks recent mail; one that doesn't, nothing.**
+  `package.json` has a `checksLevel` (1), raised by one in a version that changes a rule, a sign or its weight,
+  the AI model or its input, how the lists are matched or what the policy does with a score. The hourly job
+  remembers the level it last ran (`state/checksLevel`; the first run of 0.5.51 only records it); a higher one
+  checks again the mail delivered in the last `RECHECK_AFTER_UPDATE_HOURS` (24) that is still in the Inbox,
+  newest first, at most `RECHECK_AFTER_UPDATE_MAX` (5,000), about 1,500 queued an hour as the queue has room
+  (`checksUpdate` in `src/pipeline.js`, `state/updateRecheck`). Mail that arrived after the new version started
+  was judged by it already and isn't taken. Status → Activity says when it starts; the re-check alert, the
+  record's "why" and Email → Re-checked say "version … changed how email is checked". A version that changes
+  only the dashboard, wording, documentation or installation keeps the level and re-checks nothing; a version
+  rolled back re-checks nothing either. Only with `RECHECK` on.
+- **The level can't be forgotten:** `src/checks-level.js` lists the files that judge email (the engine, the
+  checks, the lists' matching, the policy, the look-alike watch, the training-email rules) and the model's
+  SHA-256; `test/checks-level.test.js` keeps their fingerprint in `test/fixtures/checks-fingerprint.json` and
+  fails when they change until `node tools/checks-level.js` records either `--raised` (the level raised) or
+  `--cosmetic "what changed"`. `CLAUDE.md` says when to raise it.
+- This version doesn't change how email is judged: its level is the first one recorded, so it re-checks
+  nothing when installed.
+- Docs: `README.md`, `docs/ARCHITECTURE.md`, `docs/DEPLOY.md` (`RECHECK_AFTER_UPDATE_HOURS`,
+  `RECHECK_AFTER_UPDATE_MAX`), `docs/PRIVACY.md` (the new hashes), `docs/ALERTS.md`; Settings → Policy's
+  "Re-check delivered mail" says so.
+- Tests: `checks-level.test.js`; `recheck.test.js` (the new hashes; an update with the level raised re-checks
+  the last 24 hours once, the same level or a lower one nothing; off, or 0 hours: noted, nothing checked; copies
+  of the same millisecond across runs and the maximum; an admin marking a look-alike a threat). Made-up people
+  and districts.
+
 ## 0.5.50: phish-tiny 0.18.0, an ELECTRA-small model
 
 - **The AI model is phish-tiny 0.18.0** (TinyPhishLLM `2f596de`, `vendor/spruce/VENDOR.json`; was 0.16.0), an

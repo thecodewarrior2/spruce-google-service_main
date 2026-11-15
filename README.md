@@ -128,6 +128,18 @@ looked at again an hour and a day later (Safe Browsing or a list may know its si
 re-check: an email its reader already archived or deleted, or one an admin released or marked. Each is listed
 on **Email → Re-checked**, a red banner on Overview and Messages says so, and the admins get an alert.
 
+Since 0.5.51 two more things start a re-check:
+
+- **A look-alike of your domain** that the look-alike watch finds, or that an admin marks a threat on Status →
+  Look-alikes: the delivered mail of the last 7 days sent from it, asking for replies to it or linking to it.
+  (The hashes now include the sender's domain and Reply-To domains too, never a personal mailbox provider's.)
+- **An update that changes how email is checked**: the mail delivered in the last 24 hours that is still in
+  the Inbox (`RECHECK_AFTER_UPDATE_HOURS`), newest first, at most 5,000 emails (`RECHECK_AFTER_UPDATE_MAX`),
+  over the next hourly runs. Only an update that changes the checks does this (a rule, a sign, the AI model,
+  how the lists are matched, what the policy does with a score: `checksLevel` in `package.json` raised); one
+  that changes only the dashboard, wording, documentation or installation re-checks nothing. Status →
+  Activity says when it starts.
+
 A lookup that fails leaves an email "not checked", never "safe". Short links are **not** looked up:
 there is no outside unshortening service. A short link is judged by its own host and by what decodes
 offline.

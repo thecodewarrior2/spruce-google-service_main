@@ -49,6 +49,13 @@ in `Google_service_main`). Then follow its section below.
   training repository), and the retraining export's files never go into any repository.
 - Every behavior change gets a version bump in `package.json` and an entry in `CHANGELOG.md`, and
   matching updates to `README.md` and `docs/`.
+- **The checks level:** a change that affects how any email is judged (a rule, a sign or its weight, the AI
+  model or its input, how the lists or other services are matched, what the policy does with a score) raises
+  `checksLevel` in `package.json` by one, then `node tools/checks-level.js --raised`: after that update, the
+  service checks recent delivered mail again. A change to the judging files that judges nothing differently
+  (comments, wording no verdict depends on): `node tools/checks-level.js --cosmetic "what changed"`. Never raise
+  it for dashboard, documentation or installation changes, and never lower it. `npm test` fails until one of
+  the two is done.
 - When `deploy/install.sh` sets up something new or different (a role, a service account, a job, an
   API, a setting the services need), also raise `installLevel` in `package.json` by one. Settings →
   Update only installs versions whose `installLevel` isn't higher than the installed one; the others

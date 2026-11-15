@@ -64,13 +64,16 @@ judge the same email twice. With **re-checking delivered mail** on (Settings →
 an email left in the Inbox also keeps, beside its message ID, up to 24 short **one-way hashes** (16 hex
 characters each): of its link sites (each host and the domains above it, never your own domains or the big
 brands' sites that lists never have), of the exact address of a link on shared hosting (a cloud-storage
-page), and of its sender's address; and the time it arrived. They can't be turned back into the sites or
-the address: they only let the service find the email again when a phishing list later adds one of them,
-in every mailbox that got it. They are never shown. Turned off (`RECHECK=false`, or the dashboard), none are
+page), of its sender's address, and (0.5.51) of its sender's domain and Reply-To domains (never a personal
+mailbox provider's such as gmail.com, nor your own); and the time it arrived. They can't be turned back into
+the sites or the address: they only let the service find the email again when a phishing list later adds one
+of them or the look-alike watch finds one imitating your domain, in every mailbox that got it, and (with the
+time it arrived) after an update that changes how email is checked. They are never shown. Turned off (`RECHECK=false`, or the dashboard), none are
 kept; they are deleted with the message ID.
 
 **Re-checked mail** (0.5.35): an email found to be phishing after it was delivered (a list added one of its
-sites or its sender, or a second look an hour or a day after it arrived) is read again from Gmail and
+sites or its sender, a second look an hour or a day after it arrived, or since 0.5.51 a look-alike of your
+domain found or marked a threat, or an update that changed how email is checked) is read again from Gmail and
 checked in full, as on arrival, and gets a record like any flagged email, with when it was re-checked,
 whether it was still in the Inbox, and whether it had been opened (Gmail's unread mark then). With
 **Settings → Link clicks** on (off by default), the service also reads, for each re-checked email, Gmail's

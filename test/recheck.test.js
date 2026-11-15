@@ -54,7 +54,7 @@ test('Gmail\'s log events: found by the email\'s Message-ID wherever it sits; th
 });
 
 // A district with one list (Phishing Army) that adds fresh-phish.example on its second download.
-function setup({ mode = 'enforce', recheck = true } = {}) {
+function setup({ mode = 'enforce', recheck = true, env = {} } = {}) {
     let now = Date.UTC(2026, 10, 10, 9);
     const listed = new Set(filler(i => `bad${i}.example`));
     const fetch = async (url) => {
@@ -67,7 +67,7 @@ function setup({ mode = 'enforce', recheck = true } = {}) {
     };
     const store = new MemoryStore();
     const feeds = createFeeds({ http: createHttp({ fetch }), store, engine: E, now: () => now, log: silent });
-    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `a@${ORG}`, FIRST_SEEN_LEARNING_DAYS: '0', MODE: mode, RECHECK: recheck ? 'true' : 'false', ALERT_EMAIL: `it@${ORG}` });
+    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `a@${ORG}`, FIRST_SEEN_LEARNING_DAYS: '0', MODE: mode, RECHECK: recheck ? 'true' : 'false', ALERT_EMAIL: `it@${ORG}`, ...env });
     const boxes = new Map();   // `${user}|${id}` → { raw, labels }
     const gmail = {
         modified: [], events: [],
@@ -262,3 +262,144 @@ test('0.5.39: Link clicks\' Test explains Google\'s refusal: the Reports privile
     const alert = (await t.store.listEvents(0)).find(e => e.kind === 'click-logs');
     assert.match(alert.text, /isn't allowed to read Google's activity reports.*tick Reports/);
 });
+
+// --- 0.5.51: the sender's and Reply-To domains; look-alikes; updates that change the checks ---------------
+
+test('0.5.51: the hashes also hold the sender\'s domain and its Reply-To domains (with the domains above), never a personal mailbox provider\'s or our own', () => {
+    const ix = R.indexOf(E, { urls: [], sender: 'payroll@mail.maple-schoo1s.example', replyTo: ['desk@reply-desk.example'], orgDomains: [ORG] });
+    const has = (v) => ix.includes(`d${R.hashOf(v)}`);
+    assert.ok(has('mail.maple-schoo1s.example') && has('maple-schoo1s.example') && has('reply-desk.example'));
+    const personal = R.indexOf(E, { sender: 'someone@gmail.com', replyTo: [`x@${ORG}`], orgDomains: [ORG] });
+    assert.deepEqual(personal, [`s${R.hashOf(E.normalizeSenderEntry('someone@gmail.com'))}`], 'only the address');
+    // A list's or a look-alike's domain finds them by the same hash.
+    assert.deepEqual(R.entryHashes(E, 'domain', 'maple-schoo1s.example'), [`d${R.hashOf('maple-schoo1s.example')}`]);
+    // The words for each reason.
+    assert.equal(R.foundWords({ source: 'lookalike', list: 'marked', site: 'maple-schoo1s.example' }), 'an admin marked maple-schoo1s.example a threat after it was delivered');
+    assert.equal(R.foundWords({ source: 'lookalike', list: 'found', site: 'maple-schoo1s.example' }), 'the look-alike watch found maple-schoo1s.example imitating your domain after it was delivered');
+    assert.equal(R.foundWords({ source: 'update', version: '0.5.51' }, { delivered: false }), 'version 0.5.51 changed how email is checked');
+    const A = require('../src/dashboard/aggregate');
+    assert.equal(A.recheckReason({ source: 'update', version: '0.5.51' }), 'Version 0.5.51 changed how email is checked');
+    assert.equal(A.recheckReason({ source: 'lookalike', list: 'marked', site: 'x.example' }), 'An admin marked x.example a threat');
+});
+
+test('0.5.51: an update that changes the checks (checksLevel raised) re-checks the mail of the last 24 hours still in the Inbox, newest first, once; one that doesn\'t, nothing', async () => {
+    const t = setup();
+    const VERSION = require('../package.json').version;
+    await t.feeds.sync();
+    await t.store.setState('feedsAttemptedAt', t.clock.get());
+    await t.store.setState('installedAt', t.clock.get() - 30 * DAY);
+    // The first run of a version with checks levels: the level is recorded, nothing is checked again.
+    let out = await t.svc.syncFeeds();
+    assert.equal((await t.store.getState('checksLevel')).level, 1);
+    assert.ok(!out.checksUpdate && !(await t.store.getState('updateRecheck')));
+    await t.deliver(`old@${ORG}`, 'o1', lure(`old@${ORG}`, 9));
+    t.clock.add(30 * HOUR);
+    await t.store.setState('feedsAttemptedAt', t.clock.get());
+    await t.deliver(`ana@${ORG}`, 'm1', lure(`ana@${ORG}`, 1), { opened: true });
+    t.clock.add(5 * 60 * 1000);
+    await t.deliver(`ben@${ORG}`, 'm2', lure(`ben@${ORG}`, 2));
+    t.boxes.get(`ben@${ORG}|m2`).labels.delete('INBOX');          // ben archived it
+    // (This instance's checks now catch the newsletter: its list copy has the site, without a list's re-check.)
+    t.listed.add('fresh-phish.example');
+    await t.feeds.sync({ force: true });
+    await t.store.setState('recheckQueue', []);
+    // A version that changes nothing in the checks (the same level): nothing is checked again.
+    t.clock.add(HOUR);
+    out = await t.svc.syncFeeds();
+    assert.ok(!out.checksUpdate && !out.rechecked);
+    assert.equal(await t.store.getRecord(`ana@${ORG}|m1`), null);
+    // A version that changes them: the two emails of the last 24 hours, not the one from 31 hours ago.
+    t.svc.checksLevel = () => 2;
+    t.clock.add(HOUR);
+    out = await t.svc.syncFeeds();
+    assert.equal(out.checksUpdate.queued, 2);
+    assert.equal(out.rechecked.checked, 2);
+    const a = await t.store.getRecord(`ana@${ORG}|m1`), b = await t.store.getRecord(`ben@${ORG}|m2`);
+    assert.deepEqual([a.state, a.recheck.source, a.recheck.version, a.recheck.outcome, a.recheck.opened], ['moved', 'update', VERSION, 'moved', true]);
+    assert.match(a.why, new RegExp(`^found on a re-check \\(version ${VERSION.replace(/\./g, '\\.')} changed how email is checked after it was delivered\\)`));
+    assert.deepEqual([b.recheck.outcome, b.recheck.where], ['not-in-inbox', 'archived']);
+    assert.equal(await t.store.getRecord(`old@${ORG}|o1`), null, 'older than RECHECK_AFTER_UPDATE_HOURS');
+    const events = await t.store.listEvents(0);
+    assert.ok(events.some(e => e.kind === 'recheck' && new RegExp(`Version ${VERSION.replace(/\./g, '\\.')} changes how email is checked: the mail delivered in the last 24 hours`).test(e.text)));
+    assert.ok(events.some(e => e.alert && /changed how email is checked/.test(e.text)), 'the alert says why');
+    assert.ok((await t.store.getState('updateRecheck')).doneAt);
+    // Once: the next run checks nothing again; nor does a version that goes back (rolled back).
+    t.clock.add(HOUR);
+    out = await t.svc.syncFeeds();
+    assert.ok(!out.rechecked && (!out.checksUpdate || out.checksUpdate.queued === 0));
+    t.svc.checksLevel = () => 1;
+    t.clock.add(HOUR);
+    out = await t.svc.syncFeeds();
+    assert.ok(!out.rechecked);
+});
+
+test('0.5.51: RECHECK_AFTER_UPDATE_HOURS=0, or re-checking off: the update is noted, nothing is checked again', async () => {
+    for (const env of [{ RECHECK_AFTER_UPDATE_HOURS: '0' }, { RECHECK: 'false' }]) {
+        const t = setup({ recheck: env.RECHECK !== 'false', env: env.RECHECK_AFTER_UPDATE_HOURS ? env : {} });
+        await t.feeds.sync();
+        await t.store.setState('feedsAttemptedAt', t.clock.get());
+        await t.svc.syncFeeds();
+        await t.deliver(`ana@${ORG}`, 'm1', lure(`ana@${ORG}`, 1));
+        t.svc.checksLevel = () => 2;
+        t.clock.add(HOUR);
+        const out = await t.svc.syncFeeds();
+        assert.ok(!out.rechecked && !(await t.store.getState('updateRecheck')));
+        assert.ok((await t.store.listEvents(0)).some(e => /changes how email is checked; delivered mail isn't checked again/.test(e.text)));
+    }
+});
+
+test('0.5.51: the sweep after an update takes copies that arrived in the same millisecond, across runs, and stops at RECHECK_AFTER_UPDATE_MAX', async () => {
+    const t = setup({ env: { RECHECK_AFTER_UPDATE_MAX: '8' } });
+    await t.feeds.sync();
+    await t.store.setState('feedsAttemptedAt', t.clock.get());
+    await t.svc.syncFeeds();
+    const now = t.clock.get();
+    for (let i = 0; i < 7; i++) t.store.seenIds.set(`u${i}@${ORG}|x${i}`, { at: now, state: 'done', ix: ['d0'], rx: now - HOUR });
+    for (let i = 7; i < 10; i++) t.store.seenIds.set(`u${i}@${ORG}|x${i}`, { at: now, state: 'done', ix: ['d0'], rx: now - 2 * HOUR });
+    t.svc.checksLevel = () => 2;
+    t.svc.runRechecks = async () => null;                 // (only the queueing here)
+    // Room for 3 at a time (the queue nearly full).
+    await t.store.setState('recheckQueue', Array.from({ length: 2997 }, (_, i) => ({ user: `q${i}@${ORG}`, id: `q${i}` })));
+    const taken = new Set();
+    for (let run = 0; run < 5; run++) {
+        t.clock.add(HOUR);
+        await t.svc.syncFeeds();
+        const q = await t.store.getState('recheckQueue');
+        for (const it of q.filter(x => x.source === 'update')) taken.add(`${it.user}|${it.id}`);
+        await t.store.setState('recheckQueue', q.filter(x => x.source !== 'update'));
+    }
+    const sw = await t.store.getState('updateRecheck');
+    assert.equal(taken.size, 8, 'each copy once, up to the maximum');
+    assert.equal(sw.queued, 8);
+    assert.ok(sw.doneAt);
+    for (let i = 0; i < 7; i++) assert.ok(taken.has(`u${i}@${ORG}|x${i}`), 'the newest first, all 7 of the same millisecond');
+});
+
+test('0.5.51: an admin marks a look-alike a threat: the delivered mail from it is checked again', async () => {
+    const t = setup();
+    await t.feeds.sync();
+    await t.store.setState('feedsAttemptedAt', t.clock.get());
+    await t.store.setState('installedAt', t.clock.get() - 30 * DAY);
+    const LOOK = 'maple-schoo1s.example';
+    await t.store.setState('lookalikeWatch', { found: { [LOOK]: { domain: LOOK, first: t.clock.get() - 40 * DAY, last: t.clock.get(), mx: true, web: false, status: 'harmless', gone: null } } });
+    // (marked harmless at first: no sign on arrival)
+    const raw = (to) => Buffer.from([`From: Payroll Office <payroll@${LOOK}>`, `To: ${to}`, 'Subject: Direct deposit form', `Message-ID: <dd1@${LOOK}>`,
+        `Authentication-Results: mx.google.com; dkim=pass header.i=@${LOOK}; spf=pass; dmarc=pass header.from=${LOOK}`,
+        'Content-Type: text/plain; charset=utf-8', '', 'Hello, please see the attached schedule for the holiday pay dates. Payroll Office'].join('\r\n'));
+    await t.deliver(`ana@${ORG}`, 'm1', raw(`ana@${ORG}`));
+    const before = await t.store.getRecord(`ana@${ORG}|m1`);
+    assert.ok((t.store.seenIds.get(`ana@${ORG}|m1`).ix || []).includes(`d${R.hashOf(LOOK)}`), 'its sender\'s domain is in its hashes');
+    t.clock.add(2 * HOUR);
+    const marked = await t.svc.markLookalike(LOOK, 'threat', `it@${ORG}`);
+    assert.equal(marked.recheck.found, 1);
+    const r = await t.svc.runRechecks({ budgetMs: 20000 });
+    assert.equal(r.checked, 1);
+    const rec = await t.store.getRecord(`ana@${ORG}|m1`);
+    assert.ok(rec && rec.recheck, 'checked again');
+    assert.deepEqual([rec.recheck.source, rec.recheck.list, rec.recheck.site], ['lookalike', 'marked', LOOK]);
+    assert.ok(RECHECK_WORSE(before, rec), `a stronger verdict than on arrival (${before ? before.action : 'none'} → ${rec.action})`);
+    assert.match(rec.why, /an admin marked maple-schoo1s\.example a threat after it was delivered/);
+    // Marking it a threat again changes nothing: nothing more is looked for.
+    assert.equal((await t.svc.markLookalike(LOOK, 'threat', `it@${ORG}`)).recheck, null);
+});
+const RECHECK_WORSE = (a, b) => ({ none: 0, flag: 1, 'would-move': 2, move: 3 })[b.action] > ({ none: 0, flag: 1, 'would-move': 2, move: 3 })[a ? a.action : 'none'];

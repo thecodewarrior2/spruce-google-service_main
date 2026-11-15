@@ -103,6 +103,13 @@ class FirestoreStore {
     // The emails whose re-check hashes (seen.ix, src/recheck.js) include any of these, received since
     // sinceMs: [{ user, id, receivedAt, ix }]. Firestore's own single-field index on ix (array-contains-any,
     // 30 values a query), a few queries at once.
+    // (0.5.51) The emails with re-check hashes (seen markers with rx) delivered between sinceMs and untilMs,
+    // newest first, at most limit: the sweep after an update that changed the checks (pipeline.js
+    // checksUpdate). One field's range and order: Firestore's automatic single-field index serves it.
+    async listIndexedSince(sinceMs, untilMs, limit = 1000) {
+        const q = await this.col('seen').where('rx', '>=', sinceMs).where('rx', '<=', untilMs).orderBy('rx', 'desc').limit(limit).get();
+        return q.docs.map(d => { const k = d.id.lastIndexOf('|'), v = d.data(); return { user: d.id.slice(0, k), id: d.id.slice(k + 1), receivedAt: Number(v.rx) || 0 }; });
+    }
     async findIndexed(hashes, sinceMs = 0, limit = 5000) {
         const out = new Map(), parts = [];
         for (let i = 0; i < hashes.length; i += 30) parts.push(hashes.slice(i, i + 30));
