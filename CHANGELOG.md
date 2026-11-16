@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.58: a very long email's last character is checked too
+
+- 0.5.57's reader kept a long text's first 15,000 and last 5,000 characters with a newline between them, 20,001 in
+  all; the checks in `vendor/spruce/` read at most 20,000, so they missed its last character. It now keeps the
+  last 4,999 (`TAIL_TEXT` in `src/engine/html.js`), 20,000 in all, as the S.P.R.U.C.E+ extension does (5.94.34).
+- **Checks level 5** (what a very long email's checks read changes by one character).
+
 ## 0.5.57: a very long email's ending is read
 
 - **The email reader keeps a long text's start and its end.** An email's visible text longer than 20,000 characters

@@ -121,12 +121,12 @@ test('a very long email keeps its start and its end, in HTML and in plain text',
     const ask = 'Reply to my personal email before Friday to hold the items.';
     const html = readHtml(`<div><p>Opening note about the estate sale.</p><p>${filler}</p><p>${ask}</p></div>`);
     assert.ok(html.visibleText.startsWith('Opening note about the estate sale.') && html.visibleText.endsWith(ask), 'HTML: start and end');
-    assert.ok(html.visibleText.length <= H.MAX_TEXT + 1, String(html.visibleText.length));
+    assert.ok(html.visibleText.length <= H.MAX_TEXT, String(html.visibleText.length));
     const one = readHtml(`<p>Opening note.${filler}${ask}</p>`);
-    assert.ok(one.visibleText.endsWith(ask) && one.visibleText.length <= H.MAX_TEXT + 1, 'one long text node');
+    assert.ok(one.visibleText.endsWith(ask) && one.visibleText.length <= H.MAX_TEXT, 'one long text node');
     const raw = ['From: "Pat" <pat@freemail.example>', 'To: jordan@maple-schools.example', 'Subject: Estate sale', 'Content-Type: text/plain', '', `Opening note about the estate sale. ${filler}${ask}`].join('\r\n');
     const facts = await readMessage(Buffer.from(raw));
-    assert.ok(facts.visibleText.startsWith('Opening note') && facts.visibleText.endsWith(ask) && facts.visibleText.length <= H.MAX_TEXT + 1, 'plain text: start and end');
+    assert.ok(facts.visibleText.startsWith('Opening note') && facts.visibleText.endsWith(ask) && facts.visibleText.length <= H.MAX_TEXT, 'plain text: start and end');
     const r = await analyze(facts, { mailbox: 'jordan@maple-schools.example', orgDomains: ['maple-schools.example'], keepAiFacts: true });
     assert.ok(r.aiFacts.bodyText.endsWith(ask), 'the model is given the end');
     const short = readHtml('<p>Short note.</p>');

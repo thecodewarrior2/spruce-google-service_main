@@ -16,7 +16,9 @@ const MAX_TEXT = 20000;
 // (0.5.57) A text longer than MAX_TEXT keeps its first HEAD_TEXT and its last TAIL_TEXT characters (it kept its
 // first MAX_TEXT): a long scam often asks at its end, and the model reads a long email's start and its end
 // (phish-tiny 0.20.0, 0.5.55).
-const HEAD_TEXT = 15000, TAIL_TEXT = MAX_TEXT - HEAD_TEXT;
+// (0.5.58) TAIL_TEXT leaves room for the newline between them: MAX_TEXT in all, which the checks in vendor/spruce/
+// read whole (they read at most 20,000; 0.5.57's 20,001 lost the last character). The extension cuts the same way.
+const HEAD_TEXT = 15000, TAIL_TEXT = MAX_TEXT - HEAD_TEXT - 1;
 const headTail = (t) => { const s = String(t || ''); return s.length <= MAX_TEXT ? s : `${s.slice(0, HEAD_TEXT)}\n${s.slice(-TAIL_TEXT)}`; };
 const SKIP_TAGS = new Set(['head', 'style', 'script', 'noscript', 'template', 'title', 'meta', 'link', 'object', 'iframe']);
 const BLOCK_TAGS = new Set(['p', 'div', 'br', 'li', 'tr', 'table', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'center', 'blockquote', 'section', 'article', 'header', 'footer', 'hr', 'ul', 'ol']);

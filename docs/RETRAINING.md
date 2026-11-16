@@ -95,7 +95,7 @@ one line, spread out (from the demo's made-up data):
 | `name` | `spruce-` and the email's Gmail ID. To see the email's record, paste the ID into **Email → Messages → Search**. That page also shows the email's Message-ID, for Google Workspace's Email log search. |
 | `label` | `1`: phishing or spam (an admin confirmed it). `0`: genuine (an admin marked it a false alarm). |
 | `note` | What the service did on arrival: what it did with the email, what triggered it, the rules score, the AI score. It is for you; training ignores it. |
-| `facts.subject`, `senderName`, `bodyText` | What the email said, with the people taken out (below). `bodyText` is the whole body (since 0.5.56) as the service reads it: all of it up to 20,000 characters, else its first 15,000 and its last 5,000 (since 0.5.57), so a later model that reads more of an email can be trained from the same file. A long body has more to review (step 2). |
+| `facts.subject`, `senderName`, `bodyText` | What the email said, with the people taken out (below). `bodyText` is the whole body (since 0.5.56) as the service reads it: all of it up to 20,000 characters, else its first 15,000 and its last 4,999 (since 0.5.57), so a later model that reads more of an email can be trained from the same file. A long body has more to review (step 2). |
 | `facts.senderAddress` | The sender's domain. The part before @ is kept only for shared mailboxes (`noreply`, `security`, `billing`); otherwise it is `sender`. |
 | `facts.auth.dmarc` | Gmail's DMARC check of the sender: `pass`, `fail`, `none`, or missing (unknown). `facts.auth.spf` and `dkim` are there only when they failed. |
 | `facts.links` | Up to 8 links: their text, where they point (`host`), where they really go when that differs (`destHost`), and what the checks found (`finding`). |
@@ -121,7 +121,7 @@ subject: Your password expires today. from: "Microsoft 365 Security" at micros0f
 | Your organization's domains (in addresses, links and text) | `[OUR-DOMAIN]` |
 | Email addresses | `address at` and the domain |
 | Phone numbers, and long numbers (accounts, cards, student IDs, codes) | `phone number`, `number` |
-| The middle of a text longer than 20,000 characters (a very long newsletter) | cut, as the service reads it: its first 15,000 and last 5,000 are kept |
+| The middle of a text longer than 20,000 characters (a very long newsletter) | cut, as the service reads it: its first 15,000 and last 4,999 are kept |
 
 An outside phishing sender's name is kept: attackers choose it, and it is part of the trick ("Microsoft
 365 Security" from a look-alike domain). Names in it are still taken out or marked.
