@@ -113,23 +113,33 @@ class Model {
     // What the model read, sentence by sentence, for a person deciding (the dashboard's "show more"): the
     // facts line (subject, sender, sender check, links, layout) and each sentence of the text, each scored on
     // its own as in analyze (a margin above 0 leans toward phishing), up to max sentences, in order.
+    // (0.5.66) Every sentence of the text is returned (the whole email); those past max have no score (weight null).
     // Filler (blank lines of invisible characters, lone punctuation, a word of one or two letters) is
     // read by the model as it comes, but marked filler: not shown, never what weighed most, and skipped
     // when finding the sentence before and after one that did (weighed: up to 3, in the text's order).
     async reading(facts, max = 40) {
         const parts = this.parts(facts);
         const [m] = await this.margins_([`${parts.head} text: ${parts.sentences.join(' ')}`]);
-        const sentences = parts.sentences.slice(0, max);
+        // (0.5.66) The whole text, redacted as the model's input is: the input format keeps only its first 60
+        // sentences (modelInputParts), so the rest is split and redacted 50 sentences at a time, and marked unread.
+        const raw = String(facts.bodyText || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/);
+        let every = parts.sentences;
+        if (parts.sentences.length >= 60) {
+            every = [];
+            for (let i = 0; i < raw.length && every.length < 3000; i += 50) every.push(...this.parts(Object.assign({}, facts, { bodyText: raw.slice(i, i + 50).join(' ') })).sentences);
+        }
+        const readCount = parts.sentences.length;
+        const sentences = every.slice(0, Math.min(max, readCount));
         const ws = await this.margins_([...sentences.map(s => `text: ${s}`), `${parts.head} text:`]);
-        const all = parts.sentences.map(s => ({ text: shownText(s), filler: !hasText(s) }));
+        const all = every.map(s => ({ text: shownText(s), filler: !hasText(s) }));
         const near = (i, step) => { for (let j = i + step; j >= 0 && j < all.length; j += step) if (!all[j].filler) return { index: j, text: all[j].text }; return null; };
         const weighed = sentences.map((s, i) => [ws[i], i]).filter(([w, i]) => w > 0 && !all[i].filler)
             .sort((a, b) => b[0] - a[0]).slice(0, 3).map(([, i]) => i).sort((a, b) => a - b)
             .map(i => ({ index: i, before: near(i, -1), after: near(i, 1) }));
         return { probability: 1 / (1 + Math.exp(-m)), model: this.meta.name, version: this.meta.version,
                  head: parts.head, headWeight: ws[sentences.length],
-                 sentences: sentences.map((s, i) => ({ text: all[i].text, weight: ws[i], filler: all[i].filler })),
-                 weighed, more: Math.max(0, parts.sentences.length - sentences.length) };
+                 sentences: all.map((x, i) => ({ text: x.text, weight: i < sentences.length ? ws[i] : null, filler: x.filler, unread: i >= readCount })),
+                 weighed, scored: sentences.length, read: readCount, more: 0 };
     }
 }
 

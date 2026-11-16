@@ -590,7 +590,10 @@ class Service {
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap() });
         const skipped = result.ai && result.ai.skipped;
-        const reading = !skipped && result.language.english ? await aiReading(result.aiFacts) : null;
+        // (0.5.66) The whole email: every sentence of its visible text (the service reads at most about 20,000
+        // characters of any email), not only the 8,000 the model is given; the model's own cut of a long text keeps
+        // its start and end, so the score is the same.
+        const reading = !skipped && result.language.english ? await aiReading(Object.assign({}, result.aiFacts, { bodyText: String(facts.visibleText || '') })) : null;
         await this.store.addEvent({ kind: 'check', user: rec.user,
             text: `${by} opened what the AI reads of an email to ${rec.user} from ${(rec.sender && rec.sender.domain) || 'an unknown sender'} (read from Gmail just now; nothing stored).` });
         return { language: result.language, reading, skipped: skipped || null };

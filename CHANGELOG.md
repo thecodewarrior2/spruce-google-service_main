@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.66: "…show more" shows the whole email
+
+- **Review and Messages → AI opinion → …show more** now lists the whole email, every sentence of its text, redacted
+  as the model reads it (addresses keep only their domain; phone numbers and long numbers replaced), read from Gmail
+  on demand as before (nothing stored; Activity notes the look). It stopped at 40 sentences ("…and N more"), and read
+  only the 8,000 characters the model is given; it now reads all of the text the service reads of an email. The
+  first 40 sentences are also scored on their own as before.
+- **What the model doesn't read is marked:** the model's input format keeps only an email's first 60 sentences
+  (`modelInputParts` in `vendor/spruce/ai.js`, as in training), so the sentences after the 60th are shown dimmed,
+  marked "not read by the model". (A change to that limit can come only with a new model.)
+- `model.js` `reading()` (recorded as cosmetic: nothing that judges mail changed). Test: `test/explain.test.js`.
+  Docs: `README.md`.
+
 ## 0.5.65: a personal account's own address in its name is no claim to be Google
 
 - **False alarm:** a parent writing from a Gmail account whose name shows its own address ("1Jo.Doe@gmail.com 27jodoe")

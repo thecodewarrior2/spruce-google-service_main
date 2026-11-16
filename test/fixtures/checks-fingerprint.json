@@ -1,5 +1,5 @@
 {
   "checksLevel": 9,
-  "fingerprint": "a4e84749eb7b79ce5943042d08ade8723fc3167c9186d74e42fb68416e60ac62",
-  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
+  "fingerprint": "76fec78b165d40e65fb35a439d2ea50604a3b856ad21b9436e45855977e5f4d8",
+  "note": "Recorded by tools/checks-level.js --cosmetic: model.js reading(): the whole text for the dashboard's show more, the sentences past the input's 60 marked unread; nothing that judges mail changed"
 }

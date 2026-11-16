@@ -213,3 +213,20 @@ test('0.5.14: the directory\'s names in Reply-To, Cc and To: replies to an outsi
         'Replies go to an outside address (an address at freemail.example) under the name of someone in your organization.');
     assert.deepEqual(E.colleagueLineSigns([{ line: 'reply-to', h: E.colleagueNameHash('Sam Testwood'), domain: 'freemail.example', fromSame: true }], ORG, colleagues, ''), []);
 });
+
+// (0.5.66) "…show more" shows the whole email: every sentence, the first 40 also scored on their own.
+test('"…show more": the whole email, every sentence; the first 40 scored on their own, the rest shown without a score', async () => {
+    const body = Array.from({ length: 60 }, (_, k) => `Line ${k + 1} of the made-up newsletter talks about the library.`).join(' ') + ' Reply to the front office before Friday.';
+    const raw = Buffer.from(['From: "News" <news@bulletins.example>', `To: ${USER}`, 'Subject: Weekly news', 'Message-ID: <x3@bulletins.example>',
+        'Content-Type: text/plain; charset=utf-8', '', body].join('\r\n'));
+    const r = await analyze(await readMessage(raw), { mailbox: USER, orgDomains: [ORG], keepAiFacts: true });
+    const reading = await aiReading(r.aiFacts);
+    assert.ok(reading.sentences.length >= 55, `every sentence: ${reading.sentences.length}`);
+    assert.equal(reading.scored, 40);
+    assert.ok(reading.sentences.slice(0, 40).every(s => typeof s.weight === 'number') && reading.sentences.slice(40).every(s => s.weight === null));
+    assert.match(reading.sentences[reading.sentences.length - 1].text, /Reply to the front office before Friday/, 'to the end');
+    assert.match(reading.sentences.map(x => x.text).join(' '), /Line 60 of the made-up newsletter/);
+    assert.equal(reading.more, 0);
+    // The model's input keeps 60 sentences: the ones after are shown, marked unread.
+    assert.equal(reading.read, 60); assert.ok(reading.sentences[reading.sentences.length - 1].unread && !reading.sentences[59].unread);
+});

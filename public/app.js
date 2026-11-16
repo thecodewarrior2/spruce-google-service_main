@@ -619,7 +619,7 @@
                 m.ai.reasons.map(r => h('div', { class: 'quote', text: r.facts ? 'Who sent it, the sender check and where its links go' : `“${r.sentence}”` }))]
                 : ai >= 0.5 ? h('div', { class: 'small muted', text: 'Which parts weighed most isn\'t kept for this email (STORE_AI_QUOTES=off, or recorded before it was).' }) : null,
             h('div', { class: 'small muted' }, 'The model reads the subject, the sender\'s name and domain, the sender check, where the links go and the text, with addresses and numbers replaced. ',
-                more ? [more, ' to see all of it, sentence by sentence, around what weighed most.'] : null)];
+                more ? [more, ' to see the whole email as the model reads it, sentence by sentence, with what weighed most.'] : null)];
     }
     // "…show more": what the model reads of the email, read from Gmail now (nothing is kept), in a popup.
     async function showAiReading(m) {
@@ -637,7 +637,7 @@
             // the whole email reads as genuine (under 50%), nothing is marked or shown in red.
             const calm = r.probability < 0.5;
             const weighed = calm ? new Set() : new Set(r.sentences.map((x, i) => [x.weight, i]).filter(([w]) => w > 0).sort((a, b) => b[0] - a[0]).slice(0, 3).map(([, i]) => i));
-            const badge = (w) => h('span', { class: `lean ${!calm && lean(w) >= 0.5 ? 'hot' : ''}`, text: `${pct(lean(w))} on its own` });
+            const badge = (w) => (w === null || w === undefined ? null : h('span', { class: `lean ${!calm && lean(w) >= 0.5 ? 'hot' : ''}`, text: `${pct(lean(w))} on its own` }));
             const partsHigher = calm && [r.headWeight, ...r.sentences.map(x => x.weight)].some(w => lean(w) >= 0.5);
             body.append(h('div', { class: 'small' }, h('b', { text: `The AI now: ${pct(r.probability)}` }), ` (${r.model} ${r.version}, the whole email${m.ai && typeof m.ai.probability === 'number' && Math.abs(m.ai.probability - r.probability) >= 0.01 ? `; ${pct(m.ai.probability)} when it was checked` : ''}).`));
             if (partsHigher) body.append(h('div', { class: 'alert info' }, h('div', { text: `The whole email reads as genuine to the AI (${pct(r.probability)}): that is its opinion. Some parts score higher on their own, because without the rest of the email a single line (a link, "click here to accept") reads like many phishing emails; together, the AI doesn't find it phishing.` })));
@@ -653,9 +653,10 @@
             const shown = r.sentences.map((x, i) => [x, i]).filter(([x]) => !x.filler);
             const left = r.sentences.length - shown.length;
             body.append(...[h('h3', { text: `The whole text, sentence by sentence${weighed.size ? ' (what weighed most is marked)' : ''}` }),
-                shown.length ? h('ol', { class: 'reading' }, shown.map(([x, i]) => h('li', { class: weighed.has(i) ? 'weighed' : '' }, h('span', { text: x.text }), badge(x.weight))))
+                shown.length ? h('ol', { class: 'reading' }, shown.map(([x, i]) => h('li', { class: `${weighed.has(i) ? 'weighed' : ''}${x.unread ? ' unread' : ''}`.trim() || null }, h('span', { text: x.text }), x.unread ? h('span', { class: 'lean', text: 'not read by the model' }) : badge(x.weight))))
                     : h('div', { class: 'empty', text: 'No text: the model read only the subject, the sender and the links.' }),
                 left ? h('div', { class: 'small muted', text: `${num(left)} blank or filler line${left === 1 ? '' : 's'} (spaces, lone punctuation, invisible characters) left out.` }) : null,
+                r.scored && r.scored < r.sentences.length ? h('div', { class: 'small muted', text: `The whole email is shown. Its first ${num(r.scored)} sentences are also scored on their own${r.read && r.read < r.sentences.length ? `; the model reads only the first ${num(r.read)} (its input keeps no more), so the ones after are marked "not read by the model"` : '; the rest are read by the model with the email, not one by one'}.` }) : null,
                 r.more ? h('div', { class: 'small muted', text: `…and ${num(r.more)} more sentences the model reads, not scored one by one here.` }) : null].filter(Boolean));
         } catch (e) {
             body.textContent = '';
