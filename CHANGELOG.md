@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.67: phish-tiny 0.21.0, a long email's last sentences reach the model
+
+- **The AI model is phish-tiny 0.21.0** (TinyPhishLLM `7e61482`, `vendor/spruce/VENDOR.json` `modelSource`): 0.20.0's
+  weights, reading **input format 3**. The model's input kept only the first 60 sentences of an email's text, so in
+  a longer email the end it reads (its last 62 word pieces) was the 60th sentence, not the real ending where a long
+  scam often asks. Format 3 keeps a longer text's first 40 and last 20 sentences (`splitSentences(text, format)` and
+  `AI_INPUT_FORMAT` in `vendor/spruce/ai.js`); shorter emails are read exactly as before (the sync checked all 95
+  reference cases, one of them a 75-sentence text).
+- **What changes:** on held-out emails padded with 70 newsletter sentences before their own text, phishing flagged at
+  90%: 638 of 771 → 696; genuine flagged: 4 of 846 → 4. Every other score is 0.20.0's.
+- **"…show more"** marks the sentences the model's input leaves out (now the middle of a long email, not its end).
+- **Checks level 10:** after this update, recent delivered mail is checked again. Docs: `README.md`,
+  `docs/ARCHITECTURE.md`.
+
 ## 0.5.66: "…show more" shows the whole email
 
 - **Review and Messages → AI opinion → …show more** now lists the whole email, every sentence of its text, redacted

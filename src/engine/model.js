@@ -120,8 +120,9 @@ class Model {
     async reading(facts, max = 40) {
         const parts = this.parts(facts);
         const [m] = await this.margins_([`${parts.head} text: ${parts.sentences.join(' ')}`]);
-        // (0.5.66) The whole text, redacted as the model's input is: the input format keeps only its first 60
-        // sentences (modelInputParts), so the rest is split and redacted 50 sentences at a time, and marked unread.
+        // (0.5.66) The whole text, redacted as the model's input is: the input format keeps 60 sentences of a longer
+        // text (modelInputParts: format 3, its first 40 and its last 20; format 2, its first 60), so the whole text is
+        // split and redacted 50 sentences at a time, and the ones the model doesn't read are marked unread.
         const raw = String(facts.bodyText || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/);
         let every = parts.sentences;
         if (parts.sentences.length >= 60) {
@@ -129,6 +130,8 @@ class Model {
             for (let i = 0; i < raw.length && every.length < 3000; i += 50) every.push(...this.parts(Object.assign({}, facts, { bodyText: raw.slice(i, i + 50).join(' ') })).sentences);
         }
         const readCount = parts.sentences.length;
+        const readsEnd = ((this.meta && this.meta.inputFormat) || 1) >= 3 && every.length > readCount;
+        const unread = (i) => (every.length <= readCount ? false : readsEnd ? i >= 40 && i < every.length - 20 : i >= readCount);
         const sentences = every.slice(0, Math.min(max, readCount));
         const ws = await this.margins_([...sentences.map(s => `text: ${s}`), `${parts.head} text:`]);
         const all = every.map(s => ({ text: shownText(s), filler: !hasText(s) }));
@@ -138,8 +141,8 @@ class Model {
             .map(i => ({ index: i, before: near(i, -1), after: near(i, 1) }));
         return { probability: 1 / (1 + Math.exp(-m)), model: this.meta.name, version: this.meta.version,
                  head: parts.head, headWeight: ws[sentences.length],
-                 sentences: all.map((x, i) => ({ text: x.text, weight: i < sentences.length ? ws[i] : null, filler: x.filler, unread: i >= readCount })),
-                 weighed, scored: sentences.length, read: readCount, more: 0 };
+                 sentences: all.map((x, i) => ({ text: x.text, weight: i < sentences.length ? ws[i] : null, filler: x.filler, unread: unread(i) })),
+                 weighed, scored: sentences.length, read: readCount, readsEnd, more: 0 };
     }
 }
 

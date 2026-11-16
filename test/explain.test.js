@@ -227,6 +227,9 @@ test('"…show more": the whole email, every sentence; the first 40 scored on th
     assert.match(reading.sentences[reading.sentences.length - 1].text, /Reply to the front office before Friday/, 'to the end');
     assert.match(reading.sentences.map(x => x.text).join(' '), /Line 60 of the made-up newsletter/);
     assert.equal(reading.more, 0);
-    // The model's input keeps 60 sentences: the ones after are shown, marked unread.
-    assert.equal(reading.read, 60); assert.ok(reading.sentences[reading.sentences.length - 1].unread && !reading.sentences[59].unread);
+    // The model's input keeps 60 sentences of a longer text: format 3 (0.21.0) its first 40 and last 20; the
+    // others are shown, marked unread.
+    const n = reading.sentences.length;
+    assert.equal(reading.read, 60); assert.equal(reading.readsEnd, true);
+    assert.ok(!reading.sentences[39].unread && reading.sentences[40].unread && reading.sentences[n - 21].unread && !reading.sentences[n - 20].unread && !reading.sentences[n - 1].unread);
 });

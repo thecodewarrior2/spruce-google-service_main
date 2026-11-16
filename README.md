@@ -235,7 +235,8 @@ Donate button (`DONATE_BUTTON=off` hides it).
       between the sentence of real text before and after it (blank lines, invisible padding and lone
       punctuation skipped). When the whole email reads as genuine (under 50%), nothing is marked. Since 0.5.66 it
       shows the whole email, every sentence (redacted as the model reads it); the first 40 are also scored on their
-      own, and those past the model's input (its first 60 sentences) are marked "not read by the model".
+      own, and those the model's input leaves out (it keeps 60 sentences of a longer text: since 0.5.67 the first 40
+      and the last 20) are marked "not read by the model".
     - **R re-scans** the email: it is read again from the mailbox and judged with today's checks and AI
       model (after a model update, say). Its scores, AI opinion, model and signs become the re-scan's,
       beside what they were on arrival; what happened to it (moved, flagged) stays. A re-scan never moves
