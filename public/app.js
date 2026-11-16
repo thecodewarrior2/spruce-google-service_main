@@ -680,10 +680,12 @@
             rescanButton(m, 'btn'),
             m.state === 'moved' ? h('button', { class: 'btn primary', type: 'button', onclick: () => act('/api/release', { key: m.key }, 'Moved back to the Inbox.') }, 'Move back to Inbox') : null,
             m.falseAlarm !== true ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: true }, notMoved ? 'Marked as not phishing.' : 'Marked as a false alarm.') }, notMoved ? 'Mark not phishing' : 'Mark false alarm') : null,
-            m.falseAlarm !== false || moves ? h('button', { class: `btn${moves ? ' primary' : ''}`, type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, move: moves }, (out) => phishedText(out.moved)) }, moves ? 'Confirm phishing: move to Spam' : 'Confirm phishing') : null);
+            m.falseAlarm !== false || moves ? h('button', { class: `btn${moves ? ' primary' : ''}`, type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, move: moves }, (out) => phishedText(out.moved)) }, moves ? 'Confirm phishing: move to Spam' : 'Confirm phishing') : null,
+            !(m.unclear && m.markedBy) ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/unclear', { key: m.key }, 'Set aside: left as it is for the reader to decide, and not used for retraining.'), title: 'Neither clearly phishing nor clearly safe' }, 'Ignore, treat as suspicious') : null);
         const verdictText = pasted ? 'Checked from a pasted copy: nothing was stored, moved or counted.'
             : m.falseAlarm === true && m.releasedByUser && !m.markedBy ? 'Counted as a false alarm because the user moved it back. No admin has reviewed it yet.'
-            : m.falseAlarm === true ? (notMoved ? 'An admin marked this as not phishing.' : 'An admin marked this a false alarm.') : m.falseAlarm === false ? 'An admin confirmed this as phishing or spam.' : 'Not reviewed yet.';
+            : m.falseAlarm === true ? (notMoved ? 'An admin marked this as not phishing.' : 'An admin marked this a false alarm.') : m.falseAlarm === false ? 'An admin confirmed this as phishing or spam.'
+            : m.unclear && m.markedBy ? 'An admin set this aside as unclear: left as it is for the reader to decide, and not used for retraining.' : 'Not reviewed yet.';
         return [quiet ? null : h('button', { class: 'linkbtn back', type: 'button', onclick: back }, '← Back'),
             h(quiet ? 'h2' : 'h1', { class: quiet ? 'pasted-title' : null, text: m.subject || (pasted ? '(no subject)' : '(subject not stored)') }),
             h('p', { class: 'sub', text: `From ${m.sender.name ? `${m.sender.name} <${m.sender.address}>` : m.sender.address || 'an unknown sender'} to ${m.user || '–'}${m.receivedAt ? `, ${when(m.receivedAt)}` : ''}` }),
@@ -1195,8 +1197,8 @@
     // also moves an email that is still in the Inbox to Spam.
     let reviewStates = {}, reviewKeys = null;
     const QUEUES = {
-        moved: { label: 'Moved or would move', what: 'moved or "would move" emails', order: 'oldest first', no: 'False alarm', noDone: 'Marked as a false alarm.' },
-        suspicious: { label: 'Suspicious, not moved', what: 'suspicious emails not moved', order: 'newest first', no: 'Not phishing', noDone: 'Marked as not phishing.' }
+        moved: { label: 'Moved or would move', what: 'moved or "would move" emails', order: 'oldest first', no: 'False alarm', noDone: 'Marked as a false alarm.', ignore: 'Ignore, unclear: leave it where it is' },
+        suspicious: { label: 'Suspicious, not moved', what: 'suspicious emails not moved', order: 'newest first', no: 'Not phishing', noDone: 'Marked as not phishing.', ignore: 'Ignore, treat as suspicious' }
     };
     const phishedText = (moved) => moved === 'moved' ? 'Confirmed as phishing, and moved to Spam.'
         : moved === 'gone' ? 'Confirmed as phishing. It isn\'t in the Inbox any more, so nothing was moved.' : 'Confirmed as phishing.';
@@ -1255,18 +1257,32 @@
                 st.done += n; st.i++; toast(msg); render();
             } catch (e) { toast(`Couldn't do that: ${e.message}`); } finally { acting--; }
         };
+        // (0.5.60) Neither clearly phishing nor clearly safe: reviewed and left as it is, never a training example.
+        const setAside = async () => {
+            acting++;
+            try {
+                let msg = 'Set aside: left as it is for the reader to decide, and not used for retraining.';
+                if (!many) await api('/api/unclear', { method: 'POST', body: { key } });
+                else {
+                    const out = await api('/api/bulk', { method: 'POST', body: { keys: g.keys, action: 'unclear' } });
+                    msg = `Set aside: ${num(out.done)} copies left as they are, not used for retraining.${out.failed ? ` ${num(out.failed)} couldn't be marked.` : ''}`;
+                }
+                st.done += n; st.i++; toast(msg); render();
+            } catch (e) { toast(`Couldn't do that: ${e.message}`); } finally { acting--; }
+        };
         const next = () => { st.i++; render(); };
-        reviewKeys = { f: () => decide(true), p: () => decide(false), n: next, r: () => rescanEmail(key) };
+        reviewKeys = { f: () => decide(true), p: () => decide(false), i: setAside, n: next, r: () => rescanEmail(key) };
         const all = many ? ` (all ${num(n)})` : '';
         const people = h('div', { class: 'card review-people' },
             h('div', {}, h('b', { text: many ? `This email went to ${num(g.users.length || n)} people: ` : 'Sent to: ' }), shortList(g.users.length ? g.users : [m.user].filter(Boolean), `Who received "${m.subject || 'this email'}"`, { describe: (k) => `${num(k)} people in your organization received a copy${n > 1 ? `; ${num(n)} copies wait for review` : ''}.` })),
             g.senders.length > 1 ? h('div', {}, h('b', { text: `From ${num(g.senders.length)} addresses: ` }), shortList(g.senders, 'Who sent it', { describe: (k) => `The copies came from ${num(k)} sender addresses.` })) : null,
             many ? h('div', { class: 'small muted' }, `One decision covers every copy. `, g.campaign ? h('a', { href: `#/messages?${q({ campaign: g.campaign })}`, text: 'See every copy in Messages' }) : null) : null);
         return [...head,
-            h('p', { class: 'sub', text: `${num(st.i + 1)} of ${num(st.groups.length)} to review (${num(emailsLeft(st))} ${Q.what} nobody has reviewed, last ${days} days, ${Q.order}; copies of one email together). Keys: F ${Q.no.toLowerCase()}, P phishing${moves ? ' (moves it to Spam)' : ''}, N next, R re-scan with today's model.` }),
+            h('p', { class: 'sub', text: `${num(st.i + 1)} of ${num(st.groups.length)} to review (${num(emailsLeft(st))} ${Q.what} nobody has reviewed, last ${days} days, ${Q.order}; copies of one email together). Keys: F ${Q.no.toLowerCase()}, P phishing${moves ? ' (moves it to Spam)' : ''}, I ignore (unclear: left as it is, not used for retraining), N next, R re-scan with today's model.` }),
             h('div', { class: 'review-bar card' },
                 h('button', { class: 'btn', type: 'button', onclick: () => decide(true) }, h('kbd', { text: 'F' }), ` ${Q.no}${all}`),
                 h('button', { class: 'btn', type: 'button', onclick: () => decide(false) }, h('kbd', { text: 'P' }), moves ? ` Phishing: move to Spam${all}` : ` Phishing${all}`),
+                h('button', { class: 'btn', type: 'button', onclick: setAside, title: 'Neither clearly phishing nor clearly safe: the reader decides. Left as it is (with its Suspicious label), out of the review queue, and never used for retraining.' }, h('kbd', { text: 'I' }), ` ${Q.ignore}${all}`),
                 h('button', { class: 'btn', type: 'button', onclick: next }, h('kbd', { text: 'N' }), ' Next, undecided'),
                 rescanButton(m, 'btn review-rescan'),
                 !moves && m.state === 'inbox' && mode !== 'enforce' ? h('span', { class: 'muted small', text: 'Monitor mode: nothing is moved.' }) : null),

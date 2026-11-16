@@ -1076,7 +1076,7 @@ class Service {
     async mark(key, falseAlarm, by, { move = false, quiet = false } = {}) {
         const rec = await this.store.getRecord(key);
         if (!rec) return { error: 'not found' };
-        let out = await this.store.updateRecord(key, { falseAlarm: !!falseAlarm, markedBy: by });
+        let out = await this.store.updateRecord(key, Object.assign({ falseAlarm: !!falseAlarm, markedBy: by }, rec.unclear ? { unclear: false } : {}));
         if (falseAlarm && rec.falseAlarm !== true) await this.store.incStat(this.dayOf(this.now()), 'falseAlarms');
         // A false alarm loses the Suspicious label it was given (0.5.33).
         if (falseAlarm && rec.suspiciousLabel) {
@@ -1093,6 +1093,19 @@ class Service {
             }
         }
         return { record: out, moved };
+    }
+
+    // (0.5.60) An admin's "Ignore, treat as suspicious": neither clearly phishing nor clearly safe (an outside request
+    // for access to a form, say), so the reader decides. The email stays where it is, with its Suspicious label; it
+    // leaves the review queues (reviewed: markedBy), is never a training example (no falseAlarm: the retraining export
+    // takes only phishing and false alarms), and the later checks and the re-check after an update leave it alone.
+    // Marking it phishing or not phishing afterwards replaces this.
+    async setAside(key, by, { quiet = false } = {}) {
+        const rec = await this.store.getRecord(key);
+        if (!rec) return { error: 'not found' };
+        const out = await this.store.updateRecord(key, { unclear: true, falseAlarm: null, markedBy: by });
+        if (!quiet) await this.store.addEvent({ kind: 'mark', user: rec.user, text: `${by} set aside an email from ${rec.sender.address} to ${rec.user} as unclear: left as it is, for the reader to decide, and not used for retraining.` });
+        return { record: out };
     }
 
     // Cloud Scheduler, daily: watch every pilot mailbox again (a watch lasts 7 days) and forget
@@ -1368,7 +1381,7 @@ class Service {
         if (!this.cfg.recheck) return 0;
         const now = this.now();
         const recs = await this.store.listRecords({ sinceMs: now - 50 * HOUR, untilMs: now - HOUR, limit: 3000 });
-        const due = recs.filter(r => r.action === 'flag' && r.state === 'inbox' && r.falseAlarm == null && !r.userPlaced && !r.recheck
+        const due = recs.filter(r => r.action === 'flag' && r.state === 'inbox' && r.falseAlarm == null && !r.unclear && !r.userPlaced && !r.recheck
             && ((r.laterChecks || 0) === 0 || ((r.laterChecks || 0) === 1 && now - r.processedAt >= DAY)));
         return this.queueRechecks(due.slice(0, 1000).map(r => ({ user: r.user, id: r.messageId, receivedAt: r.receivedAt || null, source: 'later', round: (r.laterChecks || 0) + 1 })));
     }
@@ -1452,7 +1465,7 @@ class Service {
         // A decision already made stands: moved or released, an admin's mark, the reader's own choice, a
         // re-check that already moved it or would.
         // (A copy held by a brake waits for the admins' decision on its campaign: Email → Campaigns.)
-        if (before && (before.state !== 'inbox' || before.falseAlarm != null || before.userPlaced || before.held || (before.recheck && before.recheck.outcome !== 'flag'))) return { item, outcome: 'skipped' };
+        if (before && (before.state !== 'inbox' || before.falseAlarm != null || before.unclear || before.userPlaced || before.held || (before.recheck && before.recheck.outcome !== 'flag'))) return { item, outcome: 'skipped' };
         let msg;
         try { msg = await this.gmail.raw(user, id); }
         catch (e) { if (e instanceof GoogleApiError && e.status === 404) return { item, outcome: 'gone' }; throw e; }
@@ -1504,7 +1517,7 @@ class Service {
         rec.recheck = recheck;
         if (item.source === 'later') rec.laterChecks = ((before && before.laterChecks) || 0) + 1;
         if (before) {
-            const keep = new Set(['key', 'user', 'messageId', 'threadId', 'readHistoryId', 'processedAt', 'releasedBy', 'releasedAt', 'falseAlarm', 'markedBy', 'userPlaced']);
+            const keep = new Set(['key', 'user', 'messageId', 'threadId', 'readHistoryId', 'processedAt', 'releasedBy', 'releasedAt', 'falseAlarm', 'markedBy', 'unclear', 'userPlaced']);
             const patch = Object.fromEntries(Object.entries(rec).filter(([k, v]) => !keep.has(k) && v !== undefined));
             patch.arrival = before.arrival || { at: before.processedAt, score: before.score, status: before.status, action: before.action, firstTime,
                 ai: before.ai && typeof before.ai.probability === 'number' ? { probability: before.ai.probability, model: before.ai.model || null } : null };
@@ -1879,12 +1892,13 @@ class Service {
         if (action === 'phishing') out.moved = 0;
         await pool(keys, 10, async (key) => {
             try {
-                const r = action === 'release' ? await this.release(key, by, { quiet: true }) : await this.mark(key, action === 'false-alarm', by, { move: action === 'phishing', quiet: true });
+                const r = action === 'release' ? await this.release(key, by, { quiet: true }) : action === 'unclear' ? await this.setAside(key, by, { quiet: true })
+                    : await this.mark(key, action === 'false-alarm', by, { move: action === 'phishing', quiet: true });
                 if (r && r.record) out.done++; else out.skipped++;
                 if (r && r.moved === 'moved') out.moved++;
             } catch (e) { out.failed++; this.log.error(`bulk ${action} ${key}:`, e); }
         });
-        const what = { release: 'moved back to the Inbox', 'false-alarm': 'marked as false alarms', phishing: 'confirmed as phishing' }[action];
+        const what = { release: 'moved back to the Inbox', 'false-alarm': 'marked as false alarms', phishing: 'confirmed as phishing', unclear: 'set aside as unclear (left as they are, not used for retraining)' }[action];
         if (out.done) await this.store.addEvent({ kind: action === 'release' ? 'release' : 'mark', text: `${by} ${what} ${out.done} email${out.done === 1 ? '' : 's'} at once${out.moved ? ` (${out.moved} moved to Spam)` : ''}.` });
         return out;
     }

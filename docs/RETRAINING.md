@@ -39,7 +39,8 @@ model, without any person's details reaching a repository or an outside service.
   maintainer for access) and a copy of TinyPhishLLM (public) next to it (step 6).
 - **Only admins' marks count.** The export takes the emails an admin marked: **Confirm phishing**, and
   **Mark false alarm** (**Mark not phishing**) or an admin's **Move back to Inbox**. A user moving an email out of Spam is not a label: people
-  rescue phishing too.
+  rescue phishing too. An email an admin set aside with **Ignore, treat as suspicious** (neither clearly phishing
+  nor clearly safe) is never in the export: a guess would teach the model the wrong thing.
 - **The best examples come from Review → Suspicious, not moved.** Phishing there is what the model
   scored too low, and "not phishing" there is what it found suspicious for nothing. Mark some of those,
   not only moved emails, before you export.

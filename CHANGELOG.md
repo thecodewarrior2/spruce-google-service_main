@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.60: Review's "Ignore, treat as suspicious"
+
+- **A third decision in Email → Review** (key **I**; also on an email's own page): **Ignore, treat as suspicious**
+  (in the moved queue: "Ignore, unclear: leave it where it is"), for an email that is neither clearly phishing nor
+  clearly safe (an outside request for access to a form: only the reader knows whether they expect it). It is left as
+  it is, with its Suspicious label; it counts as reviewed (`markedBy`), so it leaves both queues; it is never a
+  training example (`unclear: true`, `falseAlarm` stays empty: the retraining export takes only phishing and false
+  alarms); the later checks and the re-check after an update leave it alone. Marking it phishing or not phishing
+  afterwards replaces it. Every copy of a campaign at once (`/api/bulk` action `unclear`); Activity notes it.
+- `POST /api/unclear`, `Service.setAside` (`src/pipeline.js`). Test: `test/qol.test.js`. Docs: `README.md` (Review),
+  `docs/RETRAINING.md`.
+
 ## 0.5.59: mail from the organization's second domain is no longer called outside
 
 - **A false alarm on an organization with two domains:** the checks that take one domain (whether the sender is

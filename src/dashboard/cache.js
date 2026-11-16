@@ -38,7 +38,7 @@ function slimmer() {
         ai: r.ai ? Object.freeze({ probability: r.ai.probability, model: I(r.ai.model) }) : r.ai,
         signals: Object.freeze((r.signals || []).filter(x => x && x.weight >= 2).map(x => Object.freeze({ kind: I(x.kind), text: I(x.text), weight: x.weight }))),
         state: I(r.state), held: I(r.held), braked: r.braked, userPlaced: r.userPlaced, ownAddressUnverified: r.ownAddressUnverified,
-        releasedBy: I(r.releasedBy), releasedAt: r.releasedAt, releasedByUser: r.releasedByUser, falseAlarm: r.falseAlarm, markedBy: I(r.markedBy),
+        releasedBy: I(r.releasedBy), releasedAt: r.releasedAt, releasedByUser: r.releasedByUser, falseAlarm: r.falseAlarm, unclear: r.unclear, markedBy: I(r.markedBy),
         heldMovedBy: I(r.heldMovedBy), heldMovedAt: r.heldMovedAt, inside: r.inside,
         // Re-checked after delivery (0.5.35): what was found, when, and what Gmail's logs say.
         recheck: r.recheck ? Object.freeze({ at: r.recheck.at, source: I(r.recheck.source), site: I(r.recheck.site), list: I(r.recheck.list), round: r.recheck.round, version: I(r.recheck.version),

@@ -218,12 +218,17 @@ Donate button (`DONATE_BUTTON=off` hides it).
     left in the first). The copies of one email (a campaign: the same email to many people) are one item,
     decided together: who received it (and who sent it, when the copies came from several addresses) is
     listed, the first two shown, **…show more** for everyone:
-    - **Moved or would move**, oldest first: **F** false alarm, **P** phishing, **N** next.
+    - **Moved or would move**, oldest first: **F** false alarm, **P** phishing, **I** ignore (unclear), **N** next.
     - **Suspicious, not moved**, newest first: emails the checks found suspicious (a rules score of 3 or
       more, or an AI score from the suspicious line) but not enough to move, still in the Inbox. **F**
-      not phishing, **P** phishing, **N** next. Marking them shows what the move rules miss, and gives
+      not phishing, **P** phishing, **I** ignore, treat as suspicious, **N** next. Marking them shows what the move rules miss, and gives
       the retraining export its best examples. Each says what made it suspicious: the rule checks'
       score, the AI's, or a link check.
+    - **I, Ignore, treat as suspicious** (0.5.60; also on an email's own page in Messages): for an email that is
+      neither clearly phishing nor clearly safe, such as an outside request for access to a form, where only the
+      reader can tell. It is left as it is (still in the Inbox, with its Suspicious label), counts as reviewed so it
+      leaves the queue, is never used for retraining, and the later checks and the re-check after an update leave
+      it alone. Marking it phishing or not phishing afterwards replaces it.
     - **The AI opinion** says where its score stands against the lines in force; **…show more** shows
       what the model reads of the email, sentence by sentence, and each sentence that weighed most
       between the sentence of real text before and after it (blank lines, invisible padding and lone

@@ -49,7 +49,7 @@ async function readBody(req, max = 1024 * 1024) {
 const STATS_TODAY_MS = 15 * 1000;
 const MAILBOXES_KEPT_MS = 60 * 1000;
 const brief = (r) => ({ key: r.key, user: r.user, processedAt: r.processedAt, sender: r.sender, subject: r.subject, campaign: r.campaign,
-    status: r.status, score: r.score, ai: r.ai ? Math.round((r.ai.probability || 0) * 1000) / 1000 : null, action: r.action, trigger: r.trigger, state: r.state, releasedByUser: !!r.releasedByUser, falseAlarm: r.falseAlarm,
+    status: r.status, score: r.score, ai: r.ai ? Math.round((r.ai.probability || 0) * 1000) / 1000 : null, action: r.action, trigger: r.trigger, state: r.state, releasedByUser: !!r.releasedByUser, falseAlarm: r.falseAlarm, unclear: !!r.unclear,
     // found after delivery (0.5.35): the Messages list marks it
     recheck: r.recheck ? { at: r.recheck.at, outcome: r.recheck.outcome, opened: !!(r.recheck.opened || (r.recheck.clicks && r.recheck.clicks.opened)), clicked: !!(r.recheck.clicks && r.recheck.clicks.clicked) } : null });
 
@@ -604,6 +604,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'POST /api/release': async (q, body, admin) => service.release(String(body.key || ''), admin.email),
         // move: phishing still in the Inbox is moved to Spam too (enforce mode).
         'POST /api/mark': async (q, body, admin) => service.mark(String(body.key || ''), body.falseAlarm === true, admin.email, { move: body.move === true }),
+        // (0.5.60) Ignore, treat as suspicious: reviewed, left as it is, not used for retraining.
+        'POST /api/unclear': async (q, body, admin) => service.setAside(String(body.key || ''), admin.email),
         // Re-scan one email (Review, Messages): judged again now, recorded beside the on-arrival result, never
         // moved. At most every 5 s per email (a double click, or two admins).
         'POST /api/rescan': async (q, body, admin) => {
@@ -686,7 +688,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // Several emails at once: release, false-alarm or phishing (at most 500).
         'POST /api/bulk': async (q, body, admin) => {
             const keys = Array.isArray(body.keys) ? [...new Set(body.keys.map(String))].slice(0, 500) : [];
-            if (!['release', 'false-alarm', 'phishing'].includes(body.action) || !keys.length) return { error: 'Choose emails and what to do with them.', status: 400 };
+            if (!['release', 'false-alarm', 'phishing', 'unclear'].includes(body.action) || !keys.length) return { error: 'Choose emails and what to do with them.', status: 400 };
             return service.bulk(keys, body.action, admin.email);
         },
         // What needs an admin (the browser tab's title shows the count): the brake, held campaigns, users

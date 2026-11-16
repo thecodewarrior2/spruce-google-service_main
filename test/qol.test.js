@@ -234,3 +234,46 @@ test('dashboard: Review\'s suspicious queue (not moved, still in the Inbox, unre
         assert.equal((await get('/api/review?days=90&queue=suspicious')).total, sus.total - 2);
     } finally { await close(); }
 });
+
+// (0.5.60) "Ignore, treat as suspicious": an email neither clearly phishing nor clearly safe (an outside request for
+// access to a form) is reviewed and left as it is: out of the review queues, never in the retraining export, left
+// alone by the later checks; marking it afterwards replaces it. One email, and every copy at once.
+test('dashboard: Review\'s "Ignore, treat as suspicious": out of the queue, left as it is, never a training example', async () => {
+    const cfg = loadConfig({ DEMO: '1', MODE: 'monitor', ORG_DOMAINS: ORG });
+    const { store } = await buildDemo({ cfg, now: Date.now() });
+    const gmail = { labelId: async (u, n) => `L_${n}`, modify: async () => { throw new Error('nothing is moved or relabeled'); } };
+    const service = new Service({ cfg, store, gmail });
+    const { base, close } = await serve(createApp({ cfg, store, service }));
+    const get = async (p) => (await fetch(base + p)).json();
+    const post = async (p, body) => (await fetch(base + p, { method: 'POST', headers: H, body: JSON.stringify(body) })).json();
+    try {
+        const sus = await get('/api/review?days=90&queue=suspicious');
+        assert.ok(sus.keys.length >= 3);
+        const [one, two, three] = sus.keys;
+        const before = (await get(`/api/message?key=${encodeURIComponent(one)}`)).message;
+        const r = await post('/api/unclear', { key: one });
+        assert.equal(r.record.unclear, true); assert.equal(r.record.falseAlarm, null); assert.ok(r.record.markedBy);
+        assert.equal(r.record.state, before.state, 'left where it is');
+        const m = (await get(`/api/message?key=${encodeURIComponent(one)}`)).message;
+        assert.equal(m.unclear, true);
+        const after = await get('/api/review?days=90&queue=suspicious');
+        assert.equal(after.total, sus.total - 1, 'out of the queue'); assert.ok(!after.keys.includes(one));
+        // Several copies at once.
+        const b = await post('/api/bulk', { keys: [two, three], action: 'unclear' });
+        assert.equal(b.done, 2);
+        assert.equal((await get('/api/review?days=90&queue=suspicious')).total, sus.total - 3);
+        const ev = (await store.listEvents(0, { limit: 50 })).map(e => e.text);
+        assert.ok(ev.some(t => /set aside an email from .* as unclear/.test(t)) && ev.some(t => /set aside as unclear .* 2 emails at once/.test(t)), ev.join('\n'));
+        // Never a training example, even with false alarms asked for.
+        const training = require('../src/training');
+        const recs = await store.listRecords({ sinceMs: 0 });
+        const picked = training.pickRecords(recs, { falseAlarms: true }).groups.flat().map(x => x.key || (x.rec && x.rec.key));
+        assert.ok(![one, two, three].some(k => picked.includes(k)), 'not in the export');
+        // The later checks leave it alone.
+        const rec = await store.getRecord(one);
+        assert.ok(rec.unclear && rec.markedBy);
+        // Marking it afterwards replaces it.
+        const p = await post('/api/mark', { key: one, falseAlarm: false });
+        assert.equal(p.record.falseAlarm, false); assert.equal(p.record.unclear, false);
+    } finally { await close(); }
+});
