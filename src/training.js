@@ -29,7 +29,8 @@ const spruce = require('./engine/spruce');
 const { NAMES } = require('./names');
 
 // (0.5.56) The whole body, not only what today's model reads (it reads a long email's start and its end: 0.5.55).
-// Only a body longer than BODY_CHARS (a very long newsletter) is cut, to its first BODY_HEAD and last BODY_TAIL.
+// Only a body longer than BODY_CHARS (a very long newsletter) is cut, to its first BODY_HEAD and last BODY_TAIL;
+// the email reader already keeps a longer text that way (html.js headTail, 0.5.57), so this is only a guard.
 const BODY_CHARS = 20000, BODY_HEAD = 15000, BODY_TAIL = 5000;
 const OPEN = '⟦', CLOSE = '⟧';
 const NAME = '[NAME]', SENDER = '[SENDER]', OUR = '[OUR-DOMAIN]', YOU = 'your name';

@@ -1,5 +1,5 @@
 {
-  "checksLevel": 3,
-  "fingerprint": "366f1ec3d949eb3ad6f58c15a3b8ce9497e7a82ae0514d4eb0cdad62a65cd73c",
+  "checksLevel": 4,
+  "fingerprint": "5af7ce6d1a687928c87a32f33d9422096a03e30a6b367e764b9c328634a7e0ee",
   "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
 }

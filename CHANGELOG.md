@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.57: a very long email's ending is read
+
+- **The email reader keeps a long text's start and its end.** An email's visible text longer than 20,000 characters
+  kept only its first 20,000, so a very long email's ending (where a long scam often asks: "reply to my personal
+  email") reached neither the checks nor the AI model; with 0.5.55's model, "the end" of such an email was
+  characters 18,000–20,000. It now keeps the first 15,000 and the last 5,000 (`headTail` in `src/engine/html.js`,
+  `HEAD_TEXT`, `TAIL_TEXT`), for HTML and plain-text emails (`src/engine/mime.js`), and one huge block of text is cut
+  the same way (before, it was kept whole). Emails of 20,000 characters or less read as before. A new test checks it.
+- **Checks level 4:** how a very long email is judged can change, so after this update the service checks recent
+  delivered mail again (`node tools/checks-level.js --raised`).
+- The retraining export (0.5.56) holds the same text. Docs: `docs/RETRAINING.md`, `docs/PRIVACY.md`.
+
 ## 0.5.56: the retraining export keeps the whole body
 
 - **The retraining export** (Status → Model health → Download for retraining, `docs/RETRAINING.md`) now holds each

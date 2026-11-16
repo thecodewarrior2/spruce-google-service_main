@@ -113,6 +113,26 @@ test('the model (0.4.0): a pass\'s answer is remembered by a hash of its input, 
     } finally { session.run = run; }
 });
 
+// (0.5.57) An email longer than the service reads (html.js MAX_TEXT): its first HEAD_TEXT and its last TAIL_TEXT
+// characters, in HTML and in plain text, so its ending reaches the checks and the model.
+test('a very long email keeps its start and its end, in HTML and in plain text', async () => {
+    const H = require('../src/engine/html');
+    const filler = 'The library is open late this week for families. '.repeat(1200);
+    const ask = 'Reply to my personal email before Friday to hold the items.';
+    const html = readHtml(`<div><p>Opening note about the estate sale.</p><p>${filler}</p><p>${ask}</p></div>`);
+    assert.ok(html.visibleText.startsWith('Opening note about the estate sale.') && html.visibleText.endsWith(ask), 'HTML: start and end');
+    assert.ok(html.visibleText.length <= H.MAX_TEXT + 1, String(html.visibleText.length));
+    const one = readHtml(`<p>Opening note.${filler}${ask}</p>`);
+    assert.ok(one.visibleText.endsWith(ask) && one.visibleText.length <= H.MAX_TEXT + 1, 'one long text node');
+    const raw = ['From: "Pat" <pat@freemail.example>', 'To: jordan@maple-schools.example', 'Subject: Estate sale', 'Content-Type: text/plain', '', `Opening note about the estate sale. ${filler}${ask}`].join('\r\n');
+    const facts = await readMessage(Buffer.from(raw));
+    assert.ok(facts.visibleText.startsWith('Opening note') && facts.visibleText.endsWith(ask) && facts.visibleText.length <= H.MAX_TEXT + 1, 'plain text: start and end');
+    const r = await analyze(facts, { mailbox: 'jordan@maple-schools.example', orgDomains: ['maple-schools.example'], keepAiFacts: true });
+    assert.ok(r.aiFacts.bodyText.endsWith(ask), 'the model is given the end');
+    const short = readHtml('<p>Short note.</p>');
+    assert.equal(short.visibleText, 'Short note.');
+});
+
 // (0.5.55) A text longer than the model reads: with model.json config.headTokens (phish-tiny 0.20.0) its start and
 // its end, else its start, as the model was trained (TinyPhishLLM's cut_ids).
 test('the tokenizer cuts a long text to its start and its end when the model says so (headTokens), else to its start', () => {

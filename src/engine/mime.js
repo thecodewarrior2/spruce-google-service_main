@@ -3,7 +3,7 @@
 // model use: sender, subject, the receiving server's verification results, links, the text a person
 // sees, how the email hides text, attachments (names and types only).
 const { simpleParser } = require('mailparser');
-const { readHtml } = require('./html');
+const { readHtml, headTail } = require('./html');
 
 const MAX_RAW = 2 * 1024 * 1024;   // headerAnomalies reads at most this much of the message
 
@@ -28,7 +28,7 @@ function receiverAuth(rawHead, receiverHost = 'mx.google.com') {
 
 function textToHtmlish(text) {
     // Plain-text emails: the text is what a person sees; links are the web addresses in it.
-    return { visibleText: String(text || '').slice(0, 20000), hiddenText: '', quotedText: '', preheader: '', layout: [], pictures: 0,
+    return { visibleText: headTail(text), hiddenText: '', quotedText: '', preheader: '', layout: [], pictures: 0,
              links: [...String(text || '').matchAll(/\bhttps?:\/\/[^\s<>"')\]]+/gi)].slice(0, 300).map(m => ({ text: m[0], href: m[0], hidden: false, afterGap: false })) };
 }
 
@@ -42,7 +42,7 @@ async function readMessage(raw) {
     const from = (mail.from && mail.from.value && mail.from.value[0]) || {};
     const read = mail.html ? readHtml(mail.html) : textToHtmlish(mail.text);
     // Plain-text part as well: some phishing puts different text there than in the HTML.
-    if (mail.html && mail.text && !read.visibleText.trim()) read.visibleText = String(mail.text).slice(0, 20000);
+    if (mail.html && mail.text && !read.visibleText.trim()) read.visibleText = headTail(mail.text);
     const to = [].concat(mail.to || []).flatMap(t => (t && t.value) || []).map(v => String(v.address || '').toLowerCase()).filter(Boolean);
     // The people the email names in its headers (display names and addresses), for the retraining
     // export's removal of names (src/training.js); never stored.

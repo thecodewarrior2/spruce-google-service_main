@@ -13,6 +13,11 @@ const GAP_PX = 1000;              // an empty spacer this tall (by its own size)
 const FILLER_MIN = 200;           // characters after the gap that make it filler
 const PICTURE_MIN_PX = 100;       // pictures this wide or more count as content (not tracking pixels)
 const MAX_TEXT = 20000;
+// (0.5.57) A text longer than MAX_TEXT keeps its first HEAD_TEXT and its last TAIL_TEXT characters (it kept its
+// first MAX_TEXT): a long scam often asks at its end, and the model reads a long email's start and its end
+// (phish-tiny 0.20.0, 0.5.55).
+const HEAD_TEXT = 15000, TAIL_TEXT = MAX_TEXT - HEAD_TEXT;
+const headTail = (t) => { const s = String(t || ''); return s.length <= MAX_TEXT ? s : `${s.slice(0, HEAD_TEXT)}\n${s.slice(-TAIL_TEXT)}`; };
 const SKIP_TAGS = new Set(['head', 'style', 'script', 'noscript', 'template', 'title', 'meta', 'link', 'object', 'iframe']);
 const BLOCK_TAGS = new Set(['p', 'div', 'br', 'li', 'tr', 'table', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'center', 'blockquote', 'section', 'article', 'header', 'footer', 'hr', 'ul', 'ol']);
 const QUOTE_CLASSES = /\b(gmail_quote|gmail_quote_container|gmail_extra|yahoo_quoted|moz-cite-prefix)\b/;
@@ -60,10 +65,11 @@ const decode = (s) => String(s || '').replace(/ /g, ' ');
 // pictures, quotedText }.
 function readHtml(html) {
     const doc = parseDocument(String(html || ''), { decodeEntities: true, lowerCaseTags: true, lowerCaseAttributeNames: true });
-    let visible = '', hidden = '', quoted = '', afterGap = 0, gapSeen = false, preheader = '', pictures = 0;
+    let visible = '', rest = '', hidden = '', quoted = '', afterGap = 0, gapSeen = false, preheader = '', pictures = 0;
     const links = [];
     const push = (where, t) => {
-        if (where === 'visible') { if (visible.length < MAX_TEXT) visible += t; }
+        // The visible text past MAX_TEXT: only its last TAIL_TEXT characters are kept (rest), for headTail.
+        if (where === 'visible') { if (visible.length < MAX_TEXT) visible += t; else { rest += t; if (rest.length > 4 * TAIL_TEXT) rest = rest.slice(-TAIL_TEXT); } }
         else if (where === 'hidden') { if (hidden.length < MAX_TEXT) hidden += t; }
         else if (quoted.length < MAX_TEXT) quoted += t;
     };
@@ -105,7 +111,7 @@ function readHtml(html) {
     }
     walk(doc, { where: 'visible' });
     const clean = (t) => t.replace(/[ \t\f\v]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-    let visibleText = clean(visible);
+    let visibleText = clean(headTail(visible + rest));
     const layout = [];
     if (gapSeen && afterGap >= FILLER_MIN) layout.push('text after a large blank gap');
     if (visibleText.replace(/\s+/g, '').length < 60 && pictures > 0) {
@@ -115,4 +121,4 @@ function readHtml(html) {
     return { visibleText, hiddenText: clean(hidden), quotedText: clean(quoted), preheader, layout, links, pictures };
 }
 
-module.exports = { readHtml, hiddenByOwnMarkup, GAP_PX, FILLER_MIN };
+module.exports = { readHtml, hiddenByOwnMarkup, headTail, GAP_PX, FILLER_MIN, MAX_TEXT, HEAD_TEXT, TAIL_TEXT };
