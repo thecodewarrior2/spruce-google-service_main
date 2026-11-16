@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.56: the retraining export keeps the whole body
+
+- **The retraining export** (Status → Model health → Download for retraining, `docs/RETRAINING.md`) now holds each
+  email's whole body, not its first 1,200 characters, so a model that reads more of an email (phish-tiny 0.20.0
+  reads a long email's start and its end) is trained on the part where a long scam asks, and a later model can be
+  trained from the same file. The export reads it from the message (`facts.visibleText`, at most about 20,000
+  characters: the service reads no more of any email, `src/engine/html.js` `MAX_TEXT`), not from what the model is
+  given (at most 8,000). Should that limit rise, a body over 20,000 characters keeps its first 15,000 and last 5,000
+  (`BODY_CHARS`, `BODY_HEAD`, `BODY_TAIL` in `src/training.js`). The same de-identification applies to
+  all of it; a long body means more to review, and the guide says to read it to the last line.
+- Nothing about how mail is judged changes (no checks level). Docs: `docs/RETRAINING.md`, `docs/PRIVACY.md`.
+
 ## 0.5.55: phish-tiny 0.20.0, reads a long email's start and its end
 
 - **The AI model is phish-tiny 0.20.0** (TinyPhishLLM `9e71652`, `vendor/spruce/VENDOR.json` `modelSource`; was

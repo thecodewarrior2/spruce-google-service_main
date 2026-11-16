@@ -95,7 +95,7 @@ one line, spread out (from the demo's made-up data):
 | `name` | `spruce-` and the email's Gmail ID. To see the email's record, paste the ID into **Email → Messages → Search**. That page also shows the email's Message-ID, for Google Workspace's Email log search. |
 | `label` | `1`: phishing or spam (an admin confirmed it). `0`: genuine (an admin marked it a false alarm). |
 | `note` | What the service did on arrival: what it did with the email, what triggered it, the rules score, the AI score. It is for you; training ignores it. |
-| `facts.subject`, `senderName`, `bodyText` | What the email said, with the people taken out (below). `bodyText` is cut to about 1,200 characters, a little more than the model reads. |
+| `facts.subject`, `senderName`, `bodyText` | What the email said, with the people taken out (below). `bodyText` is the whole body (since 0.5.56) as the service reads it, up to about 20,000 characters (the service reads no more of any email), so a later model that reads more of an email can be trained from the same file. A long body has more to review (step 2). |
 | `facts.senderAddress` | The sender's domain. The part before @ is kept only for shared mailboxes (`noreply`, `security`, `billing`); otherwise it is `sender`. |
 | `facts.auth.dmarc` | Gmail's DMARC check of the sender: `pass`, `fail`, `none`, or missing (unknown). `facts.auth.spf` and `dkim` are there only when they failed. |
 | `facts.links` | Up to 8 links: their text, where they point (`host`), where they really go when that differs (`destHost`), and what the checks found (`finding`). |
@@ -121,7 +121,7 @@ subject: Your password expires today. from: "Microsoft 365 Security" at micros0f
 | Your organization's domains (in addresses, links and text) | `[OUR-DOMAIN]` |
 | Email addresses | `address at` and the domain |
 | Phone numbers, and long numbers (accounts, cards, student IDs, codes) | `phone number`, `number` |
-| Text past what the model reads | cut |
+| Text past about 20,000 characters (a very long newsletter) | cut, as the service reads no more of any email |
 
 An outside phishing sender's name is kept: attackers choose it, and it is part of the trick ("Microsoft
 365 Security" from a look-alike domain). Names in it are still taken out or marked.
@@ -150,7 +150,8 @@ Go through the file line by line. For each line:
    keep the word.
 2. **Read all of the text, not only the marks.** The removal can miss things:
    - a name written in lower case, a nickname, or a name in another language;
-   - a signature block or a quoted earlier message;
+   - a signature block or a quoted earlier message (the file has the whole body, its end included: read to
+     the last line);
    - a detail that identifies someone without a name: a student's health, IEP, discipline, grades or
      custody, a home address, an event only one family was part of.
 

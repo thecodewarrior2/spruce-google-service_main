@@ -1853,7 +1853,8 @@ class Service {
                 // The model learns English only (an email clearly in another language is left out, and counted).
                 if (!result.language.english) { counts.notEnglish++; return; }
                 const label = rec.falseAlarm === false ? 1 : 0;
-                rows.push({ at: rec.processedAt, row: training.example(rec, label, result.aiFacts, facts.people, this.cfg.orgDomains) });
+                // (0.5.56) The whole body (aiFacts holds only what the model is given, at most 8,000 characters).
+                rows.push({ at: rec.processedAt, row: training.example(rec, label, Object.assign({}, result.aiFacts, { bodyText: String(facts.visibleText || '') }), facts.people, this.cfg.orgDomains) });
             } catch (e) { counts.failed++; this.log.error(`retraining export ${copies[0].key}:`, e); }
         }, () => rows.length >= max || Date.now() - started > budgetMs);
         counts.notReached = groups.length - reached;

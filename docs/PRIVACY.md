@@ -141,7 +141,8 @@ To delete what the dashboard shows sooner, all at once: `bash deploy/clear-data.
   - It reads the emails admins marked from Gmail at the moment of the download: confirmed phishing, and
     false alarms only when asked.
   - The download holds what the AI model reads: the subject, the sender's name and domain, the DMARC
-    result, up to 8 links, and the first 1,200 characters of the text.
+    result, up to 8 links, and the email's whole text (since 0.5.56), up to the 20,000 or so characters the service
+    reads of any email.
   - The people are taken out first: the recipient becomes "your name"; the other people in the headers,
     and names after titles, greetings and sign-offs, become [NAME]; the sender of genuine or inside mail
     becomes [SENDER]; your domains become [OUR-DOMAIN]; addresses, phone numbers and long numbers are

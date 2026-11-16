@@ -17,7 +17,9 @@ const NO_TRAINING_RE = /URLhaus|ThreatFox|abuse\.ch|Spamhaus/i;
 //   - the sender's name and address when the sender is inside the organization, or when the email is
 //     genuine (a false alarm is a real person's or company's mail): [SENDER];
 //   - the organization's own domains: [OUR-DOMAIN];
-//   - the text past what the model reads (BODY_CHARS).
+//   - (0.5.56) nothing of the text is cut, up to BODY_CHARS: the whole body, so that a later model that reads
+//     more of an email can be trained on the same file; a longer one keeps its first BODY_HEAD and last
+//     BODY_TAIL characters.
 // Left for a person to decide, marked ⟦like this⟧: other capitalized words that may be names (a
 // student named in the text, an attacker using a real leader's name). tools/check-training-file.js
 // refuses a file with a mark left, and, with --final, with a placeholder left.
@@ -26,7 +28,9 @@ const path = require('path');
 const spruce = require('./engine/spruce');
 const { NAMES } = require('./names');
 
-const BODY_CHARS = 1200;        // phish-tiny reads 256 word pieces, its header included: less than this
+// (0.5.56) The whole body, not only what today's model reads (it reads a long email's start and its end: 0.5.55).
+// Only a body longer than BODY_CHARS (a very long newsletter) is cut, to its first BODY_HEAD and last BODY_TAIL.
+const BODY_CHARS = 20000, BODY_HEAD = 15000, BODY_TAIL = 5000;
 const OPEN = '⟦', CLOSE = '⟧';
 const NAME = '[NAME]', SENDER = '[SENDER]', OUR = '[OUR-DOMAIN]', YOU = 'your name';
 const CAP = "\\p{Lu}[\\p{L}\\p{M}'’-]+";
@@ -167,6 +171,9 @@ function markNames(text, domains, ownNames, lower) {
 }
 
 const cut = (t, n) => { const s = String(t || ''); if (s.length <= n) return s; const c = s.slice(0, n); const sp = c.search(/\s\S*$/); return sp > n * 0.8 ? c.slice(0, sp) : c; };
+// The last n characters, from a word's start.
+const cutEnd = (t, n) => { const s = String(t || ''); if (s.length <= n) return s; const c = s.slice(-n); const sp = c.search(/\s\S/); return sp >= 0 && sp < n * 0.2 ? c.slice(sp + 1) : c; };
+const bodyOf = (t) => { const s = String(t || ''); return s.length <= BODY_CHARS ? s : `${cut(s, BODY_HEAD)}\n${cutEnd(s, BODY_TAIL)}`; };
 
 // One email → one training example. aiFacts: what the model read (analyze with keepAiFacts); people:
 // mime.readMessage's people; mailbox: the recipient; label: 1 phishing, 0 genuine.
@@ -215,7 +222,7 @@ function deidentify(aiFacts, { people = {}, mailbox = '', orgDomains = [], label
         senderAddress: sender ? `${E.isSharedMailbox(sender) ? local : 'sender'}@${replaceOrg(domain, orgDomains)}` : '',
         auth: f.auth && f.auth.dmarc ? Object.assign({ dmarc: f.auth.dmarc }, /^(fail|softfail|permerror)$/.test(f.auth.spf || '') ? { spf: f.auth.spf } : {}, /^(fail|permerror)$/.test(f.auth.dkim || '') ? { dkim: f.auth.dkim } : {}) : null,
         links: (f.links || []).slice(0, 8).map(l => ({ text: clean(cut(l.text, 60)), host: replaceOrg(l.host || '', orgDomains), destHost: replaceOrg(l.destHost || '', orgDomains), finding: clean(NO_TRAINING_RE.test(l.finding || '') ? '' : l.finding || '', { names: false, mark: false }) })),
-        bodyText: clean(cut(f.bodyText, BODY_CHARS))
+        bodyText: clean(bodyOf(f.bodyText))
     };
     if (f.org) out.org = f.org;
     // Input format 2's facts, with nothing personal: the identity is a brand's name and yes/no answers; Reply-To
@@ -305,4 +312,4 @@ function problems(x, { final = false } = {}) {
     return out;
 }
 
-module.exports = { deidentify, pickRecords, example, noteFor, toJsonl, problems, BODY_CHARS, COMMON };
+module.exports = { deidentify, pickRecords, example, noteFor, toJsonl, problems, BODY_CHARS, BODY_HEAD, BODY_TAIL, COMMON };

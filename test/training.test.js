@@ -34,7 +34,7 @@ const INSIDE = [`From: "Riley Exemplar" <riley.exemplar@${ORG}>`, `To: "Jordan F
 async function example(raw, label, mailbox = ME) {
     const facts = await readMessage(Buffer.from(raw));
     const r = await analyze(facts, { mailbox, orgDomains: [ORG], keepAiFacts: true });
-    return T.deidentify(r.aiFacts, { people: facts.people, mailbox, orgDomains: [ORG], label });
+    return T.deidentify(Object.assign({}, r.aiFacts, { bodyText: String(facts.visibleText || '') }), { people: facts.people, mailbox, orgDomains: [ORG], label });
 }
 const all = (f) => JSON.stringify(f) + E.modelInputText(f);
 
@@ -83,7 +83,7 @@ test('an outside phishing sender\'s name is kept for the model, but names in it 
     assert.match(credit.subject, /^your name! Apply/);
 });
 
-test('everyday words in made-up phishing and genuine mail are not marked; the text is cut to what the model reads', async () => {
+test('everyday words in made-up phishing and genuine mail are not marked; the whole body is kept (0.5.56), a very long one its start and its end', async () => {
     // (newvendor and colleague are signed with a person's name on purpose: the export marks it, as it should;
     // spanish is left out of the export: the model reads English only)
     for (const t of campaignTemplates().filter(x => !['newvendor', 'colleague', 'spanish'].includes(x.id))) {
@@ -93,7 +93,13 @@ test('everyday words in made-up phishing and genuine mail are not marked; the te
     }
     const long = ['From: "News" <news@bulletins.example>', `To: ${ME}`, 'Subject: Weekly news', 'Content-Type: text/plain', '', 'The library is open late this week. '.repeat(100)].join('\r\n');
     const f = await example(long, 0);
-    assert.ok(f.bodyText.length <= T.BODY_CHARS && f.bodyText.length > T.BODY_CHARS * 0.8, String(f.bodyText.length));
+    assert.ok(f.bodyText.length > 3500 && /^The library is open late/.test(f.bodyText) && /this week\.$/.test(f.bodyText.trim()), `the whole body: ${f.bodyText.length}`);
+    // Longer than BODY_CHARS (the service reads at most about 20,000 characters of a text, src/engine/html.js
+    // MAX_TEXT, so only in case that changes): its first BODY_HEAD and last BODY_TAIL characters, each cut at a word.
+    const huge = 'Opening note about the week. ' + 'The library is open late this week. '.repeat(700) + 'Reply to the front office about the closing request.';
+    const h = T.deidentify({ subject: 'Weekly news', senderName: 'News', senderAddress: 'news@bulletins.example', bodyText: huge, links: [] }, { mailbox: ME, orgDomains: [ORG], label: 0 });
+    assert.ok(h.bodyText.length <= T.BODY_CHARS + 1 && h.bodyText.length > T.BODY_CHARS * 0.9, String(h.bodyText.length));
+    assert.ok(/^Opening note about the week\./.test(h.bodyText) && /Reply to the front office about the closing request\.$/.test(h.bodyText.trim()), 'its start and its end');
 });
 
 test('the check: marks, addresses, numbers and a "text" field are refused; with --final, placeholders too', async () => {
