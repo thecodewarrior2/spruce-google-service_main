@@ -10,7 +10,7 @@ const bool = (v, d) => (v === undefined || v === '' ? d : /^(1|true|yes|on)$/i.t
 // The settings an admin can also change on the dashboard (Settings → Policy, Settings → Allowlist). They read from a live
 // copy that only setPolicyValues changes (src/pipeline.js: refreshPolicy, setPolicy); envPolicy keeps what
 // the environment (deploy/settings.env) says. The rest of the configuration is frozen.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'retentionDays', 'watchScope'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope'];
 function withLivePolicy(c) {
     const envPolicy = Object.freeze(Object.fromEntries(POLICY_KEYS.map(k => [k, c[k]])));
     const live = Object.assign({}, envPolicy);
@@ -60,6 +60,10 @@ function loadConfig(env = process.env) {
         // Never moved, whatever the checks say.
         allowDomains: list(env.ALLOW_DOMAINS),
         allowAddresses: list(env.ALLOW_ADDRESSES),
+        // (0.5.73) Link sites a phishing list's listing of the whole domain doesn't flag (a newsletter's click
+        // tracker listed by mistake): only a listing of the exact page does, as for your own domains. Every
+        // sender's mail; the other checks (Cloudflare, Safe Browsing, where a link leads) still apply.
+        allowLinkDomains: list(env.ALLOW_LINK_DOMAINS),
         // The brakes (pipeline.js). The domain-wide one: more moves than this in an hour stops moving
         // until an admin resumes; 0 or unset = half the watched mailboxes, at least 100 (a misfire on
         // many unrelated emails, not one large campaign). The campaign one: copies of one campaign moved

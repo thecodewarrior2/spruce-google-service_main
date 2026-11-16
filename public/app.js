@@ -870,7 +870,8 @@
         const d = await settingsData();
         return [h('h1', { text: 'Allowlist' }), h('p', { class: 'sub', text: 'Senders whose mail is never moved or marked suspicious, whatever the checks find, as long as Gmail\'s DMARC check passes for them (a forged address is judged like any other). Each change needs the Google Cloud project ID, and is noted in Status → Activity → What admins did.' }),
             h('div', { class: 'alert warning' }, h('div', {}, h('b', { text: 'Add only senders you trust. ' }), 'If one of their accounts is taken over, the phishing it sends isn\'t caught. Your own domains can\'t be added: a staff account taken over would never be moved. Single addresses in them can.')),
-            policyCard(d, ALLOW_ROWS, 'Allowlisted senders', 'A change applies within 30 seconds and is noted in Status → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.')];
+            h('p', { class: 'sub', text: 'Link domains are different: not senders, but link sites a phishing list flagged by mistake (a newsletter\'s click tracker). A list that names their whole domain no longer flags their links, in anyone\'s mail; a list naming the exact page still does, and Cloudflare, Safe Browsing and where each link leads are checked as before. The email shows a note saying the listing wasn\'t counted. Emails already checked keep their verdict: Re-scan one to check it again.' }),
+            policyCard(d, ALLOW_ROWS, 'Allowlist', 'A change applies within 30 seconds and is noted in Status → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES; ALLOW_LINK_DOMAINS only in the services\' environment) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.')];
     }
     // Settings → Mailboxes (0.5.53): who is checked (the pilot, the default, or the whole domain, switched here with
     // a ticked box, the project ID and the admin's own address), and the mailboxes watched, a page of 100 at a time
@@ -1578,9 +1579,11 @@
     };
     const ALLOW_ROWS = [
         { key: 'allowDomains', label: 'Domains', show: (v) => entries(v, 'None. Mail from any domain is checked.') },
-        { key: 'allowAddresses', label: 'Addresses', show: (v) => entries(v, 'None.') }
+        { key: 'allowAddresses', label: 'Addresses', show: (v) => entries(v, 'None.') },
+        // (0.5.73) Not a sender: link sites a phishing list's listing of the whole domain doesn't flag.
+        { key: 'allowLinkDomains', label: 'Link domains', show: (v) => entries(v, 'None. Every phishing list counts for every link.') }
     ];
-    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', retentionDays: 'RETENTION_DAYS' };
+    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', allowLinkDomains: 'ALLOW_LINK_DOMAINS', retentionDays: 'RETENTION_DAYS' };
     function policyCard(d, ROWS, title, sub) {
         const P = d.policy || {};
         let openKey = null;
@@ -1589,11 +1592,13 @@
             : key === 'mode' ? v : key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel' || key === 'recheck' ? (v ? 'on' : 'off') : key === 'aiThreshold' || key === 'aiSuspicious' ? pct(v) : key === 'brakePerHour' ? (v ? `${num(v)} an hour` : 'automatic') : key === 'retentionDays' ? `${num(v)} days` : v);
         const source = (key) => {
             const p = P[key] || {};
+            if (p.changed && key === 'allowLinkDomains') return `Changed here by ${p.changed.by}, ${when(p.changed.at)}.`;
             if (p.changed) return `Changed here by ${p.changed.by}, ${when(p.changed.at)}. settings.env (${ENV_NAME[key]}) says ${short(key, p.env)}.`;
             if (p.replaced) return `From settings.env (${ENV_NAME[key]}). It replaced ${short(key, p.replaced.value)}, set here by ${p.replaced.by}.`;
             // (install.sh doesn't pass these two: off unless changed here, or set in the services' environment)
             if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel') return p.env ? `On in the services' environment (${ENV_NAME[key]}).` : `Off: the default (${ENV_NAME[key]}).`;
             if (key === 'recheck') return p.env ? `On: the default (${ENV_NAME[key]}).` : `Off in the services' environment (${ENV_NAME[key]}=false).`;
+            if (key === 'allowLinkDomains') return (p.env || []).length ? `From the services' environment (${ENV_NAME[key]}).` : 'None: the default. Added here.';
             return `From settings.env (${ENV_NAME[key]}).`;
         };
         const rows = ROWS.map(r => {
@@ -1690,11 +1695,13 @@
             extra = [h('div', { class: 'choices' }, h('label', { class: 'choice' }, auto, h('span', { text: 'Automatic: half the watched mailboxes, at least 100' })),
                 h('label', { class: 'choice inline-choice' }, fixed, h('span', { text: 'A fixed limit:' }), n, h('span', { text: 'moves an hour' }))),
                 h('div', { class: 'small muted', text: 'After this many moves in one hour, moving stops everywhere until an admin resumes (Overview). Strong evidence still counts toward it.' })];
-        } else if (key === 'allowDomains' || key === 'allowAddresses') {
-            const ta = h('textarea', { rows: 8, spellcheck: 'false', autocapitalize: 'off', 'aria-label': key === 'allowDomains' ? 'Allowlisted domains, one per line' : 'Allowlisted addresses, one per line' });
+        } else if (key === 'allowDomains' || key === 'allowAddresses' || key === 'allowLinkDomains') {
+            const ta = h('textarea', { rows: 8, spellcheck: 'false', autocapitalize: 'off', 'aria-label': key === 'allowDomains' ? 'Allowlisted domains, one per line' : key === 'allowLinkDomains' ? 'Allowed link domains, one per line' : 'Allowlisted addresses, one per line' });
             ta.value = (value || []).join('\n');
             read = () => ta.value;
-            extra = [ta, h('div', { class: 'small muted', text: key === 'allowDomains' ? 'One domain per line, for example vendor.example; its subdomains count too. Not your own domains.' : 'One address per line, for example billing@vendor.example. Addresses in your own domains can be added.' })];
+            extra = [ta, h('div', { class: 'small muted', text: key === 'allowDomains' ? 'One domain per line, for example vendor.example; its subdomains count too. Not your own domains.'
+                : key === 'allowLinkDomains' ? 'One link site per line, as narrow as you can (l.vendor.example rather than vendor.example); its subdomains count too. A phishing list\'s listing of its whole domain then doesn\'t flag its links, in anyone\'s mail; a listing of the exact page still does. Not sites where anyone can put up a page, link shorteners or your own domains.'
+                : 'One address per line, for example billing@vendor.example. Addresses in your own domains can be added.' })];
         } else if (key === 'retentionDays') {
             const input = h('input', { type: 'number', min: 14, max: 365, step: 1, value: String(value), 'aria-label': 'Days records are kept', class: 'num-input' });
             const note = h('div', { class: 'small muted' });

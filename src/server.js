@@ -73,7 +73,7 @@ const POLICY_TRIES = 5, POLICY_LOCK_MS = 10 * 60 * 1000;
 // What a policy change is for, in Activity's words (a wrong project ID, 0.5.30).
 const POLICY_WHAT = { mode: 'the mode', aiThreshold: 'the AI move threshold', aiSuspicious: 'the AI suspicious line', aiScansInside: 'whether the AI reads inside mail',
     aiMovesInside: 'whether the AI alone moves inside mail', safeBrowsing: 'Google Safe Browsing (on or off)', spamhaus: 'Spamhaus (on or off)', abusech: 'abuse.ch (on or off)', suspiciousLabel: 'the Suspicious label', recheck: 're-checking delivered mail', brakePerHour: 'the brake', timeZone: 'the time zone',
-    allowDomains: 'the allowlisted domains', allowAddresses: 'the allowlisted addresses', retentionDays: 'how long records are kept', watchScope: 'who is checked (the pilot or the whole domain)' };
+    allowDomains: 'the allowlisted domains', allowAddresses: 'the allowlisted addresses', allowLinkDomains: 'the allowed link domains', retentionDays: 'how long records are kept', watchScope: 'who is checked (the pilot or the whole domain)' };
 // The project ID a policy change must be confirmed with ('' when the dashboard doesn't know it).
 const expectedProject = (cfg) => cfg.project || (cfg.demo ? DEMO_PROJECT : '');
 
@@ -527,7 +527,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const listed = q && q.get && q.get('mailboxes') ? await store.listWatched(500) : null;
             return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
                      brakeLimit: await service.brakeLimit(), campaignHoldAfter: cfg.campaignHoldAfter, alertEmail: cfg.alertEmail || '',
-                     orgDomains: cfg.orgDomains, pilotGroups: cfg.pilotGroups, pilotOu: cfg.pilotOu, pilotUsers: cfg.pilotUsers.length, watchScope: cfg.watchScope, allowDomains: cfg.allowDomains, allowAddresses: cfg.allowAddresses.length,
+                     orgDomains: cfg.orgDomains, pilotGroups: cfg.pilotGroups, pilotOu: cfg.pilotOu, pilotUsers: cfg.pilotUsers.length, watchScope: cfg.watchScope, allowDomains: cfg.allowDomains, allowLinkDomains: cfg.allowLinkDomains || [], allowAddresses: cfg.allowAddresses.length,
                      retentionDays: cfg.retentionDays, storeSubjects: cfg.storeSubjects, storeAiQuotes: cfg.storeAiQuotes, movedLabel: cfg.movedLabel,
                      model: E.modelInfo, engine: E.vendor, watched: mb.watched, demo: cfg.demo,
                      // Each watched mailbox, and when Gmail last said it changed: none since the watch

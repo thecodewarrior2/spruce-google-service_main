@@ -32,7 +32,7 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
         events: await store.listEvents(0),
         changelog: parseChangelog(read('CHANGELOG.md')).slice(0, 20),
         settings: { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, brakePerHour: cfg.brakePerHour,
-                    orgDomains: ['maple-schools.example'], pilotOu: '/Staff', pilotUsers: 0, allowDomains: [], allowAddresses: 0, retentionDays: cfg.retentionDays,
+                    orgDomains: ['maple-schools.example'], pilotOu: '/Staff', pilotUsers: 0, allowDomains: [], allowLinkDomains: [], allowAddresses: 0, retentionDays: cfg.retentionDays,
                     storeSubjects: true, storeAiQuotes: true, movedLabel: cfg.movedLabel, model: E.modelInfo, engine: E.vendor, watched: (await store.listUsers()).length, demo: true,
                     mailboxes: (await store.listUsers()).sort((a, b) => a.email.localeCompare(b.email)).map(u => ({ email: u.email, lastNotification: u.lastNotification || null, watchExpiration: u.watchExpiration || null })),
                     renew: { available: true, last: { at: now - 15 * 60 * 60 * 1000, code: 0 } },
@@ -41,7 +41,7 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
                     projectKnown: true, demoProjectId: 'demo-project',
                     policy: { mode: { value: cfg.mode, env: cfg.mode, changed: null, replaced: null }, aiThreshold: { value: cfg.aiThreshold, env: cfg.aiThreshold, changed: null, replaced: null }, aiSuspicious: { value: cfg.aiSuspicious, env: cfg.aiSuspicious, changed: null, replaced: null },
                               brakePerHour: { value: 0, env: 0, changed: null, replaced: null }, timeZone: { value: 'America/New_York', env: 'America/New_York', changed: null, replaced: null },
-                              allowDomains: { value: [], env: [], changed: null, replaced: null }, allowAddresses: { value: [], env: [], changed: null, replaced: null },
+                              allowDomains: { value: [], env: [], changed: null, replaced: null }, allowAddresses: { value: [], env: [], changed: null, replaced: null }, allowLinkDomains: { value: [], env: [], changed: null, replaced: null },
                               retentionDays: { value: cfg.retentionDays, env: cfg.retentionDays, changed: null, replaced: null } }, version: require('../package.json').version,
                     checks: { cloudflare: true, safeBrowsing: false, phishingLists: true, siteAge: true }, lists: await intel.feeds.status() }
     };

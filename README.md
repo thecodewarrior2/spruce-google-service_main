@@ -37,6 +37,11 @@ mode).
   - **Allowlisted senders and domains** are never moved (Settings → Allowlist, or `ALLOW_DOMAINS` and
     `ALLOW_ADDRESSES`). Your own domains can't be allowlisted, so a staff account taken over can still be
     caught.
+  - **Allowed link domains** (0.5.73, Settings → Allowlist, or `ALLOW_LINK_DOMAINS`) are link sites a phishing
+    list flagged by mistake, such as a newsletter's click tracker: a list's listing of their whole domain no
+    longer flags their links, in anyone's mail, and the email shows a note saying it wasn't counted. A listing
+    of the exact page still does, and Cloudflare, Safe Browsing and where each link leads are checked as
+    before. Sites where anyone can put up a page, link shorteners and your own domains can't be added.
   - **Both need DMARC to pass.** The allowlist and "inside the organization" go by the From address,
     which anyone can write. They count only when Gmail's own DMARC check passed for its domain. A
     forged allowlisted or staff address is judged like any mail from outside, and the record says so.

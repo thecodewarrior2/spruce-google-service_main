@@ -1,5 +1,5 @@
 {
   "checksLevel": 12,
-  "fingerprint": "412dc44fa1fba70db27e12510e023a6fe2c2d463c92fd12a77f0309c70074687",
-  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
+  "fingerprint": "79d7afa23cd98482b43ef58e9d4e2d8c491bd6d072a419559b8bea36a099cf79",
+  "note": "Recorded by tools/checks-level.js --cosmetic: allowed link domains (0.5.73): an admin setting, empty by default; with none allowed every email is judged as before"
 }

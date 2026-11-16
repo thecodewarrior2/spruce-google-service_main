@@ -170,8 +170,8 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 // by, at }) and applies to every instance within POLICY_REFRESH_MS. It records the settings.env value it
 // replaced (env): when settings.env later has another value for the same setting (changed, then
 // install.sh), that one is newer and applies. The most recent change wins, wherever it was made.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'retentionDays', 'watchScope'];
-const LIST_KEYS = ['allowDomains', 'allowAddresses'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope'];
+const LIST_KEYS = ['allowDomains', 'allowAddresses', 'allowLinkDomains'];
 const MAX_ALLOWED = 500;
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 // A list as kept: lower case, no repeats, sorted (from a list, or text with one per line or commas).
@@ -182,6 +182,26 @@ const MIN_KEEP_DAYS = 14, MAX_KEEP_DAYS = 365;   // retentionDays (config.js say
 const OWN_ENV = Symbol('envPolicy of this configuration');
 const sameSetting = (a, b) => (Array.isArray(a) || Array.isArray(b) ? asList(a).join(',') === asList(b).join(',')
     : typeof a === 'number' || typeof b === 'number' ? Number(a) === Number(b) : String(a) === String(b));
+// (0.5.73) Domains that can't be allowed link domains: sites where anyone can put up a page (a phishing page there
+// is listed as its own subdomain, so allowing the platform would hide all of them), link shorteners (any address
+// behind them), and suffixes under which anyone registers (co.uk). The big brands' own domains (google.com) and
+// personal mail services are never listed whole anyway (feeds.js sanitize), and cloud-storage hosts only page by
+// page (vendor/spruce/shared.js cloudStoragePage). This guards what an admin types; it judges no email.
+const OPEN_HOSTING = new Set(['github.io', 'gitlab.io', 'blogspot.com', 'wordpress.com', 'wixsite.com', 'weebly.com', 'squarespace.com', 'square.site',
+    'godaddysites.com', 'webflow.io', 'netlify.app', 'vercel.app', 'herokuapp.com', 'glitch.me', 'onrender.com', 'workers.dev', 'pages.dev', 'web.app',
+    'firebaseapp.com', 'r2.dev', 'notion.site', 'gitbook.io', 'framer.app', 'carrd.co', 'mystrikingly.com', 'jimdosite.com', 'surge.sh', 'replit.app',
+    'repl.co', 'ngrok.io', 'ngrok-free.app', 'trycloudflare.com', 'azurewebsites.net', 'cloudfront.net', 'amplifyapp.com', 'appspot.com', 'blob.core.windows.net',
+    'typeform.com', 'jotform.com', 'formstack.com', 'wufoo.com', 'canva.site', 'my.canva.site', 'linktr.ee', 'ipfs.io', 'dweb.link']);
+function linkDomainRefused(x, E) {
+    const reg = E.registrableDomain(x) || x;
+    if (OPEN_HOSTING.has(x) || OPEN_HOSTING.has(reg)) return x === reg || OPEN_HOSTING.has(x) ? `${x} hosts other people's sites: a phishing page there is listed by its own address, and allowing ${x} would hide all of them.`
+        : `${x} is a site on ${reg}, where anyone can put up a page: its links are judged as they are found.`;
+    if (E.publicShorteners.includes(x) || E.publicShorteners.includes(reg)) return `${x} is a link shortener: allowing it would let any address behind its links through.`;
+    if (/^(co|com|net|org|gov|edu|ac|ne|or|go|gob|nic|mil|sch)\.[a-z]{2}$/.test(x) || !x.includes('.')) return `${x} is a suffix many sites share, not one site.`;
+    if (E.isPersonalMailDomain(reg) || E.PROTECTED_DOMAINS.has(reg)) return `${x} is never listed whole by the phishing lists (only single pages are), so there is nothing to allow.`;
+    try { if (E.cloudStoragePage(`https://${x}/x`)) return `${x} is a cloud-storage host, where anyone can put up a page: the lists match it page by page only, so there is nothing to allow.`; } catch (e) { /* not one */ }
+    return '';
+}
 function validTimeZone(z) { try { new Intl.DateTimeFormat('en-US', { timeZone: z }); return true; } catch (e) { return false; } }
 // The value as stored, or an error (status 400) saying what is allowed. now: the settings in force, for
 // the checks between them: orgDomains (the organization's own domains, which can't be allowlisted, or a
@@ -194,10 +214,15 @@ function policyValue(key, v, now = {}) {
         const items = asList(v);
         if (items.length > MAX_ALLOWED) bad(`At most ${MAX_ALLOWED} entries.`);
         for (const x of items) {
-            const domain = key === 'allowDomains' ? x : x.split('@')[1] || '';
+            const domain = key === 'allowAddresses' ? x.split('@')[1] || '' : x;
             if (key === 'allowAddresses' && !/^[^\s@]+@[^\s@]+$/.test(x)) bad(`"${x.slice(0, 80)}" isn't an email address.`);
             if (!DOMAIN_RE.test(domain)) bad(`"${x.slice(0, 80)}" isn't a domain${key === 'allowAddresses' ? ' at the end of an address' : ''}.`);
             if (key === 'allowDomains' && orgDomains.some(d => x === d || x.endsWith(`.${d}`) || d.endsWith(`.${x}`))) bad(`${x} is your organization's own domain: it can't be allowlisted, or a staff account taken over would never be moved. Allowlist single addresses instead.`);
+            if (key === 'allowLinkDomains') {
+                if (orgDomains.some(d => x === d || x.endsWith(`.${d}`) || d.endsWith(`.${x}`))) bad(`${x} is your organization's own domain: the phishing lists already flag its links only by the exact page listed, never the whole site.`);
+                const why = linkDomainRefused(x, spruce.load());
+                if (why) bad(why);
+            }
         }
         return items;
     }
@@ -342,7 +367,9 @@ class Service {
             const was = asList(before), now = asList(value);
             const added = now.filter(x => !was.includes(x)), removed = was.filter(x => !now.includes(x));
             const part = (verb, l) => (l.length ? `${verb} ${l.length > 10 ? `${l.length} entries` : l.join(', ')}` : '');
-            return `${by} changed the allowlisted ${key === 'allowDomains' ? 'domains' : 'addresses'} on the dashboard (${how}): ${[part('added', added), part('removed', removed)].filter(Boolean).join('; ')}. Mail from them is never moved when Gmail's DMARC check passes for it.`;
+            const changes = [part('added', added), part('removed', removed)].filter(Boolean).join('; ');
+            if (key === 'allowLinkDomains') return `${by} changed the allowed link domains on the dashboard (${how}): ${changes}. A phishing list's listing of their whole domain no longer flags links to them, in anyone's mail (a listing of the exact page still does; the other link checks still apply).`;
+            return `${by} changed the allowlisted ${key === 'allowDomains' ? 'domains' : 'addresses'} on the dashboard (${how}): ${changes}. Mail from them is never moved when Gmail's DMARC check passes for it.`;
         };
         const text = LIST_KEYS.includes(key) ? listChange()
             : key === 'watchScope' ? (value === 'domain'
@@ -510,7 +537,7 @@ class Service {
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         // Judged for the recipient in the organization, if the email names one; else for the admin.
         const mailbox = (facts.to || []).find(a => this.cfg.orgDomains.includes(a.split('@')[1])) || by;
-        const result = await analyze(facts, { mailbox, orgDomains: this.cfg.orgDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(mailbox), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap() });
+        const result = await analyze(facts, { mailbox, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(mailbox), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap() });
         result.allowlistedUnverified = allowlisted && !verified;
         let decision = decide(result, this.cfg, {});
         // (a phishing-training email is let through, unchecked, on arrival: said so, 0.5.44)
@@ -588,7 +615,7 @@ class Service {
         if (!msg || !msg.raw || !msg.raw.length) fail(404, 'The email is no longer in the mailbox: its text can\'t be read.');
         const facts = await readMessage(msg.raw);
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
-        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap() });
+        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap() });
         const skipped = result.ai && result.ai.skipped;
         // (0.5.66) The whole email: every sentence of its visible text (the service reads at most about 20,000
         // characters of any email), not only the 8,000 the model is given; the model's own cut of a long text keeps
@@ -612,7 +639,7 @@ class Service {
         // The sender counts as new if it was on arrival (by now it isn't, and that would change the rules'
         // score, not the model or the checks): from the arrival's signs, kept with them after a re-scan.
         const firstTime = rec.arrival ? !!rec.arrival.firstTime : (rec.signals || []).some(x => x && x.kind === 'first-time');
-        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, trusted: allowlisted && verified, firstTime, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(rec.user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(),
+        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(rec.user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(),
             threadSize: await this.threadSizeOf(rec.user, rec.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
         const decision = decide(result, this.cfg, {});
@@ -712,7 +739,7 @@ class Service {
         // Allowlisted only with DMARC passing for the address (policy.js).
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         const threadSize = await this.threadSizeOf(user, msg.threadId, facts);
-        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
+        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
             colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), threadSize });
         result.allowlistedUnverified = allowlisted && !verified;
         const brake = alreadyMoved ? false : await this.brakeOn(now);
@@ -1482,7 +1509,7 @@ class Service {
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         // A new sender on arrival stays one (as for an admin's re-scan); unknown for mail not recorded then.
         const firstTime = before ? (before.arrival ? !!before.arrival.firstTime : (before.signals || []).some(x => x && x.kind === 'first-time')) : false;
-        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, trusted: allowlisted && verified, firstTime, intel: this.intel,
+        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime, intel: this.intel,
             colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), threadSize: await this.threadSizeOf(user, msg.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
         let decision = decide(result, this.cfg, { brake: await this.brakeOn() });
@@ -1883,7 +1910,7 @@ class Service {
                 const { rec, msg } = got;
                 const facts = await readMessage(msg.raw);
                 const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
-                const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true });
+                const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true });
                 // The model learns English only (an email clearly in another language is left out, and counted).
                 if (!result.language.english) { counts.notEnglish++; return; }
                 const label = rec.falseAlarm === false ? 1 : 0;

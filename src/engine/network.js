@@ -7,6 +7,10 @@
 //     own domains are matched by exact address only, never as a whole site or domain (as the
 //     extension's senderDomainShared: one listing of a hacked school site must not flag all staff mail);
 //   - registry dates: up to LINK_AGE_LOOKUPS unfamiliar link domains, and the sender's domain.
+// (0.5.73) An allowed link domain (Settings → Allowlist, ctx.allowLinkDomains, and its subdomains) is matched
+// against the phishing lists by exact address only, as the organization's own domains are: a listing of its
+// whole domain (a newsletter's click tracker listed by mistake) is a note of no weight, a listing of the exact
+// page still flags the link. Cloudflare, Safe Browsing, Spamhaus and where a link leads are checked as before.
 // A link any of them flags becomes "dangerous" (the extension's dangerous-links weight then counts
 // it); the sender's findings and the site ages become signs of their own. A lookup that fails or
 // is slow leaves things "not checked".
@@ -54,14 +58,19 @@ async function networkChecks(E, intel, facts, judged, ctx) {
     // addresses often send from a name with no DNS records of its own (masterpiece.example-tv.org), and then the
     // organization's domain is what can be judged.
     if (senderReg && senderReg !== senderDomain) hosts.push(senderReg);
-    const listHit = (u) => intel.feeds.urlHit(u, { exactOnly: ours(hostOf(u)) }).catch(() => null);
+    const allowed = (ctx.allowLinkDomains || []).map(d => String(d).toLowerCase());
+    const allowedLink = (h) => !!h && allowed.some(d => h === d || h.endsWith('.' + d));
+    const listHit = (u) => intel.feeds.urlHit(u, { exactOnly: ours(hostOf(u)) || allowedLink(hostOf(u)) }).catch(() => null);
+    // (What a list says of an allowed link domain's whole domain, for the note.)
+    const allowedHits = intel.feeds ? Promise.all([...new Set(web.flatMap(j => [j.url, j.finalUrl]).filter(u => u && allowedLink(hostOf(u))))]
+        .map(async u => ({ host: hostOf(u), list: await intel.feeds.urlHit(u).catch(() => null) }))) : Promise.resolve([]);
     // Spamhaus's DBL and ZRD (0.5.37; off by default): the sender's domain first, then the link sites (full
     // host names), the ones about signing in or paying first, at most 6 (src/intel/spamhaus.js; nothing when off).
     const shHosts = [...new Set(web.map(j => hostOf(j.finalUrl || j.url)).filter(h => h && signInOf.has(E.registrableDomain(h))))]
         .sort((a, b) => rank(E.registrableDomain(b)) - rank(E.registrableDomain(a)));
     const shDomains = [senderReg ? senderDomain : '', ...shHosts].filter(Boolean);
 
-    const [hostResults, urlResults, ages, senderAge, senderOnList, senderDomainListed, linkListed, shResults] = await Promise.all([
+    const [hostResults, urlResults, ages, senderAge, senderOnList, senderDomainListed, linkListed, shResults, allowedListed] = await Promise.all([
         intel.threats ? intel.threats.checkHosts(hosts) : new Map(),
         intel.threats && (!intel.threats.enabled || intel.threats.enabled.safeBrowsing) ? intel.threats.checkUrls(web.map(j => ({ url: j.finalUrl && j.finalUrl !== j.url ? j.finalUrl : j.url, text: j.text })).concat(web.filter(j => j.finalUrl && j.finalUrl !== j.url).map(j => ({ url: j.url, text: j.text })))) : new Map(),
         intel.rdap ? Promise.all(ageDomains.map(async d => ({ domain: d, days: await intel.rdap.ageDays(d).catch(() => null), signIn: signInOf.get(d) }))) : [],
@@ -69,7 +78,8 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         intel.feeds && facts.senderAddress ? intel.feeds.addressHit(facts.senderAddress).catch(() => null) : null,
         intel.feeds && senderDomain && !personal && !ours(senderDomain) ? intel.feeds.domainHit(senderDomain).catch(() => null) : null,
         intel.feeds ? Promise.all(web.map(async j => [j, (await listHit(j.finalUrl || j.url)) || (j.finalUrl && j.finalUrl !== j.url ? await listHit(j.url) : null)])) : [],
-        intel.spamhaus && shDomains.length ? intel.spamhaus.checkDomains(shDomains).catch(() => new Map()) : new Map()
+        intel.spamhaus && shDomains.length ? intel.spamhaus.checkDomains(shDomains).catch(() => new Map()) : new Map(),
+        allowedHits
     ]);
     checks.lists = !!intel.feeds;
     if (shResults.size) checks.spamhaus = shResults.size;
@@ -118,6 +128,12 @@ async function networkChecks(E, intel, facts, judged, ctx) {
     if (softened.length) {
         const s = softened[0], n = softened.length;
         signals.push({ weight: 1, kind: 'mailer-link', text: `${n === 1 ? `A link shows ${s.text} but goes` : `${n} links show another site but go`} through the click tracker of ${s.mailer} (${s.host}), the mail service that sent this email, with a clean reputation: where ${n === 1 ? 'it leads' : 'they lead'} isn't known until clicked. A warning: it takes other signs to move the email.` });
+    }
+    // (0.5.73) Listings of an allowed link domain's whole domain: not counted, said once.
+    const passed = allowedListed.filter(x => x.list && !web.some(j => j.network && [hostOf(j.url), hostOf(j.finalUrl)].includes(x.host)));
+    if (passed.length) {
+        const hosts = [...new Set(passed.map(x => x.host))], lists = [...new Set(passed.map(x => x.list))];
+        signals.push({ weight: 0, kind: 'allowed-link-domain', text: `${hosts.length === 1 ? `A link's site (${hosts[0]}) is` : `Links' sites (${hosts.slice(0, 3).join(', ')}) are`} on ${lists.join(' and ')}, but ${hosts.length === 1 ? 'it is an allowed link domain' : 'they are allowed link domains'} (Settings → Allowlist): a listing of the whole domain isn't counted. The other link checks still apply.` });
     }
     if (senderOnList) signals.push({ weight: 5, kind: 'scam-sender-list', text: `The sender's address is on a list of known scam senders (${senderOnList}).` });
     // Spamhaus (0.5.37): the sender's domain on the DBL (phishing, malware, botnet control: strong; spam: a

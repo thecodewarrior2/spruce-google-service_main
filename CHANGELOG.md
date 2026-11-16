@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.73: allowed link domains, for a link site a phishing list flagged by mistake
+
+- **False alarm:** a restaurant chain's newsletter was "would move" because HaGeZi Threat Intelligence Feeds lists its click
+  tracker's domain: all 19 of its links were "dangerous" (score 6; the AI said 0%). Allowlisting the sender would skip
+  every check of its mail. **Settings → Allowlist** now has **Link domains** (`allowLinkDomains`, a policy setting like
+  the allowlists, or `ALLOW_LINK_DOMAINS` in the services' environment): an allowed link domain and its subdomains are
+  matched against the phishing lists by exact address only, as the organization's own domains are
+  (`src/engine/network.js`). A listing of its whole domain is a note of no weight on the email ("on HaGeZi…, but it is
+  an allowed link domain: a listing of the whole domain isn't counted"); a listing of the exact page still flags the
+  link; Cloudflare Security, Safe Browsing, Spamhaus and where each link leads are checked as before. It applies to
+  every sender's mail, so it refuses sites where anyone can put up a page (github.io, netlify.app…, and any site on
+  them), link shorteners, suffixes (co.uk), domains the lists never list whole (the big brands', personal mail,
+  cloud storage) and your own domains (`linkDomainRefused` in `src/pipeline.js`). A change is noted in Status →
+  Activity. Emails already checked keep their verdict: Re-scan one to check it again. Test: `test/link-allow.test.js`.
+- **Checks level unchanged:** with no link domains allowed (the default) every email is judged as before.
+
 ## 0.5.72: a copy button by every email address; no repeated "Sent to" box in Review
 
 - **Copy an address:** in an email's view (its "From … to …" line under the subject) and in Review's list of who received
