@@ -122,6 +122,8 @@ subject: Your password expires today. from: "Microsoft 365 Security" at micros0f
 | Your organization's domains (in addresses, links and text) | `[OUR-DOMAIN]` |
 | Email addresses | `address at` and the domain |
 | Phone numbers, and long numbers (accounts, cards, student IDs, codes) | `phone number`, `number` |
+| (0.5.68) 5- and 6-digit numbers (student IDs, ZIP codes), a card's last digits ("ending in 4411"), codes of letters and 4 or more digits (payment references, licence numbers) | `number` |
+| (0.5.68) Street addresses ("4417 N 9th Ave") | `street address` |
 | The middle of a text longer than 20,000 characters (a very long newsletter) | cut, as the service reads it: its first 15,000 and last 4,999 are kept |
 
 An outside phishing sender's name is kept: attackers choose it, and it is part of the trick ("Microsoft
@@ -136,7 +138,10 @@ with `[OUR-DOMAIN]`, keeping the look-alike shape.
 These are words that may be names, and nobody has decided yet:
 - capitalized words in the middle of a sentence that aren't everyday words;
 - common first names and surnames, and unusual words, at the start of a sentence or in a headline;
-- your organization's own name (`⟦Maple⟧` from `maple-schools.example`).
+- your organization's own name (`⟦Maple⟧` from `maple-schools.example`);
+- (0.5.68) names written as a roster: in capitals anywhere (`⟦FAIRBANKS-OYELARAN, TOBIN⟧`), or "Last, First" on a line of
+  its own (`⟦Featherstone, Ilsa⟧`); a first name and an initial (`⟦Theo V.⟧`); a known first name or surname in capitals
+  and the word after it (`⟦DANIEL QUARRINGTON⟧`). A greeting with a comma ("Hello, CASEY FAIRWEATHER") becomes `[NAME]`.
 
 Brands and everyday words are usually not marked, but some are. The check (steps 2 and 4) refuses a
 file with a mark left.

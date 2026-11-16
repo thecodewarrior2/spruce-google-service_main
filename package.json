@@ -1,6 +1,6 @@
 {
   "name": "spruce-gmail-service",
-  "version": "0.5.67",
+  "version": "0.5.68",
   "installLevel": 5,
   "checksLevel": 10,
   "private": true,

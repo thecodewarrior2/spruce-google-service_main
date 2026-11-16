@@ -111,7 +111,7 @@ function replaceOrg(text, orgDomains) {
 // Names after a title, in greetings and after sign-offs: [NAME] (unless the "name" is a common word:
 // "Don't Miss Out", "Dear Valued Customer", "Thanks! Click here").
 const TITLE_RE = new RegExp(`(^|[^\\p{L}])(Mr|Mrs|Ms|Miss|Mx|Dr|Prof|Coach)(\\.?[ \\t]+)(${CAP}(?:[ \\t]+${CAP})?)`, 'gu');
-const GREET_RE = new RegExp(`(^|[^\\p{L}])(Hi|Hello|Hey|Dear|Good morning|Good afternoon|Good evening|Greetings)([ \\t]+)(${CAP}(?:[ \\t]+${CAP})?)`, 'gu');
+const GREET_RE = new RegExp(`(^|[^\\p{L}])(Hi|Hello|Hey|Dear|Good morning|Good afternoon|Good evening|Greetings)(,?[ \\t]+)(${CAP}(?:[ \\t]+${CAP})?)`, 'gu');
 const SIGN_RE = new RegExp(`(^|[^\\p{L}])(Thank you|Thanks|Many thanks|Best regards|Kind regards|Warm regards|Best wishes|All the best|Regards|Sincerely|Respectfully|Cheers|Best|Take care|Warmly)(\\s*[,!.—–-]+\\s*|\\s*\\n\\s*)(${CAP}(?:\\s+${CAP}){0,2})`, 'gu');
 function namedPhrases(text) {
     const keepCommon = (pre, lead, sep, run, okSet) => {
@@ -124,6 +124,31 @@ function namedPhrases(text) {
         .replace(TITLE_RE, (m, pre, t, sep, run) => keepCommon(pre, t, sep, run) || m)
         .replace(GREET_RE, (m, pre, g, sep, run) => keepCommon(pre, g, sep, run, GREETING_OK) || m)
         .replace(SIGN_RE, (m, pre, s, sep, run) => keepCommon(pre, s, sep, run) || m);
+}
+
+// (0.5.68) What the export missed in a district's file: names written as a roster ("FAIRBANKS-OYELARAN, TOBIN", "Featherstone,
+// Ilsa Marie" on a line of its own), a first name and an initial ("Theo V."), and names in capitals ("DANIEL
+// QUARRINGTON", in markNames). They are ⟦marked⟧ for a person to decide.
+const ROSTER_CAPS_RE = /(?<![\p{L}\p{N}⟦])(\p{Lu}{2,}(?:[-'’ ]\p{Lu}{2,})?), (\p{Lu}{3,}(?: \p{Lu}{3,})?(?: \p{Lu}\b\.?)?)(?![\p{L}\p{N}])/gu;
+const ROSTER_LINE_RE = /^([ \t]*)(\p{Lu}[\p{Ll}'’-]+(?:[- ]\p{Lu}[\p{Ll}'’-]+)?(?: Jr\.?)?), (\p{Lu}[\p{L}'’-]+(?: \p{Lu}[\p{L}'’-]*\.?){0,2})[ \t]*$/gmu;
+const INITIAL_RE = /(?<![\p{L}\p{N}⟦])(\p{Lu}\p{Ll}{1,}) (\p{Lu})\.(?=\s|$)/gu;
+function namePatterns(text) {
+    const common = (w) => COMMON.has(String(w).toLowerCase());
+    return String(text)
+        .replace(ROSTER_CAPS_RE, (m, a, b) => (common(a) && common(b.split(' ')[0]) ? m : `${OPEN}${m}${CLOSE}`))
+        .replace(ROSTER_LINE_RE, (m, sp, a, b) => (common(a) || common(b.split(' ')[0]) ? m : `${sp}${OPEN}${a}, ${b}${CLOSE}`))
+        .replace(INITIAL_RE, (m, a, b) => (common(a) || EVERYDAY.has(a.toLowerCase()) ? m : `${OPEN}${a} ${b}.${CLOSE}`));
+}
+// (0.5.68) Taken out of the text as well (the model's own redaction keeps them): a street address, a 5- or 6-digit
+// number (a student ID, a ZIP code), the last digits of a card ("ending in 4411") and a code of letters and 4 or more
+// digits (a payment reference, a licence number: Q50318XK, FL-Q093175).
+const STREET_RE = /\b\d{1,6}[ \t]+(?:[NSEW]\.?[ \t]+)?(?:[\p{L}\d][\p{L}\d.'’-]*[ \t]+){0,3}(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Place|Pkwy|Parkway|Hwy|Highway|Cir|Circle|Ter|Terrace|Trl|Trail)\b\.?/gu;
+function redactMore(text) {
+    return String(text)
+        .replace(STREET_RE, 'street address')
+        .replace(/\b(ending in|ends in|ending with|last (?:4|four)(?: digits)?(?: of)?)(\s*:?\s*)\d{3,4}\b/gi, '$1$2number')
+        .replace(/\b(?=[A-Z0-9-]*\d[A-Z0-9-]*\d[A-Z0-9-]*\d[A-Z0-9-]*\d)(?=[A-Z0-9-]*[A-Z])[A-Z0-9][A-Z0-9-]{5,}[A-Z0-9]\b/g, 'number')
+        .replace(/(?<![\p{L}\p{N}.,$-])\d{5,6}(?![\p{L}\p{N}]|[.,]\d)/gu, 'number');
 }
 
 // Other capitalized words that may be names: ⟦marked⟧ for a person to decide. In a sentence, a
@@ -156,7 +181,9 @@ function markNames(text, domains, ownNames, lower) {
             const base = w.replace(/['’](?:s|ve|re|ll|d|m)$/iu, '').replace(/n['’]t$/iu, '').replace(/[-'’]+$/u, '');
             const l = base.toLowerCase();
             let mark = false;
-            if (!/^\p{Lu}/u.test(w) || base.length < 3 || base === base.toUpperCase()) mark = false;
+            if (!/^\p{Lu}/u.test(w) || base.length < 3) mark = false;
+            // (0.5.68) In capitals: a known name ("ROBERT"), or the word right after a marked one ("QUARRINGTON").
+            else if (base === base.toUpperCase()) mark = !COMMON.has(l) && !EVERYDAY.has(l) && !lower.has(l) && (NAMES.has(l) || next);
             else if (ownNames.has(l)) mark = true;          // the organization's own name (maple from maple-schools.example)
             else if (!COMMON.has(l) && !lower.has(l) && !l.split(/[-'’]/).every(p => COMMON.has(p)) && !domains.some(d => d.includes(l))) {
                 mark = next || (first || headline ? NAMES.has(l) || !V.has(l) : true);
@@ -208,12 +235,14 @@ function deidentify(aiFacts, { people = {}, mailbox = '', orgDomains = [], label
     // The organization's own name, from its domains (maple-schools.example → maple): always marked.
     const ownNames = new Set(orgDomains.flatMap(d => String(d).toLowerCase().split('.').slice(0, -1)).flatMap(x => x.split('-')).filter(x => x.length >= 3 && !COMMON.has(x) && !/^(k12|edu|org|net|com|gov|us)$/.test(x)));
     const clean = (text, { names = true, mark = true } = {}) => {
-        let t = E.redactForAi(String(text || ''));
+        let t = redactMore(E.redactForAi(String(text || '')));
         t = replaceOrg(t, orgDomains);
         if (me) t = E.maskRecipient(t, me.split('@')[0]);
         for (const [n, by] of ordered) t = replaceName(t, n, by);
         if (names) t = namedPhrases(t);
-        if (mark) t = markNames(t, domains, ownNames, lower);
+        if (mark) t = markNames(namePatterns(t), domains, ownNames, lower);
+        // (a mark inside a mark becomes one: ⟦Featherstone, ⟦Ilsa⟧⟧ → ⟦Featherstone, Ilsa⟧)
+        if (mark) for (let k = 0; k < 4 && /⟦[^⟧]*⟦/u.test(t); k++) t = t.replace(/⟦([^⟦⟧]*)⟦/gu, '⟦$1').replace(/⟧([^⟦⟧]*)⟧/gu, '$1⟧');
         return t;
     };
     const local = sender.split('@')[0], domain = sender.split('@')[1] || '';

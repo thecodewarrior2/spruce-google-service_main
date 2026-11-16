@@ -253,3 +253,25 @@ test('the retraining export keeps input format 2\'s facts without anything perso
     assert.equal(out.attachments[0].name, 'file.pdf.html');
     assert.ok(!JSON.stringify(out).includes('Jordan'), JSON.stringify(out));
 });
+
+// (0.5.68) What the export missed in a district's file, made up here: a roster of names in capitals or "Last, First"
+// lines, a first name and an initial, a name in capitals alone on a line, a greeting with a comma, a 6-digit student
+// number, a card's last digits, payment and licence codes, a street address. Each is marked or taken out.
+test('the export marks roster names, names in capitals and "First L.", and takes out IDs, card digits, codes and street addresses', () => {
+    const body = ['Hello, MARTHA QUILL', '', 'I am looking for the following records:', 'FAIRBANKS-OYELARAN, TOBIN 12/7/2023 IEP', 'WINTERHALT, MAREN E 1/16/2025 IEP',
+        'In addition, the record for LOCKWELL, SIDNEY E, please.', 'Wind Ensemble to Band Room:', 'Featherstone, Ilsa Marie', 'Pembury, Dorian G.', '', 'DANIEL QUARRINGTON',
+        'Congratulations! You reset your password.', 'Most time browsing: Theo V. and Wren Q.', 'Student number in question is 730561.',
+        'We received payment from your card ending in 4411. Payment reference Q50318XK. Agent License #: FL-Q093175.', 'Shipping address: 4417 N 9th Ave, Cedarville.',
+        'Your invoice is ready. Please pay by Friday. The library is open late this week.'].join('\n');
+    const f = T.deidentify({ subject: 'Records request', senderName: 'Auditor', senderAddress: 'auditor@state-office.example', bodyText: body, links: [], org: 'outside' },
+        { mailbox: ME, orgDomains: [ORG], label: 0 });
+    const b = f.bodyText;
+    for (const name of ['FAIRBANKS-OYELARAN, TOBIN', 'WINTERHALT, MAREN E', 'LOCKWELL, SIDNEY E', 'Featherstone, Ilsa Marie', 'Pembury, Dorian G.', 'DANIEL QUARRINGTON', 'Theo V.', 'Wren Q.'])
+        assert.ok(b.includes(`⟦${name}⟧`), `${name} marked: ${b}`);
+    assert.ok(!/⟦[^⟧]*⟦/.test(b), 'no mark inside a mark');
+    assert.match(b, /^Hello, \[NAME\]/);
+    for (const gone of ['MARTHA', 'QUILL', '730561', '4411', 'Q50318XK', 'Q093175', '4417 N 9th Ave']) assert.ok(!b.includes(gone), `${gone} taken out: ${b}`);
+    assert.match(b, /Student number in question is number\./); assert.match(b, /card ending in number/); assert.match(b, /Shipping address: street address/);
+    assert.match(b, /Your invoice is ready\. Please pay by Friday\. The library is open late this week\./, 'ordinary text untouched');
+    assert.ok(T.problems({ name: 'x', label: 0, facts: f }).some(p => /marked/.test(p)), 'the check refuses it until a person decides');
+});

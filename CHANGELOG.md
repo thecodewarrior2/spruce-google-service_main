@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.68: the retraining export catches names in capitals, rosters, IDs and addresses
+
+- **What a district's file showed the export missed** (`src/training.js`): students' names in a records request written
+  "LAST, FIRST" in capitals, a class roster of "Last, First" lines, a first name and an initial ("Theo V.") in a
+  classroom tool's summary, customers' names in capitals in insurance and card emails ("DANIEL QUARRINGTON", "Hello, CASEY
+  FAIRWEATHER"), a 6-digit student number, a card's last four digits, a payment reference and an agent's licence number,
+  and a street address in a shipping confirmation. Now:
+  - **⟦marked⟧ for a person to decide:** names written as a roster (in capitals anywhere; "Last, First" on a line of
+    its own), a first name and an initial, and a known first name or surname in capitals with the word after it;
+    a mark inside a mark becomes one;
+  - **[NAME]:** a greeting with a comma ("Hello, CASEY FAIRWEATHER");
+  - **taken out:** 5- and 6-digit numbers, a card's last digits, codes of letters and 4 or more digits (`number`), and
+    street addresses (`street address`).
+- Nothing about how mail is judged changes. Test: `test/training.test.js`. Docs: `docs/RETRAINING.md`.
+
 ## 0.5.67: phish-tiny 0.21.0, a long email's last sentences reach the model
 
 - **The AI model is phish-tiny 0.21.0** (TinyPhishLLM `7e61482`, `vendor/spruce/VENDOR.json` `modelSource`): 0.20.0's
