@@ -652,7 +652,23 @@ function foldName(s) {
 
 // The brand a sender's display name claims, or null. A capital I (Latin, Greek or Cyrillic), "1" or "|"
 // standing in for an "l" counts too ("PayPaI", "ΑppІe"): in most fonts they can't be told apart.
-function displayNameBrand(displayName) {
+// (5.94.36 / 0.5.65) A personal account's own address (or its mail service's domain) written in its name
+// ("1jo.doe@gmail.com Jo" from 1jo.doe@gmail.com) claims nothing: gmail.com there is only where the account is. It is taken out
+// before the name is read for a brand. An address of another domain in the name still counts ("security@google.com"
+// from a stranger's domain).
+function nameWithoutOwnAddress(displayName, address) {
+    const at = String(address || '').toLowerCase().replace(/^.*@/, '').replace(/[>\s]+$/, '');
+    const own = (at && registrableDomain(at)) || at;
+    // Only a personal mail service's (gmail.com, outlook.com…): there the provider's name is never a claim. A company
+    // domain in its own name ("Amazon.de" from amazon.de, "service@paypal.cm" from paypal.cm) still claims its brand.
+    if (!own || !isPersonalMailDomain(own)) return String(displayName || '');
+    const mine = (d) => { const x = String(d || '').toLowerCase().replace(/\.$/, ''); return !!x && ((registrableDomain(x) || x) === own); };
+    return String(displayName || '')
+        .replace(/[^\s<>()"',;:\[\]]+@([a-z0-9-]+(?:\.[a-z0-9-]+)+)/gi, (m, d) => (mine(d) ? ' ' : m))
+        .replace(/\b([a-z0-9-]+(?:\.[a-z0-9-]+)+)\b/gi, (m, d) => (/\./.test(d) && mine(d) ? ' ' : m));
+}
+function displayNameBrand(displayName, address) {
+    if (address) displayName = nameWithoutOwnAddress(displayName, address);
     const found = displayNameBrandIn(displayName);
     if (found) return found;
     const asL = String(displayName || '').replace(/[IΙІӀ1|]/g, 'l');
@@ -740,7 +756,7 @@ function nameAddressSigns(name, address, own, colleagues, ownership) {
     const out = [];
     const domain = domainOfAddress(address);
     if (!name || !domain || (own && isOwnDomain(domain, own))) return out;
-    const claimed = displayNameBrand(name);
+    const claimed = displayNameBrand(name, address);
     if (claimed && !senderDomainOwnedBy(claimed, domain)) {
         const shown = String(name).trim().slice(0, 60);
         const reg = registrableDomain(domain) || domain;
@@ -786,7 +802,7 @@ function aiSenderIdentity(displayName, address, { own = [], colleagues = null, o
     const inside = [].concat(own || []).some(o => o && isOwnDomain(domain, String(o).toLowerCase()));
     if (inside) return null;
     const out = {};
-    const claimed = displayNameBrand(displayName);
+    const claimed = displayNameBrand(displayName, address);
     if (claimed) {
         const reg = registrableDomain(domain) || domain;
         out.brand = claimed.name;

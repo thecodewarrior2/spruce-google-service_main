@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.65: a personal account's own address in its name is no claim to be Google
+
+- **False alarm:** a parent writing from a Gmail account whose name shows its own address ("1Jo.Doe@gmail.com 27jodoe")
+  got "The sender's name says … but … isn't Google's address" (5): the word "gmail" in the name read as a claim to be
+  Google. A personal mail service's own address (or its domain) written in the sender's name is now taken out before
+  the name is read for a brand (`nameWithoutOwnAddress` in `vendor/spruce/shared.js`, as in the S.P.R.U.C.E+
+  extension 5.94.36). "Google Security" from a Gmail account still counts, as does another domain's address in the
+  name, and a company domain in its own name ("Amazon.de" from amazon.de). Test: `test/ownership.test.js`.
+- **Checks level 9:** after this update, recent delivered mail is checked again.
+
 ## 0.5.64: whose a sender's domain is, from public records
 
 - **False alarm:** "The sender's name says "Xoom, a PayPal Service", but noreply@service.xoom.com isn't PayPal's

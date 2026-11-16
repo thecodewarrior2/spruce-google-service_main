@@ -90,3 +90,15 @@ test('in the email\'s verdict: "Xoom, a PayPal Service" from a domain shown to b
     assert.deepEqual(brandSign(await judge('noreply@xoom-transfers.example', intelWith('unknown'))), [5]);
     assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', null)), [5], 'without the lookups: as before');
 });
+
+// (0.5.65) A personal account's own address in its name ("1Jo.Doe@gmail.com 27jodoe" from that Gmail address, a
+// parent writing to a teacher) claims nothing: it named Google before. A personal account calling itself Google
+// still counts. Made-up names and addresses.
+test('a personal account\'s own address in its name is no claim to be Google; "Google Security" from it still is', async () => {
+    const raw = (name, from) => Buffer.from([`From: "${name}" <${from}>`, 'To: pat@maple-schools.example', 'Subject: Field trip tomorrow', 'Message-ID: <p1@mail.gmail.com>',
+        'Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=gmail.com', 'Content-Type: text/plain; charset=utf-8', '', 'Hello, can you tell me where the field trip is tomorrow?'].join('\r\n'));
+    const judge = async (name, from) => analyze(await readMessage(raw(name, from)), { mailbox: 'pat@maple-schools.example', orgDomains: ['maple-schools.example'], readAttachments: false });
+    const google = (r) => r.signals.filter(s => /Google's/.test(s.text || '')).map(s => s.weight);
+    assert.deepEqual(google(await judge('1Jo.Doe@gmail.com 27jodoe', '1jo.doe@gmail.com')), []);
+    assert.deepEqual(google(await judge('Google Security', '1jo.doe@gmail.com')), [5]);
+});

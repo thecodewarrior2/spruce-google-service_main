@@ -55,7 +55,7 @@ async function senderOwnership(E, facts, intel) {
     if (!intel || !intel.ownership) return null;
     const domain = String(facts.senderAddress || '').toLowerCase().split('@')[1] || '';
     let claimed = null;
-    try { claimed = E.displayNameBrand(facts.senderName); } catch (e) { claimed = null; }
+    try { claimed = E.displayNameBrand(facts.senderName, facts.senderAddress); } catch (e) { claimed = null; }
     if (!domain || !claimed || E.senderDomainOwnedBy(claimed, domain)) return null;
     let timer;
     const late = new Promise(r => { timer = setTimeout(() => r(null), OWNERSHIP_WAIT_MS); });
