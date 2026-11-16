@@ -1,0 +1,13 @@
+<svg role="img" aria-label="S.P.R.U.C.E" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+<path d="M64 8 L108 23 V60 C108 87 90 106 64 120 C38 106 20 87 20 60 V23 Z" fill="#261A3D" stroke="#EAF4F0" stroke-width="4" stroke-linejoin="round"/>
+<g fill="none" stroke-linecap="round">
+  <circle cx="62" cy="60" r="26" stroke="#EAF4F0" stroke-width="7"/>
+  <line x1="81" y1="79" x2="87" y2="85" stroke="#EAF4F0" stroke-width="9"/>
+</g>
+<g fill="#5BD6B3">
+  <circle cx="62" cy="47" r="5"/>
+  <circle cx="55.5" cy="58.5" r="5"/><circle cx="68.5" cy="58.5" r="5"/>
+  <circle cx="49" cy="70" r="5"/><circle cx="62" cy="70" r="5"/><circle cx="75" cy="70" r="5"/>
+</g>
+<path d="M92 27 V43 M84 35 H100" stroke="#F2B544" stroke-width="6.5" stroke-linecap="round" fill="none"/>
+</svg>

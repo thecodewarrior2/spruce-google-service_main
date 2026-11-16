@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.71: the dashboard shows the S.P.R.U.C.E logo
+
+- **The dashboard's logo and browser-tab icon** are now the S.P.R.U.C.E shield (the magnifying glass over the spruce,
+  as in the S.P.R.U.C.E+ extension's `branding/icon.svg`), in place of a generic shield with a tick: `public/icon.svg`,
+  used by the header and as the page's icon (`public/index.html`). No checks change.
+
 ## 0.5.70: a government agency's bulletin through GovDelivery is no false alarm
 
 - **False alarm:** "IRS Newswire" <irs@service.govdelivery.com> got "isn't a known IRS address, though govdelivery.com
