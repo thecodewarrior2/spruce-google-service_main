@@ -91,3 +91,35 @@ test('in the service: a training email is let through unchecked, counted, never 
     assert.ok(notes.some(t => /removed the phishing-training rule "KnowBe4"/.test(t)));
     assert.ok(notes.every(t => !t.includes(TOKEN)));
 });
+
+// (0.5.61) Editing a rule in place: the same id; the secret value kept unless a new one is typed or it is removed;
+// a new header needs the value typed again (it is hashed with the header); still never a header alone.
+test('editing a rule: name, header, addresses; the secret value kept, replaced or removed; a header alone still refused', async () => {
+    const store = new MemoryStore();
+    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: USER, MODE: 'enforce' });
+    const svc = new Service({ cfg, store, gmail: { labelId: async () => 'L', modify: async () => ({}), threadSize: async () => 1 }, log: { error() {}, warn() {} } });
+    const by = `it.director@${ORG}`;
+    await svc.addTrainingRule({ name: 'KnowBe4', header: 'X-PHISHTEST', ips: '147.160.167.0/26' }, by);
+    const rule = () => store.getState('phishTraining').then(s => s.rules[0]);
+    const { id } = await rule();
+    // Add the secret value, keep the addresses.
+    assert.deepEqual(await svc.editTrainingRule(id, { name: 'KnowBe4', header: 'X-PHISHTEST', value: TOKEN, ips: '147.160.167.0/26' }, by), { ok: true });
+    const r1 = await rule();
+    assert.equal(r1.id, id); assert.ok(r1.valueHash); assert.deepEqual(r1.ips, ['147.160.167.0/26']);
+    // Rename and drop the addresses: the value is kept (nothing typed).
+    assert.deepEqual(await svc.editTrainingRule(id, { name: 'KnowBe4 PST', header: 'X-PHISHTEST', value: '', ips: '' }, by), { ok: true });
+    const r2 = await rule();
+    assert.equal(r2.name, 'KnowBe4 PST'); assert.equal(r2.valueHash, r1.valueHash); assert.deepEqual(r2.ips, []);
+    const lure = raw({ headers: [`X-PHISHTEST: ${TOKEN}`] });
+    assert.equal((await sims.matchTraining(E, await readMessage(lure), await store.getState('phishTraining'))).name, 'KnowBe4 PST', 'the kept value still matches');
+    // A new header without the value typed again: refused. Removing the value with no addresses: refused (a header alone).
+    assert.match((await svc.editTrainingRule(id, { name: 'K', header: 'X-KB4TOKEN', value: '', ips: '' }, by)).error, /typed again/);
+    assert.match((await svc.editTrainingRule(id, { name: 'K', header: 'X-PHISHTEST', value: '', clearValue: true, ips: '' }, by)).error, /header name alone is public/);
+    // Removing the value with addresses: fine. An unknown id: 404. Nothing ever keeps the token.
+    assert.deepEqual(await svc.editTrainingRule(id, { name: 'K', header: 'X-PHISHTEST', clearValue: true, ips: '147.160.167.0/26' }, by), { ok: true });
+    assert.equal((await rule()).valueHash, null);
+    assert.equal((await svc.editTrainingRule('nope', { header: 'X-A', value: 'v' }, by)).status, 404);
+    const notes = (await store.listEvents(0)).filter(e => e.admin).map(e => e.text);
+    assert.ok(notes.some(t => /edited the phishing-training rule "KnowBe4" \(now "KnowBe4 PST"\): header X-PHISHTEST, secret value kept/.test(t)), notes.join('\n'));
+    assert.ok(!JSON.stringify(await store.getState('phishTraining')).includes(TOKEN) && notes.every(t => !t.includes(TOKEN)));
+});

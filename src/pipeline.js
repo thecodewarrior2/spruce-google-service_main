@@ -1767,6 +1767,24 @@ class Service {
         return this.trainingChange((cur) => { gone = cur.rules.find(x => x.id === id); return gone ? { rules: cur.rules.filter(x => x.id !== id) } : { error: 'That rule isn\'t there.', status: 404 }; }, by,
             () => `removed the phishing-training rule "${gone.name}"`);
     }
+    // (0.5.61) Edit a rule in place (same id, so its "last matched" stays): name, header, sending addresses; the
+    // secret value is kept (it is stored only as a hash of the header and the value, so a new header needs it typed
+    // again), replaced when a new one is typed, or removed (clearValue: then sending addresses are needed).
+    editTrainingRule(id, input, by) {
+        let before = null, after = null;
+        return this.trainingChange((cur) => {
+            before = cur.rules.find(x => x.id === id);
+            if (!before) return { error: 'That rule isn\'t there (another admin may have removed it). Nothing was changed.', status: 404 };
+            const header = String(input.header || '').trim();
+            const typed = typeof input.value === 'string' ? input.value.trim() : '';
+            const keep = !typed && !input.clearValue && !!before.valueHash;
+            if (keep && header.toLowerCase() !== before.header) return { error: 'The secret value is kept only as a one-way hash of the header and the value, so with a new header it has to be typed again. Nothing was changed.', status: 400 };
+            const r = sims.ruleFrom({ name: input.name, header, value: keep ? 'kept' : typed, ips: input.ips });
+            if (r.error) return { error: `${r.error} Nothing was changed.`, status: 400 };
+            after = Object.assign({}, r.rule, { id: before.id, valueHash: keep ? before.valueHash : r.rule.valueHash });
+            return { rules: cur.rules.map(x => (x.id === id ? after : x)) };
+        }, by, () => `edited the phishing-training rule "${before.name}"${after.name !== before.name ? ` (now "${after.name}")` : ''}: header ${after.headerShown}${after.valueHash ? (after.valueHash === before.valueHash ? ', secret value kept' : ', with a new secret value') : ', no secret value'}${after.ips.length ? `, from ${after.ips.length} sending address${after.ips.length === 1 ? '' : 'es'}` : ', from any address'}`);
+    }
     setTrainingDomains(text, by) {
         const d = sims.domainsFrom(spruce.load(), text);
         if (d.invalid.length) return Promise.resolve({ error: `Not a domain: ${d.invalid.slice(0, 5).join(', ')}. Nothing was changed.`, status: 400 });

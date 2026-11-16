@@ -427,6 +427,11 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (bad) return bad;
             return service.addTrainingRule({ name: body.name, header: body.header, value: body.value, ips: body.ips }, admin.email);
         },
+        'POST /api/phish-training/rule/edit': async (q, body, admin) => {
+            const bad = await projectCheck(admin, body, 'a phishing-training rule (edit it)');
+            if (bad) return bad;
+            return service.editTrainingRule(String(body.id || ''), { name: body.name, header: body.header, value: body.value, clearValue: body.clearValue === true, ips: body.ips }, admin.email);
+        },
         'POST /api/phish-training/rule/remove': async (q, body, admin) => {
             const bad = await projectCheck(admin, body, 'a phishing-training rule (remove it)');
             if (bad) return bad;

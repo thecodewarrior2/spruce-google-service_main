@@ -1963,8 +1963,10 @@
     // --- Settings → Phishing training (0.5.44) ------------------------------------------------------------
     // Training emails (KnowBe4, Wizer…) let through unchecked: header rules (a secret value and/or the vendor's
     // sending addresses) and the vendor's link domains; with instructions.
+    let editingRule = null;   // (0.5.61) the rule being edited (its id), or null
     async function phishTrainingPage() {
         const d = await api('/api/phish-training');
+        if (editingRule && !d.rules.some(r => r.id === editingRule)) editingRule = null;
         const on = d.rules.length > 0 || d.domains.length > 0;
         const link = (text, href) => h('a', { href, target: '_blank', rel: 'noopener noreferrer', text });
         const field = (label, input, note) => h('label', { class: 'project' }, h('span', { text: label }), input, note ? h('span', { class: 'small muted', text: note }) : null);
@@ -1988,6 +1990,39 @@
             catch (e) { err.textContent = e.message; }
             finally { add.disabled = false; acting--; }
         });
+        // (0.5.61) Edit a rule: its fields filled in; the secret value is kept unless a new one is typed or it is removed.
+        const editing = d.rules.find(r => r.id === editingRule) || null;
+        let editForm = null, editBusy = () => false;
+        if (editing) {
+            const eName = h('input', { type: 'text', autocomplete: 'off', value: editing.name, 'aria-label': 'Name' });
+            const eHeader = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', value: editing.header, 'aria-label': 'Header' });
+            const eValue = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: editing.hasValue ? 'unchanged (hidden): type a new one to replace it' : 'none: type one to add it', 'aria-label': 'Secret value', 'data-lpignore': 'true', 'data-1p-ignore': 'true' });
+            const eClear = h('input', { type: 'checkbox', 'aria-label': 'Remove the secret value' });
+            const eIps = h('textarea', { rows: 3, spellcheck: 'false', 'aria-label': 'Sending addresses' });
+            eIps.value = editing.ips.join('\n');
+            const eProject = projectInput();
+            const eErr = h('div', { class: 'policy-error', role: 'alert' });
+            const save = h('button', { class: 'btn primary', type: 'button' }, 'Save the rule');
+            const cancel = h('button', { class: 'btn', type: 'button', onclick: () => { editingRule = null; render(); } }, 'Cancel');
+            save.addEventListener('click', async () => {
+                eErr.textContent = ''; save.disabled = true; acting++;
+                const secret = eValue.value; eValue.value = '';           // (not left in the page)
+                try {
+                    await api('/api/phish-training/rule/edit', { method: 'POST', body: { id: editing.id, name: eName.value, header: eHeader.value, value: secret, clearValue: eClear.checked, ips: eIps.value, projectId: eProject.value } });
+                    editingRule = null; toast('Rule saved (within a minute everywhere).'); render();
+                } catch (e) { eErr.textContent = e.message; }
+                finally { save.disabled = false; acting--; }
+            });
+            editBusy = () => !!(eValue.value || eProject.value || eName.value !== editing.name || eHeader.value !== editing.header || eIps.value !== editing.ips.join('\n') || eClear.checked);
+            editForm = h('div', { class: 'policy-form sb-form', id: 'edit-rule' },
+                field('Name (for the counts and Activity)', eName), field('Header', eHeader),
+                field('Secret value', eValue, editing.hasValue ? 'Kept as it is unless you type a new one. With a new header it has to be typed again: it is kept only as a one-way hash of both.' : 'The token or custom value the vendor puts in that header.'),
+                editing.hasValue ? h('label', { class: 'small' }, eClear, ' Remove the secret value (then the sending addresses are needed)') : null,
+                field('Sending addresses (one per line; ranges allowed)', eIps, 'Gmail must have received the email from one of these. Leave empty if the vendor puts emails in the mailboxes directly: then a secret value is needed.'),
+                field('Google Cloud project ID, to confirm', eProject),
+                d.demoProjectId ? h('div', { class: 'small muted', text: `Demo mode: the project ID is ${d.demoProjectId}.` }) : null,
+                h('div', { class: 'actions' }, save, cancel), eErr);
+        }
         // The link domains.
         const domains = h('textarea', { rows: 6, spellcheck: 'false', placeholder: 'phish-vendor-domain.example\nanother-training-domain.example', 'aria-label': 'Training link domains' });
         domains.value = d.domains.join('\n');
@@ -2000,7 +2035,7 @@
             catch (e) { err2.textContent = e.message; }
             finally { saveDomains.disabled = false; acting--; }
         });
-        pageBusy = () => !!(value.value || ips.value || project.value || project2.value || domains.value !== d.domains.join('\n'));
+        pageBusy = () => !!(value.value || ips.value || project.value || project2.value || domains.value !== d.domains.join('\n') || editBusy());
         const seen = (n) => (d.seen[n] ? when(d.seen[n]) : 'not yet');
         return [serviceTitle('Phishing training', on ? 'on' : 'off', on ? 'On: training emails are let through' : 'Off: training emails are checked like any email'),
             h('p', { class: 'sub', text: 'Your phishing-training service\'s test emails (KnowBe4, Wizer and the like) are let through: not checked, not moved, not recorded, only counted, so a campaign measures whether people spot phishing without help. Off until you add a rule or domains.' }),
@@ -2015,7 +2050,10 @@
                     { name: 'Secret value', get: r => (r.hasValue ? 'set (hidden)' : 'none') },
                     { name: 'Sending addresses', get: r => (r.ips.length ? r.ips.slice(0, 3).join(', ') + (r.ips.length > 3 ? ` +${r.ips.length - 3}` : '') : 'any (direct injection works)') },
                     { name: 'Last matched', get: r => seen(r.name) },
-                    { name: '', get: r => confirmForm('Remove', '/api/phish-training/rule/remove', () => ({ id: r.id }), () => `Rule "${r.name}" removed.`) }], d.rules) : h('div', { class: 'empty', text: 'No rule yet.' }),
+                    { name: '', get: r => h('div', { class: 'actions' },
+                        h('button', { class: 'btn', type: 'button', 'aria-label': `Edit the rule ${r.name}`, onclick: () => { editingRule = r.id; render(); } }, 'Edit'),
+                        confirmForm('Remove', '/api/phish-training/rule/remove', () => ({ id: r.id }), () => `Rule "${r.name}" removed.`)) }], d.rules) : h('div', { class: 'empty', text: 'No rule yet.' }),
+                editForm ? h('h3', { text: `Edit the rule "${editing.name}"` }) : null, editForm,
                 h('h3', { text: 'Add a rule' }),
                 h('div', { class: 'policy-form sb-form' },
                     field('Vendor', preset), hint, field('Name (for the counts and Activity)', name), field('Header', header),

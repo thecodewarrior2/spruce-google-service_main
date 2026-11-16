@@ -331,8 +331,9 @@ Donate button (`DONATE_BUTTON=off` hides it).
     the day's lookups against its limit). Each change needs the project ID.
   - **Phishing training** (0.5.44; off until set): your training service's test emails (KnowBe4, Wizer…) let
     through unchecked, recognized by the vendor's header with a secret token or its sending addresses, or by all
-    their links going to the vendor's own domains; with step-by-step instructions. Each change needs the project
-    ID.
+    their links going to the vendor's own domains; with step-by-step instructions. A rule can be edited in place
+    (**Edit**, 0.5.61): its secret value is kept unless a new one is typed or it is removed. Each change needs the
+    project ID.
   - **Link clicks** (0.5.35; optional, off by default): for each email found to be phishing after it was
     delivered, Gmail's own logs (Admin SDK Reports API) tell when each person first opened it and whether
     they clicked a link in it; a click is an alert. It needs Gmail log events in your Workspace edition, the

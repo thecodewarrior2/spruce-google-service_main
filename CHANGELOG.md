@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.61: edit a phishing-training rule
+
+- **Settings → Phishing training → Header rules: Edit** beside each rule's Remove. The rule's name, header and
+  sending addresses can be changed in place (the same rule, so its counts go on). Its secret value, kept only as a
+  one-way hash, stays as it is unless a new one is typed or **Remove the secret value** is ticked; with a new header
+  it has to be typed again (the hash is of the header and the value). A rule still needs a secret value or sending
+  addresses (a header alone is public). Each change needs the project ID and is noted in Activity, never with the
+  value. `POST /api/phish-training/rule/edit`, `Service.editTrainingRule`. Test: `test/simulations.test.js`.
+
 ## 0.5.60: Review's "Ignore, treat as suspicious"
 
 - **A third decision in Email → Review** (key **I**; also on an email's own page): **Ignore, treat as suspicious**
