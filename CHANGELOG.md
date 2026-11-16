@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.55: phish-tiny 0.20.0, reads a long email's start and its end
+
+- **The AI model is phish-tiny 0.20.0** (TinyPhishLLM `9e71652`, `vendor/spruce/VENDOR.json` `modelSource`; was
+  0.19.0). Same architecture (ELECTRA-small), size, vocabulary and input format (2), but it reads a long email's
+  start and its end: an input longer than 256 word pieces keeps its first 192 and its last 62 (`model.json`
+  `config.headTokens`), not its first 254, because a long scam often asks at its end (for example an "estate sale"
+  list from a compromised staff account that ends "reply to my personal email").
+- **The cut:** `WordPiece.encode(text, maxLen, head)` in `vendor/spruce/ai.js` keeps `[CLS]`, the first `head`
+  pieces, the last `maxLen - 2 - head` and `[SEP]` when the model's `config.headTokens` is set (else the first
+  `maxLen - 2`, as before); `src/engine/model.js` passes it. `aiFacts` (`src/engine/analyze.js`) gives the model a
+  long body's first 6,000 and last 2,000 characters (was its first 8,000). A new test checks the cut.
+- **What changes**, against 0.19.0 at the service's 90% line (held-out sets, never trained on): published phishing
+  missed 75 of 771 variants → 16; synthetic phishing missed 68 of 1,500 → 16; a district's reported estate-sale
+  phishing now caught; every regression case right.
+- **Worse:** about six more genuine emails called phishing across the check sets at 90% (published genuine 3 of
+  774 → 5), mostly short account and security notices. The AI score alone still never moves mail from inside the
+  organization, and monitor mode is the default.
+- **Checks level 3:** the model and its input changed, so after this update the service checks recent delivered
+  mail again (`node tools/checks-level.js --raised`).
+
 ## 0.5.54: phish-tiny 0.19.0, far fewer false alarms on a district's own mail
 
 - **The AI model is phish-tiny 0.19.0** (TinyPhishLLM `a5e17c7`, `vendor/spruce/VENDOR.json` `modelSource`; was

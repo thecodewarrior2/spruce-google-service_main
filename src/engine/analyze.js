@@ -162,7 +162,9 @@ async function analyze(facts, ctx = {}) {
         replyTo: safeOne(() => E.aiReplyToDomains(facts.replyTo || [], facts.senderAddress)) || [],
         attachments: safeOne(() => E.aiAttachmentFacts((facts.attachmentFiles || facts.attachments || []).filter(a => !a.inline))) || [],
         links: judged.filter(j => !j.hidden).slice(0, 8).map(j => ({ text: j.text, host: hostOf(j.url), destHost: j.finalUrl && hostOf(j.finalUrl) !== hostOf(j.url) ? hostOf(j.finalUrl) : '', finding: j.severity ? j.reason : '' })),
-        bodyText: String(facts.visibleText || '').slice(0, 8000),
+        // (0.5.55) At most 8,000 characters: a longer text keeps its first 6,000 and its last 2,000, since the model
+        // (phish-tiny 0.20.0) reads a long email's start and its end.
+        bodyText: (t => t.length > 8000 ? `${t.slice(0, 6000)}\n${t.slice(-2000)}` : t)(String(facts.visibleText || '')),
         recipient: mailbox.split('@')[0] || '',
         layout: facts.layout || [],
         mailChecks: headerSigns.map(s => s.kind).filter(Boolean)

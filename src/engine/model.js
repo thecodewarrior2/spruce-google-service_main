@@ -55,7 +55,7 @@ class Model {
             const k = crypto.createHash('sha256').update(String(t)).digest('base64');
             const hit = this.margins.get(k);
             if (hit !== undefined) { this.margins.delete(k); this.margins.set(k, hit); out[i] = hit; }
-            else todo.push({ i, k, ids: this.tok.encode(String(t), this.cfg.maxLen) });
+            else todo.push({ i, k, ids: this.tok.encode(String(t), this.cfg.maxLen, this.cfg.headTokens || 0) });
         });
         const session = todo.length ? await this.ready() : null;
         for (let s = 0; s < todo.length; s += BATCH) {

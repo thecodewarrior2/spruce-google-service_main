@@ -113,6 +113,20 @@ test('the model (0.4.0): a pass\'s answer is remembered by a hash of its input, 
     } finally { session.run = run; }
 });
 
+// (0.5.55) A text longer than the model reads: with model.json config.headTokens (phish-tiny 0.20.0) its start and
+// its end, else its start, as the model was trained (TinyPhishLLM's cut_ids).
+test('the tokenizer cuts a long text to its start and its end when the model says so (headTokens), else to its start', () => {
+    const E = require('../src/engine/spruce').load();
+    const tok = E.model.tok;
+    const text = 'Made-up notice for maple-schools.example staff. ' + Array.from({ length: 60 }, (_, k) => `Item ${k + 1} is available for ${(k + 1) * 10} dollars.`).join(' ') + ' Reply to the front office before Friday.';
+    const all = tok.encode(text, 100000);
+    assert.ok(all.length > 300, 'the sample is longer than the model reads');
+    const pieces = all.slice(1, -1);
+    assert.deepEqual(tok.encode(text, 256), [all[0], ...pieces.slice(0, 254), all[all.length - 1]], 'start only');
+    assert.deepEqual(tok.encode(text, 256, 128), [all[0], ...pieces.slice(0, 128), ...pieces.slice(pieces.length - 126), all[all.length - 1]], 'start and end');
+    assert.deepEqual(tok.encode('Short text.', 256, 128), tok.encode('Short text.', 256), 'a short text is not cut');
+});
+
 // The reference: 400 made-up inputs, their token ids, and the model's answers as TinyPhishLLM's
 // training/export-onnx.py computes them from model.bin in numpy, without ONNX (for phish-tiny 0.11.0 they
 // agreed with the JavaScript engine of 0.4.1 to 1.2e-6). It comes with the model (tools/sync-model.js).
@@ -120,7 +134,7 @@ test('the native engine (0.5.0): the same answers as an independent computation 
     const E = require('../src/engine/spruce').load();
     const ref = require('./fixtures/model-reference.json');
     assert.equal(ref.model, E.modelInfo.version, 'the reference is for this model (a new model comes with its own: node tools/sync-model.js <TinyPhishLLM folder>)');
-    ref.cases.forEach((c, i) => assert.deepEqual(E.model.tok.encode(c.text, E.model.cfg.maxLen), c.ids, `case ${i}: the tokenizer's ids`));
+    ref.cases.forEach((c, i) => assert.deepEqual(E.model.tok.encode(c.text, E.model.cfg.maxLen, E.model.cfg.headTokens || 0), c.ids, `case ${i}: the tokenizer's ids`));
     const { Model } = require('../src/engine/model');
     // (a fresh model: nothing remembered from the other tests)
     const fresh = new Model({ file: E.model.file, manifest: E.model.meta, tokenizer: E.model.tok, modelInputParts: E.model.parts });
