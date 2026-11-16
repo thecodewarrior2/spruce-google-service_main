@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.59: mail from the organization's second domain is no longer called outside
+
+- **A false alarm on an organization with two domains:** the checks that take one domain (whether the sender is
+  outside, `senderContextSigns`; a colleague's name on an outside address, `nameAddressSigns`) were given only the
+  first of `ORG_DOMAINS`. A student or staff member on the second domain writing to someone on it was "from outside
+  your organization (first domain)" and, sharing a name with someone in the directory, "the name of someone in your
+  organization on an outside address"; when the second domain looks like the first, also "from an address imitating
+  your organization's domain" (score 4, suspicious). They now take the organization's domain the address is in
+  (`ownOf` in `src/engine/analyze.js`), and one of the organization's own domains never counts as imitating another.
+  A look-alike of the domains still counts. Test: `test/colleague-context.test.js`.
+- Such mail is treated as inside only when DMARC passes for it: a domain without a DMARC record gets "none" from Gmail
+  (`docs/DEPLOY.md`, `ORG_DOMAINS`).
+- **Checks level 6:** how such mail is judged changes, so after this update the service checks recent delivered mail
+  again.
+
 ## 0.5.58: a very long email's last character is checked too
 
 - 0.5.57's reader kept a long text's first 15,000 and last 5,000 characters with a newline between them, 20,001 in

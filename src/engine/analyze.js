@@ -68,8 +68,12 @@ function senderVerified(facts) {
 async function analyze(facts, ctx = {}) {
     const E = spruce.load();
     const mailbox = String(ctx.mailbox || '').toLowerCase();
-    const org = (ctx.orgDomains || [])[0] || '';
     const senderDomain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
+    // (0.5.59) The organization's domain an address is in (any of them), else its first: the checks that take one
+    // domain (whether the sender is outside, a colleague's name on an outside address) read every domain the
+    // organization has, not only the first (mail between two of its own domains was "outside").
+    const ownOf = (address) => { const d = String(address || '').toLowerCase().split('@').pop(); return (d && (ctx.orgDomains || []).find(o => E.isOwnDomain(d, o))) || (ctx.orgDomains || [])[0] || ''; };
+    const org = ownOf(facts.senderAddress);
     // An address in the organization's own domains (as the extension sees it, for the model); "inside"
     // for the policy only when DMARC passed: a forged staff address is mail from outside.
     const ownAddress = !!senderDomain && (ctx.orgDomains || []).some(d => E.isOwnDomain(senderDomain, d));
@@ -121,7 +125,7 @@ async function analyze(facts, ctx = {}) {
         // notification (a share is never a reply). ctx.threadSize: the Gmail thread's size (pipeline.js).
         ...safe(() => (relay ? [] : fakeReplySigns(facts, { threadSize: ctx.threadSize == null ? null : Number(ctx.threadSize), outside: !inside, firstTime: !!ctx.firstTime }))),
         // Outside, and first time: for a notification, the person's (none when the notification doesn't say who).
-        ...safe(() => (relay ? (relay.address ? E.senderContextSigns(relay.address, org, !!ctx.firstTime) : []) : E.senderContextSigns(facts.senderAddress, org, !!ctx.firstTime))),
+        ...safe(() => (relay ? (relay.address ? E.senderContextSigns(relay.address, ownOf(relay.address), !!ctx.firstTime) : []) : E.senderContextSigns(facts.senderAddress, org, !!ctx.firstTime))),
         ...linkSignals(judged),
         ...att.signals,
         ...net.signals,
@@ -240,7 +244,8 @@ function colleagueInContext(E, facts, signals, ctx, bodyText) {
     const name = String(facts.senderName || '');
     const why = [];
     if (E.isPersonalMailDomain(domain)) why.push('from a personal email account');
-    if (org.some(o => { try { return E.ownDomainLookalike(domain, o); } catch (e) { return false; } })) why.push('from an address imitating your organization\'s domain');
+    // One of the organization's own domains never imitates another of them (0.5.59).
+    if (!org.some(o => E.isOwnDomain(domain, o)) && org.some(o => { try { return E.ownDomainLookalike(domain, o); } catch (e) { return false; } })) why.push('from an address imitating your organization\'s domain');
     if (signals.some(s => s && ['young-sender-domain', 'young-lookalike-sender', 'zrd-sender', 'watched-lookalike-sender', 'known-lookalike-sender'].includes(s.kind))) why.push('from a brand-new or look-alike domain');
     if (facts.auth && facts.auth.dmarc === 'fail') why.push('and Gmail\'s sender check failed for it');
     const reply = (facts.replyTo || []).find(a => at(a) && at(a) !== domain && !org.some(o => at(a) === o || at(a).endsWith(`.${o}`)));

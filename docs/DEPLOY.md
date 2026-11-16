@@ -325,7 +325,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 |---|---|---|
 | `ROLE` | `all` | `worker` or `admin` on Cloud Run |
 | `MODE` | `monitor` | `enforce` moves to Spam |
-| `ORG_DOMAINS` | none | your own domains, comma-separated |
+| `ORG_DOMAINS` | none | your own domains, comma-separated. Every one counts as your organization's (since 0.5.59 also in the checks that ask whether the sender is outside, or a colleague's name on an outside address); give each domain a DMARC record, or mail from it is not treated as inside |
 | `PILOT_GROUP` | none | which mailboxes are watched: the members of this group (or groups, separated by semicolons), with the groups inside it; only active accounts in `ORG_DOMAINS` |
 | `PILOT_OU` / `PILOT_USERS` | none | also watched: a unit with its sub-units, and/or addresses |
 | `WATCH_SCOPE` | `pilot` | who is checked (0.5.53): `pilot` (`PILOT_GROUP`, `PILOT_OU`, `PILOT_USERS`; always the default) or `domain` (every active mailbox of `ORG_DOMAINS`, from the directory: needs the Users → Read privilege and the `admin.directory.user.readonly` scope). Also on the dashboard: Settings → Mailboxes → Who is checked (a ticked box, the project ID and the admin's own address) |

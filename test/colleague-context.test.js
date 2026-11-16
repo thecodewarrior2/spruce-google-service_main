@@ -51,3 +51,21 @@ test('the rest of the checks are unchanged: the vendor\'s greeting is clean; the
     const fake = await analyze(await mail({ from: 'Misty Samplefield <misty.samplefield.1975@gmail.com>', subject: 'Are you available?', body: 'Are you available? I am in a meeting and need a quick favor. Reply with your cell number.' }), { mailbox: USER, orgDomains: [ORG], colleagues });
     assert.ok(fake.score >= 3, JSON.stringify(fake.signals.map(s => [s.kind, s.weight])));
 });
+
+// (0.5.59) An organization with two domains (maple-schools.example and mapleschools.example, which looks like the
+// first): a student or staff member on the second domain writing to someone on it is inside the organization, not an
+// outside address under a colleague's name, nor an imitation of the first domain, even when DMARC isn't published
+// for the second (Gmail says none).
+test('mail from the organization\'s second domain is not "outside", nor an imitation of its first domain', async () => {
+    const SECOND = 'mapleschools.example';
+    const ctx = { mailbox: `jo.lane@${SECOND}`, orgDomains: [ORG, SECOND], colleagues };
+    for (const dmarc of ['none', 'pass']) {
+        const r = await analyze(await mail({ from: `Misty Samplefield <misty.samplefield@${SECOND}>`, subject: 'Re:', body: 'want to sit together at lunch tomorrow', dmarc, extra: ['In-Reply-To: <r1@mapleschools.example>', 'References: <r1@mapleschools.example>'] }), ctx);
+        assert.ok(!r.signals.some(s => s.kind === 'sender-colleague-name' || s.kind === 'outside-org' || /imitating your organization/.test(s.text || '')), `${dmarc}: ${JSON.stringify(r.signals.map(s => s.text))}`);
+        assert.equal(r.signals.reduce((a, s) => a + (s.weight || 0), 0), 0, `${dmarc}: no score`);
+    }
+    // Still outside: another domain that imitates both.
+    const fake = await analyze(await mail({ from: 'Misty Samplefield <misty@maple-schools-k12.example>', subject: 'Quick favor', body: 'Are you available?' }), ctx);
+    assert.ok(fake.signals.some(s => s.kind === 'sender-colleague-name' && /imitating your organization's domain/.test(s.text)), 'a look-alike of both still counts');
+    assert.ok(fake.signals.some(s => s.kind === 'outside-org'), 'and is outside');
+});
