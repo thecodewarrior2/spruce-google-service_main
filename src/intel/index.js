@@ -4,6 +4,7 @@ const { createHttp } = require('./http');
 const { createThreats } = require('./threats');
 const { createFeeds } = require('./feeds');
 const { createRdap } = require('./rdap');
+const { createOwnership } = require('./ownership');
 const { createSafeBrowsingKey } = require('./sbkey');
 const { createDnsCheck } = require('../lookalike');
 const { createApiKey } = require('./apikey');
@@ -28,6 +29,7 @@ function createIntel({ cfg, store, engine, fetch: fetchImpl, version = '0', log 
         abusech: createApiKey({ id: 'abusech', label: 'abuse.ch', store, secrets: secretsFor.abusech, keyRe: ABUSECH_KEY_RE, test: (k) => testAbusechKey(http, k), log, offline })
     };
     spamhaus.setKey(keys.spamhaus);
+    const rdap = createRdap({ http, store, engine });
     return {
         // (always made: Safe Browsing can be turned on from the dashboard at any time)
         threats: createThreats({ http, cfg, engine, version, sbKey }),
@@ -37,7 +39,9 @@ function createIntel({ cfg, store, engine, fetch: fetchImpl, version = '0', log 
         spamhaus,
         // the phishing lists, and abuse.ch's when it is on with a key (0.5.37)
         feeds: cfg.phishingLists ? createFeeds({ http, store, engine, log, extra: () => abusechFeeds({ cfg, key: keys.abusech, http }) }) : null,
-        rdap: cfg.siteAge ? createRdap({ http, store, engine }) : null,
+        rdap: cfg.siteAge ? rdap : null,
+        // (0.5.64) Whether a sender's domain is the brand its name claims, from public records (DNS, RDAP).
+        ownership: createOwnership({ http, store, engine, rdapServer: (tld) => rdap.serverFor(tld) }),
         // the look-alike watch's lookups (0.5.36): candidate names only, to Cloudflare's public resolver
         dnsCheck: cfg.lookalikeWatch ? createDnsCheck({ http }) : null,
         http

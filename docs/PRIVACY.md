@@ -168,6 +168,7 @@ can be turned off):
 | **Phishing lists** (OpenPhish, HaGeZi, TweetFeed and Sefinek on GitHub, Phishing Army) | nothing about email: the lists are downloaded once a day and matched in the service | downloads only | `PHISHING_LISTS` |
 | **Cloudflare's public resolver** (`cloudflare-dns.com`), for the look-alike watch (0.5.36) | look-alike names of your own domains, made by the service (about 80 an hour, a pass a day): nothing from any email | Cloudflare's resolver privacy commitments | `LOOKALIKE_WATCH` |
 | **Domain registries** (RDAP, found through IANA's list) | domain names: up to 3 unfamiliar link domains per email and the sender's domain, each at most once a month for the whole district | public registration records | `SITE_AGE` |
+| **Brand ownership** (0.5.64: Cloudflare's public resolver and the domain's registry and registrar, RDAP) | only when a sender's name claims a brand (PayPal, Microsoft…) whose known domains don't include the sender's: the sender's domain name and the brand's domain names (their DMARC records and name servers, the domain's registration record), each pair at most once a month for the whole district (an unknown answer, once a day) | public DNS and registration records | always on |
 
 **Not sent:**
 - links to the organization's own domains;

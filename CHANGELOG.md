@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.64: whose a sender's domain is, from public records
+
+- **False alarm:** "The sender's name says "Xoom, a PayPal Service", but noreply@service.xoom.com isn't PayPal's
+  address" (5). The brand table knows only each brand's main domains, and the service had no other way to tell.
+  Now, when a sender's name claims a brand whose known domains don't include the sender's, whose the domain is
+  comes from public records (`src/intel/ownership.js`), as in the S.P.R.U.C.E+ extension (its `brandOwnership`),
+  never from a hand-kept list:
+  - **owned** (no sign; the reason says how it was shown): the brand's DMARC record sends its reports to the
+    domain; or the domain's sends them to the brand and the brand publishes the RFC 7489 authorization; or its
+    name servers are under the brand's domain, or the same set as the brand's (not at providers every customer
+    shares); or a corporate brand-protection registrar and a registrant naming the brand. xoom.com: its name
+    servers are PayPal's (ns1-pchnet.paypal.com).
+  - **likely** (a caution, never moved): a corporate registrar plus one more link (reports to the brand, a
+    registrant naming it, a year or more of age).
+  - **unknown:** the sign stays as before.
+- What is sent: domain names only, to Cloudflare's public resolver and the domain's registry and registrar;
+  each answer is kept in the shared store 30 days (an unknown one, a day); an email waits at most 6 seconds for
+  it (`docs/PRIVACY.md`). Test: `test/ownership.test.js`. Docs: `README.md`, `docs/PRIVACY.md`.
+- **Checks level 8:** after this update, recent delivered mail is checked again.
+
 ## 0.5.63: Look-alikes: a marked domain shows Change
 
 - **Status → Look-alikes:** a domain an admin has marked (its own, harmless, a threat, or watched as found) shows a

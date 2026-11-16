@@ -72,7 +72,8 @@ function createRdap({ http, store, engine, now = () => Date.now() }) {
         if (v && mem === undefined) memo.set(reg, v, v.created ? MEMO_MS : Math.min(MEMO_MS, UNKNOWN_KEEP_MS));
         return v && v.created ? Math.max(0, Math.floor((now() - v.created) / DAY)) : null;
     }
-    return { ageDays };
+    // (0.5.64) The registry's RDAP base for an ending, for the ownership lookups (src/intel/ownership.js).
+    return { ageDays, serverFor };
 }
 
 module.exports = { createRdap };

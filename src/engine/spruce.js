@@ -66,6 +66,11 @@ function load() {
         unwrapNestedUrl: fn('unwrapNestedUrl'),
         cloudStoragePage: fn('cloudStoragePage'),
         lookalikeOf: fn('lookalikeOf'),
+        // (0.5.64) The brand a sender's name claims, and whether the domain is known to be its (src/intel/ownership.js).
+        displayNameBrand: fn('displayNameBrand'),
+        senderDomainOwnedBy: fn('senderDomainOwnedBy'),
+        foldName: fn('foldName'),
+        SENDER_NAME_BRANDS: get('SENDER_NAME_BRANDS'),
         registrableDomain: fn('registrableDomain'),
         isPersonalMailDomain: fn('isPersonalMailDomain'),
         isOwnDomain: fn('isOwnDomain'),

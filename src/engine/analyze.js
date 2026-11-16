@@ -50,6 +50,18 @@ function linkSignals(judged) {
               text: `${danger.length === total ? (danger.length === 1 ? 'Its only link is' : `All ${danger.length} of its links are`) : `${danger.length} of its ${total} links ${danger.length === 1 ? 'is' : 'are'}`} flagged as dangerous${why ? ` (${why})` : ''}.` }];
 }
 
+const OWNERSHIP_WAIT_MS = 6000;
+async function senderOwnership(E, facts, intel) {
+    if (!intel || !intel.ownership) return null;
+    const domain = String(facts.senderAddress || '').toLowerCase().split('@')[1] || '';
+    let claimed = null;
+    try { claimed = E.displayNameBrand(facts.senderName); } catch (e) { claimed = null; }
+    if (!domain || !claimed || E.senderDomainOwnedBy(claimed, domain)) return null;
+    let timer;
+    const late = new Promise(r => { timer = setTimeout(() => r(null), OWNERSHIP_WAIT_MS); });
+    try { return await Promise.race([intel.ownership.of(domain, claimed.name), late]); } catch (e) { return null; } finally { clearTimeout(timer); }
+}
+
 // Whether Gmail's own DMARC check passed for the sender's domain (the domain in From, which anyone can
 // write). Only then does the address count for the allowlist or as "inside the organization".
 function senderVerified(facts) {
@@ -93,6 +105,10 @@ async function analyze(facts, ctx = {}) {
     const net = await networkChecks(E, ctx.trusted ? null : (ctx.intel || null), facts, judged, Object.assign({}, ctx, { orgDomains: ctx.orgDomains || [] }))
         .catch(() => ({ signals: [], checks: { failed: true } }));
     const allText = `${facts.subject}\n${facts.visibleText}\n${facts.hiddenText}`;
+    // (0.5.64) A sender's name claiming a brand whose domain list doesn't have the sender's domain ("Xoom, a PayPal
+    // Service" from service.xoom.com): whose the domain is comes from public records (src/intel/ownership.js), as in
+    // the extension; at most OWNERSHIP_WAIT_MS, else judged as before.
+    const ownership = relay ? null : await senderOwnership(E, facts, ctx.trusted ? null : (ctx.intel || null));
     const safe = (f) => { try { return f() || []; } catch (e) { return []; } };
     const safeOne = (f) => { try { return f(); } catch (e) { return null; } };
     const headerSigns = safe(() => E.headerAnomalies(facts.rawForHeaders, mailbox, E.gmailReceiver));
@@ -104,7 +120,7 @@ async function analyze(facts, ctx = {}) {
         // ctx.colleagues: one-way hashes of the organization's people's names (Service.colleagueNames).
         // A platform's notification for a person (Classroom, a Drive share, DocuSign…: notifications.js) is
         // judged by the person's own address, never by the platform's (0.5.16); any other email by its own.
-        ...safe(() => (relay ? N.relaySigns(E, relay, ctx.colleagues || null) : E.nameAddressSigns(facts.senderName, facts.senderAddress, org, ctx.colleagues || null, null))),
+        ...safe(() => (relay ? N.relaySigns(E, relay, ctx.colleagues || null) : E.nameAddressSigns(facts.senderName, facts.senderAddress, org, ctx.colleagues || null, ownership))),
         // The same names in the other address lines: replies going to an outside address under a
         // colleague's name, a colleague copied in at an outside or look-alike address (0.5.14). A
         // notification's Reply-To is the person themselves.
