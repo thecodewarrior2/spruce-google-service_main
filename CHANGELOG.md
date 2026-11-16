@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.69: phish-tiny 0.22.0, far fewer false alarms on the district's own mail
+
+- **The AI model is phish-tiny 0.22.0** (TinyPhishLLM `c37a8f0`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.21.0),
+  input format 3 as before (the sync checked all 95 reference cases). It was trained with a third de-identified
+  retraining export of the district's mail (`docs/RETRAINING.md`; the export's files are in no repository).
+- **What changes**, against 0.21.0 (held-out sets, never trained on): the district's held-out genuine emails called
+  phishing at 50%: 10 of 45 → 2 (at the service's 90% line: 4 → 2); its held-out phishing still all caught; every
+  regression case right.
+- **Worse:** one reported scam from a compromised staff account (an "estate sale" note) is no longer caught by the AI
+  (99% → 9%); the AI score alone never moves mail from inside the organization, so such mail is judged by the rules
+  as before. Published phishing missed at 90%: 16 of 771 → 18 (within chance).
+- **Checks level 11:** after this update, recent delivered mail is checked again.
+
 ## 0.5.68: the retraining export catches names in capitals, rosters, IDs and addresses
 
 - **What a district's file showed the export missed** (`src/training.js`): students' names in a records request written
