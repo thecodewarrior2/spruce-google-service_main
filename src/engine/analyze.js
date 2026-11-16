@@ -120,7 +120,7 @@ async function analyze(facts, ctx = {}) {
         // ctx.colleagues: one-way hashes of the organization's people's names (Service.colleagueNames).
         // A platform's notification for a person (Classroom, a Drive share, DocuSign…: notifications.js) is
         // judged by the person's own address, never by the platform's (0.5.16); any other email by its own.
-        ...safe(() => (relay ? N.relaySigns(E, relay, ctx.colleagues || null) : E.nameAddressSigns(facts.senderName, facts.senderAddress, org, ctx.colleagues || null, ownership))),
+        ...safe(() => (relay ? N.relaySigns(E, relay, ctx.colleagues || null) : E.nameAddressSigns(facts.senderName, facts.senderAddress, org, ctx.colleagues || null, ownership, { dmarc: (facts.auth && facts.auth.dmarc) || '' }))),
         // The same names in the other address lines: replies going to an outside address under a
         // colleague's name, a colleague copied in at an outside or look-alike address (0.5.14). A
         // notification's Reply-To is the person themselves.

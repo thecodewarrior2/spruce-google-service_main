@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.70: a government agency's bulletin through GovDelivery is no false alarm
+
+- **False alarm:** "IRS Newswire" <irs@service.govdelivery.com> got "isn't a known IRS address, though govdelivery.com
+  looks like IRS's (registered through GoDaddy Corporate Domains…)" (a caution). GovDelivery (Granicus) is the service
+  government agencies send their bulletins and alerts through; only government organizations can use it, and DNS
+  can't show it (its records name only Granicus), so the ownership lookup (0.5.64) could only guess. An agency's name
+  (a brand whose own domains all end in .gov or .mil) on GovDelivery's address is now a note with no weight, and a
+  strong sign (5, forged) when its sender check (DMARC) failed: GovDelivery's DMARC policy is "none", so forgeries are
+  still delivered. A company's name there, or an agency's on another domain, counts as before (`govMailService` in
+  `vendor/spruce/shared.js`, as in the S.P.R.U.C.E+ extension 5.94.40). Test: `test/ownership.test.js`.
+- **Checks level 12:** after this update, recent delivered mail is checked again.
+
 ## 0.5.69: phish-tiny 0.22.0, far fewer false alarms on the district's own mail
 
 - **The AI model is phish-tiny 0.22.0** (TinyPhishLLM `c37a8f0`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.21.0),

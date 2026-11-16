@@ -102,3 +102,17 @@ test('a personal account\'s own address in its name is no claim to be Google; "G
     assert.deepEqual(google(await judge('1Jo.Doe@gmail.com 27jodoe', '1jo.doe@gmail.com')), []);
     assert.deepEqual(google(await judge('Google Security', '1jo.doe@gmail.com')), [5]);
 });
+
+// (0.5.70) Government agencies send through GovDelivery (Granicus): "IRS Newswire" <irs@service.govdelivery.com> with
+// its sender check passed is no sign; failed, it is forged (5); a company's name there, or an agency's on another
+// domain, still counts.
+test('an agency\'s bulletin through GovDelivery is no sign; failed, forged; a company\'s name there still counts', async () => {
+    const raw = (name, from, dmarc) => Buffer.from([`From: "${name}" <${from}>`, 'To: pat@maple-schools.example', 'Subject: IRS Newswire: new guidance', 'Message-ID: <g1@service.govdelivery.com>',
+        `Authentication-Results: mx.google.com; dkim=pass header.i=@service.govdelivery.com; spf=pass; dmarc=${dmarc} header.from=service.govdelivery.com`, 'Content-Type: text/plain; charset=utf-8', '', 'The IRS issued new guidance today.'].join('\r\n'));
+    const judge = async (name, from, dmarc = 'pass') => analyze(await readMessage(raw(name, from, dmarc)), { mailbox: 'pat@maple-schools.example', orgDomains: ['maple-schools.example'], readAttachments: false });
+    const sign = (r) => r.signals.filter(s => /The sender's name says/.test(s.text || '')).map(s => [s.weight, /GovDelivery/.test(s.text)]);
+    assert.deepEqual(sign(await judge('IRS Newswire', 'irs@service.govdelivery.com')), [[0, true]]);
+    assert.deepEqual(sign(await judge('IRS Newswire', 'irs@service.govdelivery.com', 'fail')), [[5, true]]);
+    assert.deepEqual(sign(await judge('PayPal', 'service@service.govdelivery.com')), [[5, false]]);
+    assert.deepEqual(sign(await judge('IRS Newswire', 'irs@refund-help.example')), [[5, false]]);
+});
