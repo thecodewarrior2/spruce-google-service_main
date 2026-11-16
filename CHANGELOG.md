@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.63: Look-alikes: a marked domain shows Change
+
+- **Status → Look-alikes:** a domain an admin has marked (its own, harmless, a threat, or watched as found) shows a
+  **Change** button instead of the choices and **Mark**, which read as if it still needed marking. **Change** brings
+  them back, with **Cancel**; a domain nobody has marked yet keeps the choices and **Mark**. Dashboard only: nothing
+  about how mail is judged changes.
+
 ## 0.5.62: a newsletter's subdomain with no DNS records is not "made up"
 
 - **False alarm:** "The sender's domain masterpiece.… doesn't exist, so the address is made up" (3) for newsletters and

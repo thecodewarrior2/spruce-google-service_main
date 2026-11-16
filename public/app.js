@@ -1831,14 +1831,20 @@
 
     // --- Status → Look-alikes (0.5.36) -----------------------------------------------------------------
     // Domains made to pass for yours, found by the look-alike watch, and an admin's mark on each.
+    const changingLookalikes = new Set();   // (0.5.63) marked domains whose mark is being changed
     async function lookalikes() {
         const d = await api('/api/lookalikes');
         const STATUS = { new: ['New: a strong sign in mail', 'moved'], threat: ['A threat: a strong sign', 'moved'], baseline: ['There before the watch: a small sign', 'would'],
             ours: ['The district\'s own: no sign', 'inbox'], harmless: ['Someone else\'s, harmless: no sign', 'inbox'] };
+        // (0.5.63) A domain an admin marked shows a Change button; the choices come back only when it is clicked.
         const mark = (e) => {
+            if (e.by && !changingLookalikes.has(e.domain)) {
+                return h('button', { class: 'btn', type: 'button', 'aria-label': `Change how ${e.domain} counts`, onclick: () => { changingLookalikes.add(e.domain); render(); } }, 'Change');
+            }
+            const cancel = e.by ? h('button', { class: 'btn', type: 'button', onclick: () => { changingLookalikes.delete(e.domain); render(); } }, 'Cancel') : null;
             const choices = [['ours', 'It\'s ours'], ['harmless', 'Harmless'], ['threat', 'A threat'], ['watch', 'Watch as found']].filter(([k]) => k !== e.status && !(k === 'watch' && (e.status === 'new' || e.status === 'baseline')));
             const sel = h('select', { 'aria-label': `Mark ${e.domain}` }, choices.map(([k, l]) => h('option', { value: k, text: l })));
-            return h('div', { class: 'mark-lookalike' }, sel, confirmForm('Mark', '/api/lookalikes/mark', () => ({ domain: e.domain, status: sel.value }), (o) => `${o.entry.domain}: ${(STATUS[o.entry.status] || [o.entry.status])[0]}.${o.recheck && o.recheck.queued ? ` ${o.recheck.queued} delivered ${o.recheck.queued === 1 ? 'email' : 'emails'} from it, replying to it or linking to it will be checked again within the hour.` : ''}`));
+            return h('div', { class: 'mark-lookalike' }, sel, confirmForm('Mark', '/api/lookalikes/mark', () => ({ domain: e.domain, status: sel.value }), (o) => { changingLookalikes.delete(e.domain); return `${o.entry.domain}: ${(STATUS[o.entry.status] || [o.entry.status])[0]}.${o.recheck && o.recheck.queued ? ` ${o.recheck.queued} delivered ${o.recheck.queued === 1 ? 'email' : 'emails'} from it, replying to it or linking to it will be checked again within the hour.` : ''}`; }), cancel);
         };
         const pass = !d.on ? 'Off (LOOKALIKE_WATCH=off).' : !d.candidates ? 'Starting: the first names are asked at the next hourly run.'
             : `${num(d.candidates)} look-alike names of ${d.orgDomains.join(', ')} are asked of Cloudflare's public DNS once a day, about 80 an hour. ${d.cursor < d.candidates ? `This pass: ${num(d.cursor)} of ${num(d.candidates)} asked.` : `Last full pass ${when(d.lastPassAt)}.`}${d.baselineDone ? '' : ' The first pass takes stock: what exists already is listed without an alert.'}`;
