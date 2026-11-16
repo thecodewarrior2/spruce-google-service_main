@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.72: a copy button by every email address; no repeated "Sent to" box in Review
+
+- **Copy an address:** in an email's view (its "From … to …" line under the subject) and in Review's list of who received
+  it and who sent it (also in its "…show more" popup), each email address has a small copy button: it copies the address
+  alone, and a message says so (`addr()` in `public/app.js`).
+- **Review:** the "Sent to:" box above an email is shown only when it says more than the line under the subject (several
+  copies, recipients or senders); for one copy it repeated the recipient.
+
 ## 0.5.71: the dashboard shows the S.P.R.U.C.E logo
 
 - **The dashboard's logo and browser-tab icon** are now the S.P.R.U.C.E shield (the magnifying glass over the spruce,

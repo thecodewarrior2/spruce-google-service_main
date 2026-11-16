@@ -105,11 +105,14 @@
     }
     const popupOpen = () => !!document.querySelector('dialog.popup[open]');
     // A list that shows its first two, then "…show more": the rest in a popup.
-    function shortList(items, title, { describe = (n) => `${n} in all` } = {}) {
-        if (items.length <= 2) return h('span', { text: items.join(', ') });
+    // copy: each item is an email address, with its copy button (0.5.72).
+    function shortList(items, title, { describe = (n) => `${n} in all`, copy = false } = {}) {
+        const one = (x) => (copy ? addr(x) : x);
+        const joined = (xs) => xs.flatMap((x, i) => (i ? [', ', one(x)] : [one(x)]));
+        if (items.length <= 2) return h('span', {}, joined(items));
         const more = h('button', { class: 'linkbtn', type: 'button', text: `…show more (${items.length - 2})` });
-        more.addEventListener('click', () => popup(title, h('p', { class: 'sub', text: describe(items.length) }), h('ul', { class: 'plain-list' }, items.map(x => h('li', { text: x })))));
-        return h('span', {}, `${items.slice(0, 2).join(', ')} `, more);
+        more.addEventListener('click', () => popup(title, h('p', { class: 'sub', text: describe(items.length) }), h('ul', { class: 'plain-list' }, items.map(x => h('li', {}, one(x))))));
+        return h('span', {}, joined(items.slice(0, 2)), ' ', more);
     }
 
     // --- Tooltip (one, shared; values lead, names follow) ------------------------------------------
@@ -518,17 +521,28 @@
     }
     // A Copy button: the text goes to the clipboard (or, where the browser doesn't allow it, by a hidden
     // field), and a message says so. label: the button's text ("Copy").
+    async function copyText(text, done) {
+        try { await navigator.clipboard.writeText(text); }
+        catch (e) {
+            const t = h('textarea', { 'aria-hidden': 'true' });
+            t.value = text; t.style.position = 'fixed'; t.style.opacity = '0';
+            document.body.append(t); t.select();
+            try { document.execCommand('copy'); } finally { t.remove(); }
+        }
+        toast(done);
+    }
     function copyButton(text, what, label = 'Copy') {
-        return h('button', { class: 'linkbtn copy', type: 'button', 'aria-label': `Copy the ${what}`, onclick: async () => {
-            try { await navigator.clipboard.writeText(text); }
-            catch (e) {
-                const t = h('textarea', { 'aria-hidden': 'true' });
-                t.value = text; t.style.position = 'fixed'; t.style.opacity = '0';
-                document.body.append(t); t.select();
-                try { document.execCommand('copy'); } finally { t.remove(); }
-            }
-            toast(`${what} copied.`);
-        } }, label);
+        return h('button', { class: 'linkbtn copy', type: 'button', 'aria-label': `Copy the ${what}`, onclick: () => copyText(text, `${what} copied.`) }, label);
+    }
+    // (0.5.72) An email address with a small copy button after it (the icon: two sheets).
+    // shown: the text in place of the address ("Name <address>"); the button still copies the address alone.
+    function addr(address, shown = address) {
+        const a = String(address || '');
+        if (!a) return shown || '';
+        const icon = s('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': 'true', focusable: 'false' },
+            s('rect', { x: 5.5, y: 5.5, width: 8, height: 9, rx: 1.5 }), s('path', { d: 'M3.5 10.5h-.5A1.5 1.5 0 0 1 1.5 9V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5' }));
+        return h('span', { class: 'addr' }, shown, h('button', { class: 'copy-addr', type: 'button', title: `Copy ${a}`, 'aria-label': `Copy ${a}`,
+            onclick: (e) => { e.stopPropagation(); copyText(a, `Copied ${a}.`); } }, icon));
     }
     // A row with an identifier, its Copy button (and any others: extra), and what it is for.
     const idRow = (label, value, note, extra = []) => [h('dt', { text: label }),
@@ -689,7 +703,8 @@
             : m.unclear && m.markedBy ? 'An admin set this aside as unclear: left as it is for the reader to decide, and not used for retraining.' : 'Not reviewed yet.';
         return [quiet ? null : h('button', { class: 'linkbtn back', type: 'button', onclick: back }, '← Back'),
             h(quiet ? 'h2' : 'h1', { class: quiet ? 'pasted-title' : null, text: m.subject || (pasted ? '(no subject)' : '(subject not stored)') }),
-            h('p', { class: 'sub', text: `From ${m.sender.name ? `${m.sender.name} <${m.sender.address}>` : m.sender.address || 'an unknown sender'} to ${m.user || '–'}${m.receivedAt ? `, ${when(m.receivedAt)}` : ''}` }),
+            h('p', { class: 'sub' }, 'From ', m.sender.address ? addr(m.sender.address, m.sender.name ? `${m.sender.name} <${m.sender.address}>` : m.sender.address) : (m.sender.name || 'an unknown sender'),
+                ' to ', m.user ? addr(m.user) : '–', m.receivedAt ? `, ${when(m.receivedAt)}` : ''),
             h('div', { class: 'grid detail' },
                 h('div', { class: 'grid' },
                     h('section', { class: 'card' }, h('h2', { text: 'What happened' }),
@@ -1274,10 +1289,11 @@
         const next = () => { st.i++; render(); };
         reviewKeys = { f: () => decide(true), p: () => decide(false), i: setAside, n: next, r: () => rescanEmail(key) };
         const all = many ? ` (all ${num(n)})` : '';
-        const people = h('div', { class: 'card review-people' },
-            h('div', {}, h('b', { text: many ? `This email went to ${num(g.users.length || n)} people: ` : 'Sent to: ' }), shortList(g.users.length ? g.users : [m.user].filter(Boolean), `Who received "${m.subject || 'this email'}"`, { describe: (k) => `${num(k)} people in your organization received a copy${n > 1 ? `; ${num(n)} copies wait for review` : ''}.` })),
-            g.senders.length > 1 ? h('div', {}, h('b', { text: `From ${num(g.senders.length)} addresses: ` }), shortList(g.senders, 'Who sent it', { describe: (k) => `The copies came from ${num(k)} sender addresses.` })) : null,
-            many ? h('div', { class: 'small muted' }, `One decision covers every copy. `, g.campaign ? h('a', { href: `#/messages?${q({ campaign: g.campaign })}`, text: 'See every copy in Messages' }) : null) : null);
+        // (0.5.72) Only for several copies, people or senders: one copy's sender and recipient are in the line under its subject.
+        const people = many || g.users.length > 1 || g.senders.length > 1 ? h('div', { class: 'card review-people' },
+            h('div', {}, h('b', { text: many ? `This email went to ${num(g.users.length || n)} people: ` : 'Sent to: ' }), shortList(g.users.length ? g.users : [m.user].filter(Boolean), `Who received "${m.subject || 'this email'}"`, { copy: true, describe: (k) => `${num(k)} people in your organization received a copy${n > 1 ? `; ${num(n)} copies wait for review` : ''}.` })),
+            g.senders.length > 1 ? h('div', {}, h('b', { text: `From ${num(g.senders.length)} addresses: ` }), shortList(g.senders, 'Who sent it', { copy: true, describe: (k) => `The copies came from ${num(k)} sender addresses.` })) : null,
+            many ? h('div', { class: 'small muted' }, `One decision covers every copy. `, g.campaign ? h('a', { href: `#/messages?${q({ campaign: g.campaign })}`, text: 'See every copy in Messages' }) : null) : null) : null;
         return [...head,
             h('p', { class: 'sub', text: `${num(st.i + 1)} of ${num(st.groups.length)} to review (${num(emailsLeft(st))} ${Q.what} nobody has reviewed, last ${days} days, ${Q.order}; copies of one email together). Keys: F ${Q.no.toLowerCase()}, P phishing${moves ? ' (moves it to Spam)' : ''}, I ignore (unclear: left as it is, not used for retraining), N next, R re-scan with today's model.` }),
             h('div', { class: 'review-bar card' },

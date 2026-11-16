@@ -131,6 +131,11 @@ h2 { font-size: 15px; margin: 0 0 2px; font-weight: 650; }
 /* Identifiers with a Copy button; Check an email. */
 code.mid { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 .copy { margin-left: 4px; }
+/* (0.5.72) An email address and its copy button. */
+.addr { white-space: normal; overflow-wrap: anywhere; }
+.copy-addr { display: inline-flex; align-items: center; justify-content: center; vertical-align: -2px; margin-left: 3px; padding: 2px; border: 0; border-radius: 4px; background: none; color: var(--text-2); cursor: pointer; }
+.copy-addr:hover, .copy-addr:focus-visible { color: var(--accent); background: var(--accent-soft); }
+.copy-addr svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 textarea.paste { width: 100%; box-sizing: border-box; min-height: 180px; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
 .check-result { margin-top: 16px; }
 .pasted-title { font-size: 20px; margin: 8px 0 2px; }
