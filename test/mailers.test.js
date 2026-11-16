@@ -75,3 +75,33 @@ test('low reputation or unknown reputation: still dangerous; other signs still a
     assert.ok(more.signals.some(s => s.kind === 'mailer-link'));
     assert.ok(more.score > (await judge(newsletter(), intelOf())).score, 'other signs still count on top of the warning');
 });
+
+// (0.5.62) A sender's subdomain with no DNS records of its own (a newsletter's or a no-reply address's): judged by its
+// organization's domain, never "made up" when that domain exists or Gmail verified the sender. Made-up domains.
+test('a sender subdomain with no DNS records: judged by its organization\'s domain; made up only when that doesn\'t exist either', async () => {
+    const intelNx = (nx, blocked = []) => {
+        const i = intelOf({ blocked });
+        const inner = i.threats.checkHosts;
+        i.threats.checkHosts = async (hosts) => { const m = await inner(hosts); for (const h of hosts) if (nx.includes(h)) m.set(h, { verdict: 'nonexistent', by: 'Cloudflare', reason: 'the site does not exist' }); return m; };
+        return i;
+    };
+    const mail = (from, auth = 'Authentication-Results: mx.google.com; dkim=pass header.i=@example-tv.org; spf=pass; dmarc=none') =>
+        newsletter({ from, auth, href: 'https://www.example-tv.org/watch', text: 'Watch the new season' });
+    const sign = (r) => r.signals.filter(s => /^sender-(domain|subdomain)/.test(s.kind || '')).map(s => [s.kind, s.weight]);
+    const FROM = 'no-reply@masterpiece.example-tv.org';
+    // The subdomain doesn't exist; its organization's domain does: a note, no weight.
+    const ok = await judge(mail(FROM), intelNx(['masterpiece.example-tv.org']));
+    assert.deepEqual(sign(ok), [['sender-subdomain-unlisted', 0]]);
+    assert.match(ok.signals.find(s => s.kind === 'sender-subdomain-unlisted').text, /no DNS records of its own, which is common for newsletter and no-reply addresses; its organization's domain example-tv\.org exists and isn't blocked/);
+    // The organization's domain is blocked: strong.
+    assert.deepEqual(sign(await judge(mail(FROM), intelNx(['masterpiece.example-tv.org'], ['example-tv.org']))), [['sender-domain-blocked', 5]]);
+    // Neither exists: made up (3)… unless Gmail verified the sender.
+    const both = ['masterpiece.example-tv.org', 'example-tv.org'];
+    const fake = await judge(mail(FROM), intelNx(both));
+    assert.deepEqual(sign(fake), [['sender-domain-missing', 3]]);
+    assert.match(fake.signals.find(s => s.kind === 'sender-domain-missing').text, /doesn't exist, nor does its organization's domain example-tv\.org, so the address is made up/);
+    const dmarc = 'Authentication-Results: mx.google.com; dkim=pass header.i=@masterpiece.example-tv.org; spf=pass; dmarc=pass header.from=masterpiece.example-tv.org';
+    assert.deepEqual(sign(await judge(mail(FROM, dmarc), intelNx(both))), [['sender-subdomain-unlisted', 0]]);
+    // A domain of its own that doesn't exist: made up, as before.
+    assert.deepEqual(sign(await judge(mail('billing@no-such-sender.example'), intelNx(['no-such-sender.example']))), [['sender-domain-missing', 3]]);
+});

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.62: a newsletter's subdomain with no DNS records is not "made up"
+
+- **False alarm:** "The sender's domain masterpiece.… doesn't exist, so the address is made up" (3) for newsletters and
+  no-reply addresses, which often send from a subdomain with no DNS records of its own while their organization's
+  domain is real. The sender's organization's domain (its registrable domain) is now looked up too
+  (`src/engine/network.js`), and a sender subdomain that doesn't exist is:
+  - judged by its organization's domain: blocked by Cloudflare Security → strong (5); exists → a note, no weight;
+  - never "made up" when Gmail verified the sender (DMARC passed);
+  - "made up" (3) only when its organization's domain doesn't exist either (or a domain of its own doesn't exist).
+  The S.P.R.U.C.E+ extension already judged such a sender by its organization's domain.
+- The other reputation checks of the sender (phishing lists, Spamhaus, the registration age of its organization's
+  domain) are unchanged. Test: `test/mailers.test.js`. Docs: `README.md`.
+- **Checks level 7:** after this update, recent delivered mail is checked again.
+
 ## 0.5.61: edit a phishing-training rule
 
 - **Settings → Phishing training → Header rules: Edit** beside each rule's Remove. The rule's name, header and

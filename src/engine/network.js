@@ -50,6 +50,10 @@ async function networkChecks(E, intel, facts, judged, ctx) {
     const rank = (d) => (mailerReg.has(d) ? 2 : 0) + (signInOf.get(d) ? 1 : 0);
     const ageDomains = [...signInOf.keys()].sort((a, b) => rank(b) - rank(a)).slice(0, LINK_AGE_LOOKUPS);
     const senderReg = senderDomain && !personal && !ours(senderDomain) ? E.registrableDomain(senderDomain) : '';
+    // (0.5.62) The organization's domain behind a sender's subdomain is looked up too: newsletters and no-reply
+    // addresses often send from a name with no DNS records of its own (masterpiece.example-tv.org), and then the
+    // organization's domain is what can be judged.
+    if (senderReg && senderReg !== senderDomain) hosts.push(senderReg);
     const listHit = (u) => intel.feeds.urlHit(u, { exactOnly: ours(hostOf(u)) }).catch(() => null);
     // Spamhaus's DBL and ZRD (0.5.37; off by default): the sender's domain first, then the link sites (full
     // host names), the ones about signing in or paying first, at most 6 (src/intel/spamhaus.js; nothing when off).
@@ -137,7 +141,17 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         const r = reported[0], host = hostOf(r.j.finalUrl || r.j.url);
         signals.push({ weight: 2, kind: 'reported-link', text: `${reported.length === 1 ? `A link's site (${host}) was` : `${reported.length} links' sites were`} reported as phishing or malware by ${r.by} in the last 30 days (community reports: a sign, not proof).` });
     }
-    else if (sd && sd.verdict === 'nonexistent') signals.push({ weight: 3, kind: 'sender-domain-missing', text: `The sender's domain ${senderDomain} doesn't exist, so the address is made up.` });
+    else if (sd && sd.verdict === 'nonexistent') {
+        // (0.5.62) A subdomain with no DNS records of its own is not a made-up address when its organization's domain
+        // exists (judged by that domain instead), nor when Gmail verified the sender (DMARC passed). Only a domain
+        // whose organization's domain doesn't exist either is made up.
+        const parent = senderReg && senderReg !== senderDomain ? hostResults.get(senderReg) : null;
+        const verified = !!(facts.auth && facts.auth.dmarc === 'pass');
+        if (parent && parent.verdict === 'unsafe') signals.push({ weight: 5, kind: 'sender-domain-blocked', text: `The sender's domain ${senderDomain} has no DNS records of its own, and its organization's domain ${senderReg} is blocked by Cloudflare Security as malware or phishing.` });
+        else if (parent && parent.verdict !== 'nonexistent') signals.push({ weight: 0, kind: 'sender-subdomain-unlisted', text: `The sender's domain ${senderDomain} has no DNS records of its own, which is common for newsletter and no-reply addresses; its organization's domain ${senderReg} exists${parent.verdict === 'clean' ? ' and isn\'t blocked' : ''}, so it is judged by that domain.` });
+        else if (verified) signals.push({ weight: 0, kind: 'sender-subdomain-unlisted', text: `The sender's domain ${senderDomain} has no DNS records the checks could find, but Gmail verified the sender (DMARC passed), so the address isn't made up.` });
+        else signals.push({ weight: 3, kind: 'sender-domain-missing', text: `The sender's domain ${senderDomain} doesn't exist${senderReg && senderReg !== senderDomain ? `, nor does its organization's domain ${senderReg}` : ''}, so the address is made up.` });
+    }
     if (typeof senderAge === 'number') {
         checks.ages++;
         let look = null;
