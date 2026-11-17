@@ -25,12 +25,14 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
     const now = Date.now();
     const { store, intel } = await buildDemo({ cfg, now });
     const E = spruce.load();
+    const dmarc = await require('../src/dashboard/dmarc').createDmarcCheck({ demo: true })(['maple-schools.example']);
     const data = {
         now,
         records: await store.listRecords({ sinceMs: 0, limit: 100000 }),
         stats: await store.getStats('2000-01-01', '2999-12-31'),
         events: await store.listEvents(0),
         changelog: parseChangelog(read('CHANGELOG.md')).slice(0, 20),
+        dmarc,
         settings: { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, brakePerHour: cfg.brakePerHour,
                     orgDomains: ['maple-schools.example'], pilotOu: '/Staff', pilotUsers: 0, allowDomains: [], allowLinkDomains: [], allowAddresses: 0, retentionDays: cfg.retentionDays,
                     storeSubjects: true, storeAiQuotes: true, movedLabel: cfg.movedLabel, model: E.modelInfo, engine: E.vendor, watched: (await store.listUsers()).length, demo: true,
@@ -69,6 +71,7 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
       case '/api/message': { const r = recs.find(x => x.key === q.get('key')); if (!r) throw new Error('not found'); return Object.assign(base, { message: r, mode: D.settings.mode }); }
       case '/api/health': return Object.assign(base, A.modelHealth(recs, now, n, { orgDomains: D.settings.orgDomains, aiSuspicious: D.settings.aiSuspicious, aiThreshold: D.settings.aiThreshold }), { current: D.settings.model.name + ' ' + D.settings.model.version, threshold: D.settings.aiThreshold, trainingExport: !!D.settings.trainingExport.enabled });
       case '/api/settings': return Object.assign(base, D.settings);
+      case '/api/dmarc': return Object.assign(base, { domains: D.dmarc });
       case '/api/session': return Object.assign(base, { role: 'admin', mode: D.settings.mode, orgDomains: D.settings.orgDomains, retentionDays: D.settings.retentionDays, model: D.settings.model, version: D.settings.version, donateButton: true, timeZone: D.settings.timeZone });
       case '/api/release': { const r = recs.find(x => x.key === body.key); if (!r || r.state !== 'moved') throw new Error('it is not in Spam');
         Object.assign(r, { state: 'released', releasedBy: ADMIN, releasedAt: Date.now(), falseAlarm: r.falseAlarm === null ? true : r.falseAlarm, markedBy: r.markedBy || ADMIN });

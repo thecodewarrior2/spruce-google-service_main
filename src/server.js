@@ -16,6 +16,7 @@ const { loadConfig, configProblems } = require('./config');
 const { createStore } = require('./store');
 const { Service, POLICY_KEYS, STAT_FLUSH_MS } = require('./pipeline');
 const { verifyPush, verifyTask, verifyAdmin, adminGroupCheck } = require('./auth/verify');
+const { createDmarcCheck } = require('./dashboard/dmarc');
 const { RecordCache } = require('./dashboard/cache');
 const VERSION = require('../package.json').version;
 const A = require('./dashboard/aggregate');
@@ -201,6 +202,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         return renewStatus;
     }
     const groupCheck = cfg.adminGroups.length && service.gmail && service.gmail.hasMember ? adminGroupCheck(cfg, service.gmail) : null;
+    // Health → DMARC (0.6.1): your domains' DMARC and SPF records, read through Cloudflare's resolver (made up in demo mode).
+    const dmarcCheck = createDmarcCheck({ http: service.intel && service.intel.http, demo: !!cfg.demo });
     const moderatorCheck = (cfg.moderatorGroups || []).length && service.gmail && service.gmail.hasMember ? adminGroupCheck(cfg, service.gmail, () => Date.now(), cfg.moderatorGroups) : null;
     const since = (q) => Date.now() - Math.min(90, Math.max(1, Number(q.get('days')) || 30)) * A.DAY;
     // Activity's period: up to how long it is kept (AUDIT_DAYS); its kind and words to look for.
@@ -517,6 +520,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         },
         // (0.6.1) Who is signed in, as what, and what every page's frame needs (the menu, the footer, About & credits):
         // the only settings a moderator reads.
+        // Health → DMARC (0.6.1, admins only): ?fresh=1 reads them again now (at most every 30 s).
+        'GET /api/dmarc': async (q) => ({ domains: await dmarcCheck(cfg.orgDomains, { fresh: !!(q && q.get && q.get('fresh')) && once('dmarc-fresh', 30 * 1000) }) }),
         'GET /api/session': async () => {
             const E = spruce.load();
             return { mode: cfg.mode, orgDomains: cfg.orgDomains, retentionDays: cfg.retentionDays, model: E.modelInfo, version: VERSION, donateButton: cfg.donateButton, timeZone: cfg.timeZone };

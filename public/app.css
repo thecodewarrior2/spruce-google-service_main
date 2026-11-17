@@ -654,3 +654,21 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .brake-banner[hidden] { display: none; }
 .brake-banner .brake-icon { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--critical); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; }
 @media (max-width: 860px) { .brake-banner { padding: 10px 16px; } }
+/* (0.6.1) Health → DMARC: a card per domain, its records as published. */
+.dns-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+.dns-card { display: grid; gap: 14px; align-content: start; }
+.dns-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.dns-head h2 { font-size: 18px; overflow-wrap: anywhere; }
+.dns-part { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.dns-part h3 { margin: 0; font-size: 14.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.dns-words { font-weight: 600; }
+.dns-record { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.dns-record code { flex: 1; min-width: 0; font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.dns-level { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.dns-level .dot { width: 8px; height: 8px; border-radius: 50%; }
+.dns-level.good { background: var(--good-soft); color: var(--good-text); } .dns-level.good .dot { background: var(--good); }
+.dns-level.warn { background: var(--warning-soft); color: var(--text); } .dns-level.warn .dot { background: var(--warning); }
+.dns-level.bad { background: var(--critical-soft); color: var(--critical-text); } .dns-level.bad .dot { background: var(--critical); }
+.dns-tags { font-size: 13px; }
+.dns-notes { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text-2); }
+.dns-notes li { margin: 3px 0; overflow-wrap: anywhere; }

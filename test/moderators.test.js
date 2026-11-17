@@ -44,7 +44,7 @@ test('what a moderator may call: the review pages, answers, whole campaigns and 
     assert.equal(moderatorMay('POST /api/bulk', 'release'), false);
     for (const r of ['GET /api/settings', 'POST /api/policy', 'GET /api/status', 'GET /api/health', 'GET /api/readiness', 'GET /api/activity', 'GET /api/lookalikes', 'POST /api/lookalikes/mark',
         'POST /api/release', 'POST /api/resume', 'GET /api/export.csv',
-        'POST /api/training-export', 'POST /api/training-export/allow', 'GET /api/update', 'POST /api/update', 'POST /api/rechecked/seen', 'GET /api/mailboxes', 'POST /api/digest/send']) assert.equal(moderatorMay(r), false, r);
+        'POST /api/training-export', 'POST /api/training-export/allow', 'GET /api/dmarc', 'GET /api/update', 'POST /api/update', 'POST /api/rechecked/seen', 'GET /api/mailboxes', 'POST /api/digest/send']) assert.equal(moderatorMay(r), false, r);
 });
 
 test('the service refuses a moderator whatever the page shows, and says the role on every answer', async () => {
