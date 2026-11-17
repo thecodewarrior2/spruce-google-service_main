@@ -223,6 +223,10 @@ async function analyze(facts, ctx = {}) {
         // Mail from inside the organization (your domains, DMARC passing) isn't read by the AI unless the
         // policy says so (AI_SCANS_INSIDE): the rules above (its links, headers and the rest) read it.
         ai = { probability: null, skipped: 'inside', model: `${E.modelInfo.name} ${E.modelInfo.version}` };
+    } else if (providerBounce(E, facts, verified)) {
+        // (0.6.22) A delivery report from a mail provider's own mail system: the AI reads its failure wording as a
+        // lure. The rule checks read it as usual (the returned copy's links and attachments too).
+        ai = { probability: null, skipped: 'bounce', model: `${E.modelInfo.name} ${E.modelInfo.version}` };
     } else if (!language.english) {
         ai = { probability: null, skipped: 'language', language: language.name, model: `${E.modelInfo.name} ${E.modelInfo.version}` };
     } else {
@@ -366,6 +370,24 @@ function establishedSenderInContext(E, facts, judged, signals, verified) {
     if (!sender || web.some(j => j.severity || regOf(hostOf(j.finalUrl || j.url)) !== sender)) return;
     const s = signals[i];
     signals[i] = Object.assign({}, s, { weight: 0, text: s.text.replace(/\. Make sure it's really who you expect\.$/, `. It passed its sender check and every link goes back to ${sender}, so it counts as that company writing about a product it runs, not an imitation.`) });
+}
+
+// (0.6.22) A delivery report ("Delivery Status Notification (Failure)", "Undeliverable") from a big mail provider's
+// own mail system: its mailer-daemon or postmaster address at the provider's domain, Gmail's DMARC check passing for
+// that domain, and the email a delivery report as mail systems write them (Content-Type multipart/report;
+// report-type=delivery-status, RFC 3464). The AI doesn't score it: it reads "failure", "couldn't be delivered" and a
+// returned message as a lure. The rule checks still read it, the returned copy included.
+const BOUNCE_PROVIDERS = new Set(['google.com', 'googlemail.com', 'gmail.com', 'outlook.com', 'hotmail.com', 'live.com', 'yahoo.com', 'aol.com', 'icloud.com', 'me.com']);
+function providerBounce(E, facts, verified) {
+    if (!verified) return false;
+    const address = String(facts.senderAddress || '').toLowerCase();
+    const local = address.split('@')[0], domain = address.split('@').pop();
+    let reg = domain;
+    try { reg = E.registrableDomain(domain) || domain; } catch (e) { reg = domain; }
+    if (!/^(mailer-daemon|postmaster)$/.test(local) || !BOUNCE_PROVIDERS.has(reg)) return false;
+    const head = String(facts.rawHead || '').replace(/\r?\n[ \t]+/g, ' ');
+    const type = (/^content-type:\s*([^\r\n]*)/mi.exec(head) || [])[1] || '';
+    return /^\s*multipart\/report\b/i.test(type) && /report-type\s*=\s*"?delivery-status\b/i.test(type);
 }
 
 // Mail from, replying to, or linking to a domain the look-alike watch found (src/lookalike.js): new or

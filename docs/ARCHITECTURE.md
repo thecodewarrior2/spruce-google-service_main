@@ -390,7 +390,8 @@ The model doesn't read mail from inside the organization (your domains, DMARC pa
 `AI_SCANS_INSIDE` (Settings → Policy) is on, or `AI_MOVES_INSIDE` ("AI alone moves inside mail", which
 needs it): the rules alone judge it (`src/engine/analyze.js`). The model reads English only: `src/engine/language.js` finds an email clearly in another language (its
 writing system, or the commonest words of other languages), and then the model isn't run and the AI
-gives no score, saying why (the rules run as always).
+gives no score, saying why (the rules run as always). (0.6.22) Neither for a big mail provider's own delivery report
+(mailer-daemon or postmaster, DMARC passing, multipart/report; report-type=delivery-status: `providerBounce`).
 
 The model runs in ONNX Runtime (`src/engine/model.js`, from `models/phish-tiny/model.onnx`). Since 0.5.50 it
 is an ELECTRA-small network (phish-tiny 0.18.0, 0.19.0 since 0.5.54, 0.20.0 since 0.5.55, 0.21.0 since 0.5.67, and 0.22.0 since 0.5.69; 12 layers; 14 MB): about 68 ms for a full-length pass on one

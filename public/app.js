@@ -758,6 +758,9 @@
             if (m.ai && m.ai.skipped === 'inside') return h('div', { class: 'ai-none' },
                 h('b', { text: 'Not scored: the sender is inside your organization.' }),
                 h('div', { text: 'The AI doesn\'t read mail from inside (your domains, Gmail\'s DMARC check passed): Settings → Policy, "AI on inside mail", turns it on. The rule checks read it as usual: its links, its headers and the rest.' }));
+            if (m.ai && m.ai.skipped === 'bounce') return h('div', { class: 'ai-none' },
+                h('b', { text: 'Not scored: a delivery report from a mail provider.' }),
+                h('div', { text: 'A "couldn\'t be delivered" report from a mail provider\'s own mail system (its sender check passed): the AI reads its failure wording as a lure, so it gives no opinion. The rule checks read it as usual, the returned copy included.' }));
             if (m.ai && m.ai.skipped === 'language') return h('div', { class: 'ai-none' },
                 h('b', { text: 'Not scored: the AI model reads English only.' }),
                 h('div', { text: `This email looks like it is in ${m.ai.language || 'another language'}, so the AI gives no opinion of it. The rule checks don't depend on the language and ran as usual; decide from the signs and the email itself.` }));
@@ -819,6 +822,7 @@
             if (email) body.append(emailAsReceived(email, m));
             body.append(h('h3', { class: 'ai-part', text: 'What the AI reads' }));
             if (skipped === 'inside') { body.append(h('div', { class: 'ai-none' }, h('b', { text: 'Not scored: the sender is inside your organization.' }), h('div', { text: 'The AI doesn\'t read mail from inside (Settings → Policy, "AI on inside mail").' }))); return; }
+            if (skipped === 'bounce') { body.append(h('div', { class: 'ai-none' }, h('b', { text: 'Not scored: a delivery report from a mail provider.' }), h('div', { text: 'The AI doesn\'t score a mail provider\'s own "couldn\'t be delivered" reports; the rule checks read it as usual.' }))); return; }
             body.append(h('p', { class: 'sub', text: 'Read from Gmail just now; nothing is kept, and Activity notes that you looked. Addresses keep only their domain, and phone numbers and long numbers are replaced, as the model sees them. Each part is also scored on its own: how much that part alone reads like phishing.' }));
             if (!r) { body.append(h('div', { class: 'ai-none' }, h('b', { text: 'Not scored: the AI model reads English only.' }), h('div', { text: `This email looks like it is in ${language && language.name || 'another language'}.` }))); return; }
             const lean = (w) => 1 / (1 + Math.exp(-w));

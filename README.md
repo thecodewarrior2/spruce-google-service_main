@@ -164,6 +164,12 @@ language (its writing system, or the commonest words of Spanish, French, Vietnam
 others) gets no AI score: the dashboard says so, the rule checks run as for any email, and the
 retraining export leaves it out. A bilingual email with a real English part is read.
 
+**Delivery reports from mail providers** (0.6.22): a "Delivery Status Notification (Failure)" or "Undeliverable"
+from a big mail provider's own mail system (its mailer-daemon or postmaster address at google.com, googlemail.com,
+gmail.com, outlook.com, hotmail.com, live.com, yahoo.com, aol.com, icloud.com or me.com), with Gmail's sender check
+passing and written as a delivery report (multipart/report), gets no AI score: the model read its failure wording
+as a lure. The rule checks read it as usual, the returned copy included. Forged or from anyone else, it is scored.
+
 **The colleague-name check:** the full names in your directory are read (by `DIRECTORY_ADMIN`, every 12
 hours) and kept only as one-way hashes, in memory; an outside sender whose display name is one of them
 ("Jordan Exampleton" <jordan.exampleton.office@gmail.com>) gets a sign (3: amber; it moves mail only with

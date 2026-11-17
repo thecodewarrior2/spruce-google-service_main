@@ -20,6 +20,7 @@ noreply@anthropic.com
 @paypa1.com            # a look-alike of PayPal in the engine's examples
 @docusign.net
 adobesign@adobesign.com # Adobe Acrobat Sign's own sending mailbox, a service's address (0.6.21)
+mailer-daemon@googlemail.com # Google's mail system's own address for delivery reports, no one's mailbox (0.6.22)
 @govdelivery.com
 @xoom.com
 @github.com

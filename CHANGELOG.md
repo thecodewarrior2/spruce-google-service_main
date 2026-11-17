@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.22: a mail provider's delivery report isn't scored by the AI
+
+- **"Delivery Status Notification (Failure)" was suspicious:** a bounce from Google's own mail system
+  (mailer-daemon@googlemail.com), its sender check passing, was scored by the AI (a made-up one: 99.7%): it reads
+  "your message wasn't delivered" and a returned message as a lure. A delivery report from a big mail provider's own
+  mail system now gets no AI score: from its mailer-daemon or postmaster address at google.com, googlemail.com,
+  gmail.com, outlook.com, hotmail.com, live.com, yahoo.com, aol.com, icloud.com or me.com, Gmail's DMARC check passing
+  for that domain, and written as a delivery report (Content-Type multipart/report; report-type=delivery-status)
+  (`providerBounce` in `src/engine/analyze.js`). The rule checks read it as usual, the returned copy included. Forged,
+  from a look-alike or a person's mailbox, or not a delivery report: scored as before. The dashboard says why there is
+  no score.
+- Tests: `test/provider-bounce.test.js` (made-up addresses).
+- **Checks level 22:** delivered mail of the last hours is checked again after this update.
+
 ## 0.6.21: Adobe Acrobat Sign's signature requests
 
 - **"Name via Adobe Acrobat Sign" was flagged and moved:** Adobe's entry in the brand table knew only adobe.com,
