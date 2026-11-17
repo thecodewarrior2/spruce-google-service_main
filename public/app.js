@@ -2776,11 +2776,27 @@
         if (!allowed.includes(days)) days = allowed.filter(n => n <= days).pop() || allowed[0];
         for (const b of buttons) b.setAttribute('aria-pressed', String(Number(b.dataset.days) === days));
     }
+    // (0.6.11) Light, dark, or the system's setting: chosen with the switcher in the menu, kept in this browser
+    // (theme.js applies it before the page is drawn). Charts read their colors when drawn, so the page is drawn again.
+    const THEMES = ['system', 'light', 'dark'];
+    function themeNow() { const t = document.documentElement.getAttribute('data-theme'); return t === 'light' || t === 'dark' ? t : 'system'; }
+    function showTheme() { for (const b of document.querySelectorAll('[data-theme-choice]')) b.setAttribute('aria-pressed', String(b.dataset.themeChoice === themeNow())); }
+    function setTheme(t) {
+        if (!THEMES.includes(t)) return;
+        if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+        try { if (t === 'system') localStorage.removeItem('spruce.theme'); else localStorage.setItem('spruce.theme', t); } catch (e) { /* not kept: this page only */ }
+        showTheme();
+        render({ quiet: true });
+    }
     async function boot() {
         for (const b of document.querySelectorAll('.range')) b.addEventListener('click', () => { days = Number(b.dataset.days); try { localStorage.setItem('spruce.days', String(days)); } catch (e) { /* not kept */ } render(); });
         if (MEMORY) document.addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[href^="#/"]'); if (a) { e.preventDefault(); go(a.getAttribute('href')); } });
         else window.addEventListener('hashchange', render);
         window.addEventListener('scroll', hideTip, { passive: true });
+        for (const b of document.querySelectorAll('[data-theme-choice]')) b.addEventListener('click', () => setTheme(b.dataset.themeChoice));
+        showTheme();
+        // Following the system: its change redraws the charts in the new colors.
+        if (window.matchMedia) { const mq = window.matchMedia('(prefers-color-scheme: dark)'); const redraw = () => { if (themeNow() === 'system') render({ quiet: true }); }; if (mq.addEventListener) mq.addEventListener('change', redraw); }
         for (const b of [$('#menuBtn'), $('#moreBtn')]) if (b) b.addEventListener('click', () => setDrawer(!$('#sidebar').classList.contains('open')));
         if ($('#scrim')) $('#scrim').addEventListener('click', () => setDrawer(false));
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#sidebar') && $('#sidebar').classList.contains('open')) setDrawer(false); });
@@ -2809,7 +2825,6 @@
             const st = await api('/api/session');
             applyRole();
             $('#who').textContent = st.admin || '';
-            $('#orgLine').textContent = `Google Workspace · ${st.orgDomains.join(', ') || 'your organization'}`;
             showMode(st.mode);
             fitRanges(st.retentionDays);
             if (st.demo) $('.top-right').prepend(h('span', { class: 'demo-flag', text: 'DEMO · made-up data' }));

@@ -143,6 +143,7 @@ const sh=Math.round(d/86400000);if(sh)for(const s of D.stats){s.day=day(Date.par
     html = html.replace('<title>S.P.R.U.C.E Mail Protection Service</title>', '<title>S.P.R.U.C.E Mail Protection Service</title>\n<meta name="description" content="Clickable mockup of the S.P.R.U.C.E Mail Protection Service admin dashboard, with made-up data.">');
     html = html.replace('<link rel="stylesheet" href="app.css">', `<style>\n${read('public/app.css')}\n</style>`);
     html = html.replace('<script src="app.js" defer></script>', '');
+    html = html.replace('<script src="theme.js"></script>', `<script>\n${read('public/theme.js')}\n</script>`);
     html = html.replace('</body>', `<script>window.SPRUCE_MEMORY_ROUTER = true; window.SPRUCE_DEMO_DATA = ${json};</script>\n<script>${shift}</script>\n<script>\n${read('src/dashboard/aggregate.js')}\n</script>\n<script>${fakeApi}</script>\n<script>\n${read('public/app.js')}\n</script>\n</body>`);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, html);

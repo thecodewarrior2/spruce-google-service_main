@@ -224,8 +224,10 @@ loading bar across the top with what is happening (0.6.5). Every email address s
 it (0.5.72).
 
 The dashboard (0.6.0) has a menu on the left: **Today**, **Review**, **Threats**, **Mail**, **Health** and
-**Settings**, with **Help** at its foot, the signed-in admin, and a card saying the mode (monitor or enforce) and
-where to go from it. The mode is also in the bar at the top, with the period (7, 30 or 90 days) and the live
+**Settings**, with **Help** at its foot, the signed-in admin, a **theme** switcher (System follows the computer's light
+or dark setting; Light; Dark; 0.6.11, kept in that browser), and a card saying the mode (monitor or enforce) and
+where to go from it. Above the menu: the logo, S.P.R.U.C.E and Google Workspace (the domains are on Health → DMARC &
+reputation and Settings → Policy). The mode is also in the bar at the top, with the period (7, 30 or 90 days) and the live
 updates. Threats, Mail, Health, Settings and Help each have their pages in a menu beside the page (Settings' in four
 groups: Protection, Threat feeds, Organization, System). On a phone the menu is a drawer, and a tab bar at the
 bottom has Today, Review, Threats, Health and More. **Help** (0.5.46) shows this version's own docs (how it works,

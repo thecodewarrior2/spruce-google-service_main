@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.11: light, dark, or the system's setting; the menu's heading without the domains
+
+- **Theme:** a switcher at the foot of the menu: **System** (the default: follows the computer's light or dark
+  setting, and changes with it), **Light** or **Dark**. The choice is kept in that browser (`public/theme.js` applies
+  it before the page is drawn, so a dark page never flashes light; the page's security policy allows no inline
+  script). Charts are drawn again in the new colors.
+- **The menu's heading** shows the logo, S.P.R.U.C.E and Google Workspace, no longer the watched domains (a long
+  list of domains made it messy). They are on Health → DMARC & reputation and Settings → Policy.
+- Dashboard only: no install or checks change (Settings → Update installs it).
+
 ## 0.6.10: Health → DMARC & reputation lines up side by side
 
 - **Side by side, each domain's sections line up:** the cards in a row share their rows (the head, DMARC, SPF,

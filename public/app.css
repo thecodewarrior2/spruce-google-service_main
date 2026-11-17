@@ -729,3 +729,9 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
   .rep-list li { grid-template-columns: minmax(0, 1fr) auto; }
   .rep-detail { grid-column: 1 / -1; }
 }
+/* (0.6.11) The theme switcher in the menu: System, Light, Dark. */
+.theme-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; border-radius: 11px; background: var(--surface-2); }
+.theme-switch button { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 44px; padding: 5px 2px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font: 600 11px var(--font); cursor: pointer; }
+.theme-switch button:hover { color: var(--text); }
+.theme-switch button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+.theme-switch svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
