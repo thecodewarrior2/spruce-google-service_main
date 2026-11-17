@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.18: the "renewal" callback scam from a free mail account, and unfilled placeholders
+
+- **The renewal callback scam:** a "billing notice" for security software or a tech-support plan, with an amount
+  and a phone number to call, sent from a Gmail account, was only suspicious: the AI scored it 66% and no rule
+  agreed. A bill like that naming McAfee, Norton, LifeLock, Geek Squad, an antivirus or Defender, with an amount
+  and a phone number, from a personal mail account, is now a sign of 5 (flagged on its own): those companies don't
+  bill from free mail (`freeMailBillSigns` in `vendor/spruce/shared.js`). The callback wording also covers "if this
+  record appears unfamiliar" and "if you don't recognize this charge". None of the 329 genuine emails in the
+  district's retraining exports gets either sign.
+- **Unfilled placeholders:** a subject with a mass mailer's merge field left unfilled ({{Offer_Code}}) is a sign
+  of 2: bulk mail from a tool its sender didn't set up.
+- Tests: `test/callback-free-mail.test.js` (made-up emails; fictional 555 numbers).
+- **Checks level 18:** delivered mail of the last hours is checked again after this update.
+
 ## 0.6.17: a company's own click tracker is not a dangerous link; Re-checked listings can be marked seen one by one
 
 - **A company's own link domain:** a hotel chain's marketing mail sends every link through its own email domain

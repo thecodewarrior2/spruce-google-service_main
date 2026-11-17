@@ -87,6 +87,10 @@ For each new Inbox message:
    - a new sender from outside the organization;
    - a fake reply chain ("RE:" answering nothing this mailbox has, 0.5.33);
    - a QR code, a sign-in page or script sent as a file, a risky attachment (0.5.34).
+   - "call this number" scams: a phone number to call about a purchase you didn't make (also "if this looks
+     unfamiliar"), and (0.6.18) a bill or renewal for security software or a tech-support plan (McAfee, Norton,
+     Geek Squad…) with an amount and a number to call, sent from a free mail account: flagged on its own;
+   - a mass mailer's placeholder left unfilled in the subject ({{Offer_Code}}, 0.6.18).
 
    A score of 3 is amber, 5 is flagged.
 3. The phish-tiny model scores the email (0–100%).

@@ -56,6 +56,7 @@ function load() {
         ownNameSigns: fn('ownNameSigns'),
         subjectScamSigns: fn('subjectScamSigns'),
         bodyScamSigns: fn('bodyScamSigns'),
+        freeMailBillSigns: fn('freeMailBillSigns'),
         selfVouchingSigns: fn('selfVouchingSigns'),
         layoutSigns: fn('layoutSigns'),
         highRiskRequestSigns: fn('highRiskRequestSigns'),

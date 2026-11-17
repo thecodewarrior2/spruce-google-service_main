@@ -1017,7 +1017,8 @@ const SCAM_PHONE_RE = /(?:\+?1[\s.-]?)?(?:\(\d{3}\)[\s.-]?|\b\d{3}[\s.-])\d{3}[\
 const CALLBACK_MONEY_RE = /\b(purchase[ds]?|order(ed)?|payment|charged?|renewal|renewed|subscription|invoice|transaction|refund|billing)\b/i;
 const CALLBACK_CALL_RE = /\b(call|contact|support|help ?line|customer (service|care)|cancel|dispute)\b/i;
 const CALLBACK_URGE_RE = /\b(cancel(l?ation)?|dispute|refund|charged|immediately|urgent(ly)?|not you|wasn'?t you)\b/i;
-const CALLBACK_NOT_YOU_RE = /\b(not (made|authori[sz]ed|placed|requested) by you|did(n'?t| not) (make|authori[sz]e|place|request|order)|unauthori[sz]ed (purchase|charge|transaction|payment))\b/i;
+// (0.6.18) Also "if this record appears unfamiliar", "if you don't recognize this charge".
+const CALLBACK_NOT_YOU_RE = /\b(not (made|authori[sz]ed|placed|requested) by you|did(n'?t| not) (make|authori[sz]e|place|request|order)|unauthori[sz]ed (purchase|charge|transaction|payment)|(appears?|looks?|seems?) (unfamiliar|unrecogni[sz]ed)|(do(n'?t| not)|did(n'?t| not)) recogni[sz]e)\b/i;
 // Letters from the "mathematical" alphabets (𝐔𝐒𝐃), which look like ordinary ones but don't match a filter's words.
 const MATH_LETTERS_RE = /[\u{1D400}-\u{1D7FF}]/gu;
 function subjectScamSigns(subject) {
@@ -1030,7 +1031,25 @@ function subjectScamSigns(subject) {
         else if (CALLBACK_CALL_RE.test(s)) out.push({ weight: 3, text: 'Its subject gives a phone number to call about a purchase or payment, which genuine notifications rarely do.' });
     }
     if ((raw.match(MATH_LETTERS_RE) || []).length >= 2) out.push({ weight: 2, text: 'Its subject uses look-alike "mathematical" letters (such as 𝐔𝐒𝐃) to slip past filters.' });
+    // (0.6.18) A mass mailer's merge field left unfilled ({{FirstName}}, {{ Offer_Code }}): bulk mail sent by a
+    // tool its sender didn't set up, which is how spam and scam runs go out.
+    if (UNFILLED_FIELD_RE.test(s)) out.push({ weight: 2, kind: 'unfilled-placeholder', text: 'Its subject has a mass mailer\'s placeholder left unfilled ({{…}}): bulk mail from a tool its sender didn\'t set up, as scam and spam runs are.' });
     return out;
+}
+const UNFILLED_FIELD_RE = /\{\{\s*[A-Za-z][\w .-]{0,40}\}\}/;
+// (0.6.18) The "renewal" callback scam: a bill or renewal for security software or a tech-support plan (McAfee,
+// Norton, Geek Squad…), an amount, and a phone number to call, sent from a free mail account. Those companies
+// bill from their own domains, never from Gmail or Outlook.com, so this is strong whatever its wording.
+const CALLBACK_BRAND_RE = /\b(mc ?afee|norton|lifelock|geek ?squad|total ?tech|avast|avg antivirus|kaspersky|malwarebytes|bitdefender|webroot|(windows|microsoft) defender|defender (plus|premium|advanced))\b/i;
+const CALLBACK_BILL_RE = /\b(invoice|billing|billed|renewal|renewed|auto[- ]?renew\w*|subscription|order (number|id|no)|transaction|charged?|amount|total)\b/i;
+const MONEY_AMOUNT_RE = /(?:[$€£]|\bUSD ?)\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\b/;
+function freeMailBillSigns(subject, text, senderAddress, isPersonal) {
+    const domain = String(senderAddress || '').split('@')[1] || '';
+    if (!domain || !isPersonal(domain.toLowerCase())) return [];
+    const t = `${subject || ''}\n${String(text || '').slice(0, 20000)}`.normalize('NFKC');
+    if (!(CALLBACK_BRAND_RE.test(t) && CALLBACK_BILL_RE.test(t) && MONEY_AMOUNT_RE.test(t) && SCAM_PHONE_RE.test(t))) return [];
+    const brand = (t.match(CALLBACK_BRAND_RE) || [''])[0];
+    return [{ weight: 5, kind: 'callback-bill-free-mail', text: `A bill or renewal for ${brand} with a phone number to call, sent from a personal email account (${domain}): ${brand} doesn't bill from free mail accounts. This is the "call this number" scam: don't call it.` }];
 }
 function bodyScamSigns(text) {
     const raw = String(text || '').slice(0, 20000), t = raw.normalize('NFKC');

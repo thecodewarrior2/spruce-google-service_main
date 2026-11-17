@@ -151,6 +151,8 @@ async function analyze(facts, ctx = {}) {
         ...insideSpoofSigns(E, facts, ctx.orgDomains || [], ownAddress, verified),
         ...safe(() => E.subjectScamSigns(facts.subject)),
         ...safe(() => E.bodyScamSigns(bodyText)),
+        // (0.6.18) A security-software bill with a number to call, from a free mail account: the callback scam.
+        ...safe(() => (relay ? [] : E.freeMailBillSigns(facts.subject, bodyText, facts.senderAddress, E.isPersonalMailDomain))),
         ...safe(() => E.selfVouchingSigns(allText)),
         ...safe(() => E.layoutSigns(facts.layout)),
         ...safe(() => E.highRiskRequestSigns(bodyText)),
