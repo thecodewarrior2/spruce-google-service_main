@@ -53,8 +53,9 @@ check)
 import json, sys
 v = (json.load(sys.stdin).get("fields", {}).get("value") or {}).get("mapValue", {}).get("fields", {})
 s = lambda k: v.get(k, {}).get("stringValue", "")
-print("\t".join([s("version"), s("commit"), s("by"), str(v.get("at", {}).get("integerValue", "0"))]))' 2>/dev/null || true)"
-    IFS=$'\t' read -r VERSION COMMIT BY AT <<< "$req"
+print("\t".join([s("version"), s("commit"), s("by"), str(v.get("at", {}).get("integerValue", "0")), s("modelRepo") or "-"]))' 2>/dev/null || true)"
+    IFS=$'\t' read -r VERSION COMMIT BY AT MODEL_REPO <<< "$req"
+    [ "${MODEL_REPO:-}" != - ] || MODEL_REPO=""
     [ -n "${VERSION:-}" ] && [ -n "${COMMIT:-}" ] || { echo "No update was asked for: nothing to do."; touch "$W/skip"; exit 0; }
     # Another build already on it (the job run twice: by the button and by hand, say): this one leaves it
     # alone, and changes nothing. A build "building" for longer than the build's timeout (45 minutes) has stopped.
@@ -77,7 +78,10 @@ print("\t".join([v.get("phase", {}).get("stringValue", ""), str(v.get("at", {}).
     [ $(( $(now_ms) - ${AT:-0} )) -lt 1800000 ] || refuse "it was asked for more than 30 minutes ago"
     [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || refuse "the commit asked for isn't one"
     [ -n "$FROM" ] && [ "$(printf '%s\n%s\n' "$FROM" "$VERSION" | sort -V | tail -1)" = "$VERSION" ] && [ "$FROM" != "$VERSION" ] || refuse "$VERSION isn't newer than the version running (${FROM:-unknown})"
-    printf 'VERSION=%q\nCOMMIT=%q\nBY=%q\nFROM=%q\nLEVEL=%q\n' "$VERSION" "$COMMIT" "$BY" "$FROM" "${LEVEL:-0}" > "$W/request.env"
+    # (0.6.9) Where the build downloads the AI model from (the dashboard's model repository): an https address
+    # only; none (a request from before 0.6.9) is the repository the version pins (VENDOR.json).
+    if [ -n "${MODEL_REPO:-}" ] && ! [[ "$MODEL_REPO" =~ ^https://[A-Za-z0-9.-]+/[A-Za-z0-9._~%/-]+$ ]]; then failed "the model repository in the request isn't a usable https address"; fi
+    printf 'VERSION=%q\nCOMMIT=%q\nBY=%q\nFROM=%q\nLEVEL=%q\nMODEL_REPO=%q\n' "$VERSION" "$COMMIT" "$BY" "$FROM" "${LEVEL:-0}" "${MODEL_REPO:-}" > "$W/request.env"
     set_state update phase=building "version=$VERSION" "from=$FROM" "by=$BY" "at=$(now_ms)" "build=${BUILD:-}"
     echo "Updating from $FROM to $VERSION (commit $COMMIT), asked for by $BY."
     ;;
@@ -104,7 +108,7 @@ image)
     [ -f "$W/picked" ] || exit 0
     . "$W/request.env"
     echo "The AI model, phish-tiny $MODEL, comes from TinyPhishLLM at ${MODEL_COMMIT:-?} (downloaded and checked by the build)."
-    docker build -t "$IMAGE" "$B" || failed "the image didn't build (it downloads the AI model from TinyPhishLLM on GitHub: the build's log says if that failed)"
+    docker build --build-arg MODEL_REPO="${MODEL_REPO:-}" -t "$IMAGE" "$B" || failed "the image didn't build (it downloads the AI model from ${MODEL_REPO:-the repository the version pins}: the build's log says if that failed)"
     docker push "$IMAGE" || failed "the image couldn't be stored in Artifact Registry"
     touch "$W/built"
     ;;

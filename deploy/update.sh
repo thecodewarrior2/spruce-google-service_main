@@ -11,11 +11,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 HERE="$(pwd -P)"
-RELEASES="${SPRUCE_RELEASES:-https://github.com/thecodewarrior2/spruce-google-service_main.git}"
+# (0.6.9) Where from: RELEASES_REPO in this folder's deploy/settings.env (no default; deploy/repos.sh).
+[ -f deploy/repos.sh ] && . deploy/repos.sh
+RELEASES="${SPRUCE_RELEASES:-}"
+if [ -z "$RELEASES" ] && [ -f deploy/settings.env ]; then
+    RELEASES="$(sed -n 's/^[[:space:]]*RELEASES_REPO[[:space:]]*=[[:space:]]*//p' deploy/settings.env | tr -d '\r' | tail -1 | sed 's/[[:space:]]*$//')"
+    [ -z "$RELEASES" ] || RELEASES="$(repo_url "$RELEASES")"
+fi
 fail() { printf '\n\033[31mStopped:\033[0m %s\n' "$*" >&2; exit 1; }
 version() { sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$1/package.json" | head -1; }
 
 [ -f deploy/settings.env ] || fail "no deploy/settings.env here: run this from the folder you installed or upgraded from."
+[ -n "$RELEASES" ] || fail "RELEASES_REPO isn't set in deploy/settings.env: set it to your release repository (the maintainer's, as an example: ${EXAMPLE_RELEASES_REPO:-https://github.com/thecodewarrior2/spruce-google-service_main}), then run this again."
 command -v git >/dev/null || fail "git is not installed (use Cloud Shell)."
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 echo "Getting the newest approved version from $RELEASES ..."

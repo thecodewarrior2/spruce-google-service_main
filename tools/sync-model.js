@@ -60,9 +60,11 @@ function main() {
     try { commit = git('rev-parse', 'HEAD'); } catch (e) { fail(`${src} is not a git checkout of TinyPhishLLM.`); }
     if (git('status', '--porcelain', '--untracked-files=no')) fail(`${src} has uncommitted changes: sync from a commit.`);
     let repository = '';
-    try { repository = git('remote', 'get-url', 'origin').replace(/\.git$/, '').replace(/^https:\/\/[^@/]*@/, 'https://').replace(/^git@github\.com:/, 'https://github.com/'); } catch (e) { /* no remote */ }
-    if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/.test(repository)) fail(`${src}'s origin isn't TinyPhishLLM on GitHub (${repository || 'none'}): the service downloads the model from there.`);
-    try { git('fetch', '-q', 'origin', 'main'); } catch (e) { fail(`couldn't read TinyPhishLLM's main branch from GitHub (${repository}): the service downloads the model from there.`); }
+    try { repository = git('remote', 'get-url', 'origin').replace(/\.git$/, '').replace(/^https:\/\/[^@/]*@/, 'https://').replace(/^git@([\w.-]+):/, 'https://$1/'); } catch (e) { /* no remote */ }
+    // (0.6.9) Any public https repository (GitHub, GitLab, another host: src/repos.js): yours, if you keep your own model.
+    const { problem: repoProblem } = require(path.join(__dirname, '..', 'src', 'repos.js'));
+    if (!/^https:\/\//.test(repository) || repoProblem(repository)) fail(`${src}'s origin isn't a public https repository (${repository || 'none'}${repository && repoProblem(repository) ? `: ${repoProblem(repository)}` : ''}): the service downloads the model from there.`);
+    try { git('fetch', '-q', 'origin', 'main'); } catch (e) { fail(`couldn't read the model repository's main branch (${repository}): the service downloads the model from there.`); }
     try { git('merge-base', '--is-ancestor', commit, 'FETCH_HEAD'); } catch (e) { fail(`commit ${commit.slice(0, 7)} isn't on TinyPhishLLM's main branch on GitHub: push it there first (the service downloads it from there).`); }
 
     // 1. TinyPhishLLM's own check.

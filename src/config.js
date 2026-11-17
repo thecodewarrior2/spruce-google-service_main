@@ -11,7 +11,7 @@ const bool = (v, d) => (v === undefined || v === '' ? d : /^(1|true|yes|on)$/i.t
 // Spamhaus, abuse.ch). They read from a live
 // copy that only setPolicyValues changes (src/pipeline.js: refreshPolicy, setPolicy); envPolicy keeps what
 // the environment (deploy/settings.env) says. The rest of the configuration is frozen.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo'];
 function withLivePolicy(c) {
     const envPolicy = Object.freeze(Object.fromEntries(POLICY_KEYS.map(k => [k, c[k]])));
     const live = Object.assign({}, envPolicy);
@@ -176,7 +176,11 @@ function loadConfig(env = process.env) {
         // The job Settings → Update runs (projects/PROJECT/locations/REGION/jobs/spruce-update; install.sh
         // makes it), and where the approved versions are (src/releases.js).
         updateJob: env.UPDATE_JOB || '',
-        releasesRepo: env.RELEASES_REPO || 'thecodewarrior2/spruce-google-service_main'
+        // (0.6.9) Where this installation downloads from (src/repos.js): the approved versions (Settings → Update,
+        // deploy/update.sh, the update job) and the AI model's files. No default: each installation names its own
+        // (deploy/settings.env; also Settings → Update → Repositories).
+        releasesRepo: String(env.RELEASES_REPO || '').trim(),
+        modelRepo: String(env.MODEL_REPO || '').trim()
     });
 }
 

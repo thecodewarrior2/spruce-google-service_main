@@ -23,6 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const { compareVersions, modelSourceOf } = require('./releases');
+const repos = require('./repos');
 
 const PKG = require('../package.json');
 // The AI model this version runs: its version and where its image build downloaded it (VENDOR.json).
@@ -111,9 +112,15 @@ async function updateInfo({ cfg, store, releases, cloudrun = null, alert = null 
     let newest = null, error = null;
     // (an admin's Check again on any instance makes every instance read GitHub again: 0.5.38)
     const shared = await sharedCheckAt(store);
-    try { newest = await releases.newest({ freshAfter: shared }); } catch (e) { error = `Couldn't read the approved versions from GitHub: ${String(e.message).slice(0, 200)}`; }
+    // (0.6.9) Neither repository has a default: each installation names its own (Settings → Update → Repositories).
+    const notSet = cfg.demo ? null : !String(cfg.releasesRepo || '').trim() ? 'No release repository is set, so there are no versions to offer: set it below (Repositories), or RELEASES_REPO in deploy/settings.env.'
+        : !String(cfg.modelRepo || '').trim() && !cfg.demo ? 'No model repository is set, so an update couldn\'t download the AI model: set it below (Repositories), or MODEL_REPO in deploy/settings.env.' : null;
+    if (String(cfg.releasesRepo || '').trim() || cfg.demo) {
+        try { newest = await releases.newest({ freshAfter: shared }); } catch (e) { error = `Couldn't read the approved versions from the release repository: ${String(e.message).slice(0, 200)}`; }
+    }
     let why = null;
-    if (!newest) why = error;
+    if (notSet) why = notSet;
+    else if (!newest) why = error;
     else if (compareVersions(newest.version, installed.version) === 0) why = `${installed.version} is the newest approved version.`;
     else if (compareVersions(newest.version, installed.version) < 0) why = `The version installed, ${installed.version}, is newer than the newest approved one (${newest.version}): there is nothing to update to. (A version not yet approved was installed from a zip.)`;
     else if (newest.installLevel > installed.installLevel) why = `${newest.version} changes the installation itself (new permissions, jobs or settings), so it is installed from Cloud Shell: bash deploy/update.sh, from the folder you installed or last upgraded from. Until then no update is installed from here, neither ${newest.version} nor any later version.`;
@@ -150,7 +157,10 @@ async function startUpdate({ cfg, store, releases, scheduler, service, admin, bo
     if (body.version && body.version !== info.newest.version) return { error: `The newest approved version is now ${info.newest.version}: read its changes, then try again. Nothing was changed.`, status: 409 };
     const from = info.installed.version, to = info.newest.version, at = Date.now();
     if (cfg.demo) return { started: { from, to, demo: true } };
-    await store.setState('updateRequest', { version: to, commit: info.newest.commit, by: admin.email, at });
+    // (0.6.9) With where to download it from, as set now: the update job reads both from the request (its own steps,
+    // made by install.sh, can't be changed from here).
+    const rel = repos.parseRepo(cfg.releasesRepo);
+    await store.setState('updateRequest', { version: to, commit: info.newest.commit, by: admin.email, at, releases: rel ? rel.url : '', modelRepo: String(cfg.modelRepo || '').trim() });
     await store.setState('update', { phase: 'requested', version: to, from, by: admin.email, at });
     try { await scheduler.run(cfg.updateJob); }
     catch (e) {

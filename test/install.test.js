@@ -14,7 +14,7 @@ const hasBash = spawnSync('bash', ['-c', 'true']).status === 0;
 // The stand-ins for gcloud and docker: test/fixtures/fakebin.
 const FAKEBIN = path.join(__dirname, 'fixtures', 'fakebin');
 const SETTINGS = ['PROJECT=test-proj', 'REGION=us-east1', 'ORG_DOMAINS=district-test.example', 'PILOT_GROUP=pilot@district-test.example',
-    'DIRECTORY_ADMIN=dir@district-test.example', 'ADMIN_GROUP=admins@district-test.example', 'MODE=monitor', ''].join('\n');
+    'DIRECTORY_ADMIN=dir@district-test.example', 'ADMIN_GROUP=admins@district-test.example', 'MODE=monitor', 'RELEASES_REPO=https://github.com/district-test/releases', 'MODEL_REPO=https://github.com/district-test/model', ''].join('\n');
 
 // A copy of the scripts in a temporary folder (as unzipped from a release), with the stand-ins.
 function workspace(name = 'spruce-mail-protection-0.3.0', settings = SETTINGS) {
@@ -132,7 +132,7 @@ test('install.sh: Docker can\'t upload, so Cloud Build builds as spruce-build; a
     try {
         let r = w.run('install.sh', { FAKE_PUSH: 'refused' });
         assert.equal(r.code, 0, r.out);
-        assert.ok(has(r.calls, /builds submit --tag .* --region=us-east1 --service-account=projects\/test-proj\/serviceAccounts\/spruce-build@test-proj\.iam\.gserviceaccount\.com --default-buckets-behavior=regional-user-owned-bucket/));
+        assert.ok(has(r.calls, /builds submit --config=.*image-build\.json --region=us-east1 --service-account=projects\/test-proj\/serviceAccounts\/spruce-build@test-proj\.iam\.gserviceaccount\.com --default-buckets-behavior=regional-user-owned-bucket/));
         assert.match(r.out, /Building it with Cloud Build instead/);
         r = w.run('install.sh', { FAKE_DOCKER: 'down' });
         assert.ok(has(r.calls, /builds submit/) && !has(r.calls, /docker build/));
@@ -170,6 +170,13 @@ test('install.sh: refuses missing billing, the example values and bad settings; 
         assert.equal(r.code, 1); assert.match(r.out, /ALERT_EMAIL must be an email address/);
         fs.writeFileSync(path.join(w.dir, 'deploy', 'settings.env'), SETTINGS + 'SURPRISE=1\n');
         assert.match(w.run('install.sh').out, /unknown setting 'SURPRISE'/);
+        // (0.6.9) Both repositories are required: no default.
+        fs.writeFileSync(path.join(w.dir, 'deploy', 'settings.env'), SETTINGS.replace(/^RELEASES_REPO=.*\n/m, ''));
+        r = w.run('install.sh');
+        assert.equal(r.code, 1); assert.match(r.out, /RELEASES_REPO in deploy\/settings\.env: it is empty\. Set it to your own repository .*as an example: https:\/\/github\.com\/thecodewarrior2\/spruce-google-service_main/);
+        assert.ok(!has(r.calls, /run deploy/), 'nothing deployed');
+        fs.writeFileSync(path.join(w.dir, 'deploy', 'settings.env'), SETTINGS.replace(/^MODEL_REPO=.*$/m, 'MODEL_REPO=http://github.com/district-test/model'));
+        assert.match(w.run('install.sh').out, /MODEL_REPO in deploy\/settings\.env: only https:\/\/ addresses are used/);
     } finally { w.cleanup(); }
     w = workspace(undefined, fs.readFileSync(path.join(ROOT, 'deploy', 'settings.example.env'), 'utf8'));
     try { const r = w.run('install.sh'); assert.equal(r.code, 1); assert.match(r.out, /still has the example values/); } finally { w.cleanup(); }
@@ -190,6 +197,13 @@ test('upgrade.sh: finds the old settings, adds new ones empty, says what\'s new,
         assert.match(settings, /^CAMPAIGN_HOLD_AFTER=$/m); assert.match(settings, /^ALERT_EMAIL=$/m);
         assert.ok(has(r.calls, /run deploy spruce-worker/), 'installed');
         assert.match(r.out, /upgrade: not waiting/);
+        // (0.6.9) Old settings without the repositories, and nobody at the keyboard to ask: stopped, saying what to set.
+        const older = path.join(w.home, 'spruce-mail-protection-0.6.8', 'deploy');
+        fs.mkdirSync(older, { recursive: true });
+        fs.writeFileSync(path.join(older, 'settings.env'), SETTINGS.replace(/^(RELEASES_REPO|MODEL_REPO)=.*\n/mg, ''));
+        fs.rmSync(path.join(w.dir, 'deploy', 'settings.env'));
+        const u = w.run('upgrade.sh', { FAKE_INSTALLED: '0.6.8' }, [older.replace(/\/deploy$/, '')]);
+        assert.equal(u.code, 1, u.out); assert.match(u.out, /RELEASES_REPO isn't set in deploy\/settings\.env: set it to the release repository .*your own copy/);
         // stop.sh with "KEY = value " settings.
         fs.writeFileSync(path.join(w.dir, 'deploy', 'settings.env'), 'PROJECT = test-proj \nREGION=us-east1  \n');
         const s = w.run('stop.sh');

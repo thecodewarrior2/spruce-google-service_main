@@ -246,6 +246,16 @@ Mail is still checked; one source of evidence is missing until it comes back.
 - **What to do:** in Cloud Shell, from the folder you installed or last upgraded from, `bash deploy/update.sh`.
   Until then, Settings → Update installs nothing.
 
+### Where updates come from was changed (`repos`)
+
+- **When:** an admin changed the release repository (where Settings → Update and the update job get new versions) or
+  the model repository (where the AI model is downloaded from) on the dashboard (Settings → Update → Repositories,
+  0.6.9). Each change needs the project ID, a ticked box and the admin's own address, and is noted in Activity.
+- **What it means:** whoever controls the release repository decides what code an update installs in your project,
+  and that code reads and moves mail. Expected when your team moved its repositories; anything else is a warning.
+- **What to do:** if nobody in your team did it, set it back (Settings → Update → Repositories), check who is in
+  `ADMIN_GROUP` / `ADMIN_EMAILS`, and don't press Update until you know what the new repository holds.
+
 ### An admin's account was locked (`lockout`)
 - **When:** an account typed a wrong project ID or email address 5 times within 10 minutes.
 - **What to do:** ask the admin. If it wasn't them, someone may be using their signed-in session: sign them

@@ -201,8 +201,8 @@ can be turned off):
   with a free Auth-Key; their data may not be used to train or improve an AI model, so the retraining export
   leaves out what they found (Spamhaus's data likewise).
 
-**Settings → Update** reads the approved versions from GitHub (`api.github.com` and
-`raw.githubusercontent.com`, the public `spruce-google-service_main` repository): the newest commit on main, and
+**Settings → Update** reads the approved versions from your release repository (`RELEASES_REPO`, 0.6.9: GitHub's
+`api.github.com` and `raw.githubusercontent.com`, or GitLab's API and raw files): the newest commit on main, and
 that commit's `package.json`, `CHANGELOG.md` and `VENDOR.json`. The dashboard does, when the page is
 opened (kept 10 minutes), and from 0.5.24 the worker once an hour (its hourly job), to alert the admins when an
 approved version needs a manual install. It is read anonymously: no token, a plain User-Agent

@@ -404,7 +404,7 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     `admin.reports.audit.readonly` scope on the domain-wide delegation, and an admin with the Reports
     privilege (docs/INSTALL.md, "Link clicks"). **Test** says what Google answers; turning it on or off
     needs the project ID.
-  - **Update:** the version installed, the newest approved one (from `spruce-google-service_main`), what's new
+  - **Update:** the version installed, the newest approved one (from your release repository, `RELEASES_REPO`), what's new
     since yours (its changelog), and the whole changelog. **Last checked** says when GitHub was asked (the answer
     is kept 10 minutes); **Check again** asks it now, at most once a minute for everyone and 10 times an hour per
     admin (0.5.38). **Update to …** works like
@@ -497,7 +497,12 @@ The last command writes `build/mockup.html`, a single file to share the look and
 
 **To test in your own Workspace, limited to one security group:** `docs/INSTALL.md`. A script,
 `deploy/install.sh`, sets everything up from Cloud Shell, and the others look after it:
-- **`deploy/update.sh`** upgrades to the newest approved version (from `spruce-google-service_main`), with no
+- **Your repositories** (0.6.9): each installation names where it downloads from, `RELEASES_REPO` (the approved
+  versions) and `MODEL_REPO` (the AI model's files), in `deploy/settings.env`; neither has a default. Both can be
+  changed on the dashboard (Settings → Update → Repositories) without installing again: a change needs the project
+  ID, a ticked box and your own address, and is emailed as an alert, because the release repository decides what
+  code an update installs.
+- **`deploy/update.sh`** upgrades to the newest approved version (from your release repository), with no
   zip to upload. Each version brings its own AI model; the upgrade says when the model changes. Most
   versions can also be installed from the dashboard (Settings → Update), which runs
   `deploy/cloud-update.sh` in Cloud Build. The page links each AI model to its TinyPhishLLM repository

@@ -22,6 +22,7 @@ const A = require('./dashboard/aggregate');
 const { looksLikeReply } = require('./engine/replychain');
 const training = require('./training');
 const spruce = require('./engine/spruce');
+const repos = require('./repos');
 const { indexOf: recheckIndex, lookFor, foundWords, eventNames, eventHasMessageId, eventType } = require('./recheck');
 const { checksLevel: currentChecksLevel } = require('./checks-level');
 const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOKALIKE_NEW_DAYS } = require('./lookalike');
@@ -179,7 +180,7 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 // by, at }) and applies to every instance within POLICY_REFRESH_MS. It records the settings.env value it
 // replaced (env): when settings.env later has another value for the same setting (changed, then
 // install.sh), that one is newer and applies. The most recent change wins, wherever it was made.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo'];
 const LIST_KEYS = ['allowDomains', 'allowAddresses', 'allowLinkDomains'];
 const MAX_ALLOWED = 500;
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -238,6 +239,12 @@ function policyValue(key, v, now = {}) {
         }
         return items;
     }
+    if (key === 'releasesRepo' || key === 'modelRepo') {
+        const s = String(v === null || v === undefined ? '' : v).trim();
+        const why = repos.problem(s);
+        if (why) bad(`${key === 'releasesRepo' ? 'The release repository' : 'The model repository'}: ${why}`);
+        return s;
+    }
     if (key === 'mode') return v === 'monitor' || v === 'enforce' ? v : bad('The mode is monitor or enforce.');
     if (key === 'watchScope') return v === 'pilot' || v === 'domain' ? v : bad('Who is checked is the pilot or the whole domain.');
     const pc = (x) => `${Math.round(Number(x) * 1000) / 10}%`;
@@ -265,6 +272,7 @@ function policyValue(key, v, now = {}) {
 function policyWords(key, v) {
     if (LIST_KEYS.includes(key)) { const l = asList(v); return l.length ? (l.length > 5 ? `${l.length} entries` : l.join(', ')) : 'none'; }
     if (key === 'mode') return v === 'enforce' ? 'enforce' : 'monitor';
+    if (key === 'releasesRepo' || key === 'modelRepo') return String(v || '').trim() ? repos.shown(v) : 'not set';
     if (key === 'watchScope') return v === 'domain' ? 'the whole domain' : 'the pilot';
     if (key === 'aiThreshold' || key === 'aiSuspicious') return `${Math.round(Number(v) * 1000) / 10}%`;
     if (key === 'brakePerHour') return Number(v) ? `${Number(v).toLocaleString('en-US')} moves an hour` : 'automatic (half the watched mailboxes, at least 100)';
@@ -393,6 +401,8 @@ class Service {
             return `${by} changed the allowlisted ${key === 'allowDomains' ? 'domains' : 'addresses'} on the dashboard (${how}): ${changes}. Mail from them is never moved when Gmail's DMARC check passes for it.`;
         };
         const text = LIST_KEYS.includes(key) ? listChange()
+            : key === 'releasesRepo' ? `${by} changed the release repository on the dashboard (${how}), from ${policyWords(key, before)} to ${policyWords(key, value)}: Settings → Update now offers the versions there, and an update installs them.`
+            : key === 'modelRepo' ? `${by} changed the model repository on the dashboard (${how}), from ${policyWords(key, before)} to ${policyWords(key, value)}: the next build downloads the AI model's files from there (each version's pinned files only).`
             : key === 'watchScope' ? (value === 'domain'
                 ? `${by} switched the service to the whole domain on the dashboard (${how}): every active mailbox of ${this.cfg.orgDomains.join(', ')} is watched and checked from the next re-read of the directory (started now), not only the pilot. The mode (${this.cfg.mode}) and the brakes apply to all of them.`
                 : `${by} switched the service back to the pilot on the dashboard (${how}): only the pilot's mailboxes are checked; the others' watches are stopped at the next re-read (started now).`)

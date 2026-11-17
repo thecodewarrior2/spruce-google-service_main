@@ -49,22 +49,24 @@ test('the approved versions: read from spruce-google-service_main\'s newest comm
     assert.deepEqual([n.version, n.commit, n.installLevel, n.model, n.changelog.length], ['9.9.9', SHA, PKG.installLevel, '0.12.0', 3]);
     assert.deepEqual(n.modelSource, { repository: 'https://github.com/thecodewarrior2/TinyPhishLLM', commit: 'c'.repeat(40) }, 'where its image build downloads the model');
     assert.equal(modelSourceOf({ model: '0.11.0' }), null, 'a version from before 0.5.8 had its model inside');
-    assert.equal(modelSourceOf({ modelSource: { repository: 'https://example.com/x/y', commit: 'c'.repeat(40) } }), null);
+    assert.equal(modelSourceOf({ modelSource: { repository: 'http://example.com/x/y', commit: 'c'.repeat(40) } }), null, 'https only');
     assert.equal(gh.calls[0], 'https://api.github.com/repos/district/releases/commits/main');
     assert.ok(gh.calls.slice(1).every(u => u.startsWith(`https://raw.githubusercontent.com/district/releases/${SHA}/`)), 'the files of that exact commit');
     await r.newest(); assert.equal(gh.calls.length, 4, 'kept');
     t += 11 * 60 * 1000; await r.newest(); assert.equal(gh.calls.length, 8, 'read again after 10 minutes');
-    await assert.rejects(createReleases({ fetch: fakeGitHub({ fail: true }).f }).newest(), /HTTP 503/);
+    await assert.rejects(createReleases({ repo: 'district/releases', fetch: fakeGitHub({ fail: true }).f }).newest(), /HTTP 503/);
+    // (0.6.9) No default: with none set, nothing is asked, and the page says how to set it.
+    await assert.rejects(createReleases({ fetch: fakeGitHub().f }).newest(), /no release repository is set/);
 });
 
 function setup({ version = '9.9.9', installLevel = PKG.installLevel, updateJob = 'projects/p/locations/r/jobs/spruce-update', runFails = false } = {}) {
     const store = new MemoryStore();
-    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `reader@${ORG}`, GOOGLE_CLOUD_PROJECT: 'maple-mail-protection', UPDATE_JOB: updateJob });
+    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `reader@${ORG}`, GOOGLE_CLOUD_PROJECT: 'maple-mail-protection', RELEASES_REPO: 'https://github.com/district/releases', MODEL_REPO: 'https://github.com/district/model', UPDATE_JOB: updateJob });
     const warned = [];
     const service = new Service({ cfg, store, gmail: {}, log: { error() {}, warn: (x) => warned.push(JSON.parse(x)) } });
     const ran = [];
     const scheduler = { run: async (job) => { if (runFails) throw new Error('Cloud Scheduler answered HTTP 403: denied'); ran.push(job); return {}; } };
-    const releases = createReleases({ fetch: fakeGitHub({ version, installLevel }).f });
+    const releases = createReleases({ repo: 'district/releases', fetch: fakeGitHub({ version, installLevel }).f });
     const tries = new Map();
     const wrong = { locked: (w) => (tries.get(w) || 0) >= 5, add: (w) => tries.set(w, (tries.get(w) || 0) + 1), clear: (w) => tries.delete(w) };
     const admin = { email: `it.head@${ORG}` };
@@ -95,6 +97,7 @@ test('the button: the agreement, the project ID and the admin\'s own address; th
     assert.deepEqual(s.ran, ['projects/p/locations/r/jobs/spruce-update']);
     const req = await s.store.getState('updateRequest');
     assert.deepEqual([req.version, req.commit, req.by], ['9.9.9', SHA, `it.head@${ORG}`]);
+    assert.deepEqual([req.releases, req.modelRepo], ['https://github.com/district/releases.git', 'https://github.com/district/model'], '(0.6.9) where the job downloads from, as set now');
     assert.equal((await s.store.getState('update')).phase, 'requested');
     assert.deepEqual(s.warned, [], '0.5.28: an update started is what an admin did, not an alert');
     assert.ok((await s.store.listEvents(0)).some(e => e.kind === 'update' && e.admin && !e.alert && /^it\.head@maple-schools\.example started an update from .* to 9\.9\.9 on the dashboard \(confirmed with the project ID and their own email address, and agreed\)/.test(e.text)));
@@ -186,7 +189,7 @@ test('install.sh makes the spruce-update job: a Cloud Build as spruce-updater wi
         for (const f of ['package.json', 'CHANGELOG.md']) fs.copyFileSync(path.join(ROOT, f), path.join(dir, f));
         fs.copyFileSync(path.join(ROOT, 'vendor', 'spruce', 'VENDOR.json'), path.join(dir, 'vendor', 'spruce', 'VENDOR.json'));
         fs.writeFileSync(path.join(dir, 'deploy', 'settings.env'), ['PROJECT=test-proj', 'REGION=us-east1', 'ORG_DOMAINS=district-test.example', 'PILOT_GROUP=pilot@district-test.example',
-            'DIRECTORY_ADMIN=dir@district-test.example', 'ADMIN_GROUP=admins@district-test.example', 'MODE=monitor', ''].join('\n'));
+            'DIRECTORY_ADMIN=dir@district-test.example', 'ADMIN_GROUP=admins@district-test.example', 'MODE=monitor', 'RELEASES_REPO=https://github.com/district-test/releases', 'MODEL_REPO=https://github.com/district-test/model', ''].join('\n'));
         fs.writeFileSync(sb.log, '');
         const r = spawnSync('bash', ['deploy/install.sh'], { cwd: dir, encoding: 'utf8', input: '', env: sb.env({ SPRUCE_WAIT_STEP: '0' }) });
         assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -201,11 +204,15 @@ test('install.sh makes the spruce-update job: a Cloud Build as spruce-updater wi
         assert.match(calls, /scheduler jobs create http spruce-update .*--uri=https:\/\/cloudbuild\.googleapis\.com\/v1\/projects\/test-proj\/locations\/us-east1\/builds --http-method=POST .*--oauth-service-account-email=spruce-updater@test-proj\.iam\.gserviceaccount\.com/);
         const build = JSON.parse(fs.readFileSync(path.join(sb.fake, 'update-build.json'), 'utf8'));
         assert.equal(build.serviceAccount, 'projects/test-proj/serviceAccounts/spruce-updater@test-proj.iam.gserviceaccount.com');
-        assert.deepEqual(build.steps.map(s => s.id), ['download', 'check', 'pick', 'image', 'deploy', 'finish']);
-        assert.deepEqual(build.steps[0].args, ['clone', '-q', 'https://github.com/thecodewarrior2/spruce-google-service_main.git', '/workspace/release']);
-        assert.ok(build.steps[1].env.includes('BUILD=$BUILD_ID'), 'Cloud Build fills in its own id');
+        // (0.6.9) Where from: the release repository the request names (the dashboard's setting), else settings.env's.
+        assert.deepEqual(build.steps.map(s => s.id), ['where', 'download', 'check', 'pick', 'image', 'deploy', 'finish']);
+        assert.match(build.steps[0].args[1], /documents\/state\/updateRequest/);
+        assert.match(build.steps[0].args[1], /\$\{u:-https:\/\/github\.com\/district-test\/releases\}/, 'settings.env\'s when the request names none');
+        assert.match(build.steps[1].args[1], /^git clone -q "\$\(cat \/workspace\/releases-url\)" \/workspace\/release$/);
+        assert.ok(build.steps[2].env.includes('BUILD=$BUILD_ID'), 'Cloud Build fills in its own id');
         assert.match(fs.readFileSync(path.join(sb.fake, 'env-spruce-admin.yaml'), 'utf8'), /^UPDATE_JOB: "projects\/test-proj\/locations\/us-east1\/jobs\/spruce-update"$/m);
-        assert.match(fs.readFileSync(path.join(sb.fake, 'env-spruce-admin.yaml'), 'utf8'), /^RELEASES_REPO: "thecodewarrior2\/spruce-google-service_main"$/m);
+        assert.match(fs.readFileSync(path.join(sb.fake, 'env-spruce-admin.yaml'), 'utf8'), /^RELEASES_REPO: "https:\/\/github\.com\/district-test\/releases"$/m);
+        assert.match(fs.readFileSync(path.join(sb.fake, 'env-spruce-admin.yaml'), 'utf8'), /^MODEL_REPO: "https:\/\/github\.com\/district-test\/model"$/m);
         assert.match(calls, new RegExp(`run deploy spruce-worker .*--update-labels=spruce-version=[\\d-]+,spruce-model=[\\d-]+,spruce-install-level=${PKG.installLevel}`));
     } finally { sb.cleanup(); }
 });
@@ -229,7 +236,7 @@ test('cloud-update.sh: nothing asked, nothing done; asked, the exact approved co
     git(origin, 'checkout', '-q', 'main');
     git(sb.home, 'clone', '-q', origin, path.join(sb.ws, 'release'));
     const reqDoc = (version, commit, ageMs = 60000) => JSON.stringify({ fields: { value: { mapValue: { fields: { version: { stringValue: version }, commit: { stringValue: commit },
-        by: { stringValue: `it.head@${ORG}` }, at: { integerValue: String(Date.now() - ageMs) } } } } } });
+        by: { stringValue: `it.head@${ORG}` }, at: { integerValue: String(Date.now() - ageMs) }, modelRepo: { stringValue: 'https://github.com/district-test/model' } } } } } });
     const run = (extra) => {
         fs.writeFileSync(sb.log, '');
         for (const f of fs.readdirSync(sb.fake)) if (/^update-state-|^event\.json$/.test(f)) fs.rmSync(path.join(sb.fake, f));
@@ -260,7 +267,7 @@ test('cloud-update.sh: nothing asked, nothing done; asked, the exact approved co
         assert.equal(JSON.parse(fs.readFileSync(path.join(sb.ws, 'build', 'package.json'), 'utf8')).version, '9.9.9', 'the approved commit\'s files are built');
         assert.ok(!fs.existsSync(path.join(sb.ws, 'build', '.git')));
         const image = `us-east1-docker.pkg.dev/test-proj/spruce/mail-protection:9.9.9-c${approved.slice(0, 12)}`;
-        assert.match(r.calls, new RegExp(`docker build -t ${image.replace(/[.]/g, '\\.')} ${path.join(sb.ws, 'build').replace(/[.]/g, '\\.')}\\n`));
+        assert.match(r.calls, new RegExp(`docker build --build-arg MODEL_REPO=https://github\\.com/district-test/model -t ${image.replace(/[.]/g, '\\.')} ${path.join(sb.ws, 'build').replace(/[.]/g, '\\.')}\\n`), '(0.6.9) the model from the request\'s repository');
         for (const s of ['spruce-worker', 'spruce-admin']) assert.match(r.calls, new RegExp(`run deploy ${s} --image=${image.replace(/[.]/g, '\\.')} --region=us-east1 --update-labels=spruce-version=9-9-9,spruce-model=0-12-0,spruce-install-level=1`));
         assert.deepEqual(r.states.map(s => s.phase), ['building', 'done']);
         assert.equal(r.event.kind.stringValue, 'update');
@@ -324,8 +331,8 @@ const cloudRunAt = (level) => ({ calls: 0, async service(project, region, name) 
 function setupLevel({ version = '9.9.9', installLevel, label = PKG.installLevel }) {
     _resetLevelCache();
     const store = new MemoryStore();
-    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `reader@${ORG}`, GOOGLE_CLOUD_PROJECT: 'maple-mail-protection', CLOUD_RUN_REGION: 'us-east1', UPDATE_JOB: 'projects/p/locations/r/jobs/spruce-update' });
-    const releases = createReleases({ fetch: fakeGitHub({ version, installLevel }).f });
+    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `reader@${ORG}`, GOOGLE_CLOUD_PROJECT: 'maple-mail-protection', RELEASES_REPO: 'https://github.com/district/releases', MODEL_REPO: 'https://github.com/district/model', CLOUD_RUN_REGION: 'us-east1', UPDATE_JOB: 'projects/p/locations/r/jobs/spruce-update' });
+    const releases = createReleases({ repo: 'district/releases', fetch: fakeGitHub({ version, installLevel }).f });
     const alerts = [];
     return { store, cfg, releases, cloudrun: cloudRunAt(label), alerts, alert: async (t) => alerts.push(t) };
 }
@@ -420,10 +427,10 @@ test('0.5.38: the page says when GitHub was asked; Check again asks it now, at m
     _resetChecks();
     let t = Date.UTC(2026, 10, 13, 17, 0);
     const store = new MemoryStore();
-    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `reader@${ORG}`, GOOGLE_CLOUD_PROJECT: 'maple-mail-protection', UPDATE_JOB: 'projects/p/locations/r/jobs/spruce-update' });
+    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `reader@${ORG}`, GOOGLE_CLOUD_PROJECT: 'maple-mail-protection', RELEASES_REPO: 'https://github.com/district/releases', MODEL_REPO: 'https://github.com/district/model', UPDATE_JOB: 'projects/p/locations/r/jobs/spruce-update' });
     // Two dashboard instances, each with its own copy of GitHub's answer, one store.
     const ghA = fakeGitHub({ version: '9.9.9' }), ghB = fakeGitHub({ version: '9.9.9' });
-    const a = createReleases({ fetch: ghA.f, now: () => t }), b = createReleases({ fetch: ghB.f, now: () => t });
+    const a = createReleases({ repo: 'district/releases', fetch: ghA.f, now: () => t }), b = createReleases({ repo: 'district/releases', fetch: ghB.f, now: () => t });
     const realNow = Date.now;
     Date.now = () => t;
     try {
@@ -465,9 +472,9 @@ test('0.5.38: the page says when GitHub was asked; Check again asks it now, at m
         assert.equal(other.checked, true, 'another admin still can (once a minute for everyone)');
         // GitHub failing: the time is kept all the same (a failing GitHub isn't asked faster).
         t += CHECK_GAP_MS + 1000;
-        const bad = createReleases({ fetch: fakeGitHub({ fail: true }).f, now: () => t });
+        const bad = createReleases({ repo: 'district/releases', fetch: fakeGitHub({ fail: true }).f, now: () => t });
         const f = await checkNow({ cfg, store, releases: bad, admin: `it.director@${ORG}`, now: t });
-        assert.match(f.why, /Couldn't read the approved versions from GitHub: .*HTTP 503/);
+        assert.match(f.why, /Couldn't read the approved versions from the release repository: .*HTTP 503/);
         assert.equal(await store.getState('releasesCheckedAt'), t);
         assert.equal((await checkNow({ cfg, store, releases: bad, admin: `it.director@${ORG}`, now: t + 1000 })).status, 429);
     } finally { Date.now = realNow; }

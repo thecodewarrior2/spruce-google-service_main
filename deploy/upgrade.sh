@@ -46,6 +46,22 @@ done < <(grep -E '^[A-Z_]+=' deploy/settings.example.env)
 [ ${#added[@]} -eq 0 ] || echo "New settings in $VERSION, added empty (defaults): ${added[*]}"
 
 get() { sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$SETTINGS" | tr -d '\r' | tail -1 | sed 's/[[:space:]]*$//'; }
+# (0.6.9) The two repositories have no default: asked for when the settings don't name them (written into the file).
+. deploy/repos.sh
+for k in RELEASES_REPO MODEL_REPO; do
+    [ -z "$(repo_problem "$(get "$k")")" ] && continue
+    ex="$( [ "$k" = RELEASES_REPO ] && echo "$EXAMPLE_RELEASES_REPO" || echo "$EXAMPLE_MODEL_REPO")"
+    what="$( [ "$k" = RELEASES_REPO ] && echo "the release repository (where updates come from)" || echo "the model repository (where the AI model downloads from)")"
+    [ -t 0 ] || fail "$k isn't set in $SETTINGS: set it to $what, your own copy (the maintainer's, as an example: $ex), then run this again."
+    while :; do
+        printf '\n%s isn\x27t set: %s.\nUse your own copy; the maintainer\x27s, as an example: %s\n%s: ' "$k" "$what" "$ex" "$k"
+        IFS= read -r v
+        why="$(repo_problem "$v")"; [ -z "$why" ] && break
+        echo "  Not usable: $why."
+    done
+    if grep -q "^[[:space:]]*$k[[:space:]]*=" "$SETTINGS"; then sed -i "s|^[[:space:]]*$k[[:space:]]*=.*|$k=$v|" "$SETTINGS"; else printf '%s=%s\n' "$k" "$v" >> "$SETTINGS"; fi
+    echo "  $k=$v (in $SETTINGS)"
+done
 PROJECT="$(get PROJECT)"; REGION="$(get REGION)"
 [ -n "$PROJECT" ] && [ -n "$REGION" ] || fail "PROJECT and REGION must be set in $SETTINGS."
 

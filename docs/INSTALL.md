@@ -341,22 +341,30 @@ When it finishes, it prints the **dashboard address**.
 
 Your settings, records and the Admin console steps carry over.
 
-### Upgrading to 0.6.8 (the repositories' new names)
+### Upgrading to 0.6.9 (your repositories)
 
-Installations before 0.6.8 download from `google_service_main`, which no longer exists, so Settings → Update
-and `bash deploy/update.sh` can't find new versions. Once, in Cloud Shell, take a fresh copy of the approved
-versions and upgrade from it, giving it the folder you installed or last upgraded from (it copies your settings):
+From 0.6.9 each installation names the two repositories it downloads from, in `deploy/settings.env`:
+`RELEASES_REPO` (the approved versions) and `MODEL_REPO` (the AI model's files). Neither has a default: use your
+own copies (a fork of the maintainer's, say), public so they download without a password. As examples, the
+maintainer's are `https://github.com/thecodewarrior2/spruce-google-service_main` and
+`https://github.com/thecodewarrior2/tinyphishllm`.
+
+Installations before 0.6.9 can't reach it from Settings → Update (it changes the installation, and those before
+0.6.8 download from `google_service_main`, which no longer exists). Once, in Cloud Shell, take a fresh copy of your
+release repository and upgrade from it, giving it the folder you installed or last upgraded from (it copies your
+settings and asks for the two repositories):
 
 ```bash
-git clone https://github.com/thecodewarrior2/spruce-google-service_main.git ~/spruce-mail-protection-release
+git clone https://github.com/OWNER/YOUR-RELEASE-REPOSITORY.git ~/spruce-mail-protection-release
 ```
 
 ```bash
 cd ~/spruce-mail-protection-release && bash deploy/upgrade.sh ~/YOUR-OLD-FOLDER
 ```
 
-From then on, Settings → Update and `bash deploy/update.sh` read `spruce-google-service_main`. Delete the old
-folders afterwards: they hold the repositories' old history.
+From then on, Settings → Update and `bash deploy/update.sh` read your release repository, and both can be changed on
+the dashboard (Settings → Update → Repositories) without installing again. Delete the old folders afterwards: those
+from before 0.6.8 hold the repositories' old history.
 
 **The quick way: from the approved releases.** In Cloud Shell, from the folder you installed or last
 upgraded from:

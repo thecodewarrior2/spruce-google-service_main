@@ -267,7 +267,7 @@ Creator** on `spruce-invoker`. Check Google's push-authentication docs.)
 `deploy/install.sh` sets this up; doing it by hand is possible but not needed. The pieces:
 
 - **The dashboard** reads the newest commit on `spruce-google-service_main`'s main branch from GitHub,
-  anonymously (`RELEASES_REPO`), with that commit's `package.json`, `CHANGELOG.md` and
+  anonymously (`RELEASES_REPO`: GitHub's or GitLab's API), with that commit's `package.json`, `CHANGELOG.md` and
   `vendor/spruce/VENDOR.json`. When an admin clicks **Update to …** (with I agree, the project ID and
   their own email address), it writes `state/updateRequest` (the version, the exact commit, who, when)
   and runs the `spruce-update` job (`UPDATE_JOB`). It needs no new role: `spruce-run` already has
@@ -351,7 +351,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `IAP_AUDIENCE` | none | the dashboard's Identity-Aware Proxy audience |
 | `RENEW_JOB` (dashboard) | none | the job "Read the directory again now" runs: `projects/PROJECT/locations/REGION/jobs/spruce-renew-watches`. Without it the button isn't shown |
 | `UPDATE_JOB` (dashboard) | none | the job Settings → Update runs: `projects/PROJECT/locations/REGION/jobs/spruce-update`. Without it the page says to run `deploy/update.sh` once |
-| `RELEASES_REPO` (dashboard) | `thecodewarrior2/spruce-google-service_main` | where Settings → Update reads the approved versions and their changelog (GitHub, anonymously). install.sh takes it from `SPRUCE_RELEASES` |
+| `RELEASES_REPO`, `MODEL_REPO` | none (required) | (0.6.9) where this installation downloads from: the approved versions (Settings → Update, `deploy/update.sh`, the update job) and the AI model's files (only those each version pins, by SHA-256). A GitHub or GitLab address (`https://github.com/OWNER/REPO`), or for the model another host's https address under which `COMMIT/FILE` downloads. No default: name your own copies (the maintainer's, as examples: `https://github.com/thecodewarrior2/spruce-google-service_main`, `https://github.com/thecodewarrior2/tinyphishllm`). Also on the dashboard: Settings → Update → Repositories (project ID, a ticked box and your own address; an alert) |
 | `ADMIN_EMAILS`, `ADMIN_GROUP` | none | who may use the dashboard: addresses, and/or the members of a group (needs `DIRECTORY_ADMIN` on the dashboard too); at least one |
 | `MODERATOR_GROUP` | none (install.sh: `spruce-moderators@` the first of `ORG_DOMAINS`) | 0.6.1: a group whose members may review emails on the dashboard, never Settings or Health (needs `DIRECTORY_ADMIN`); `off` for none |
 | `AI_MOVE_THRESHOLD` | `0.9` | AI score that moves (outside senders); from `AI_SUSPICIOUS_THRESHOLD` to `1` |

@@ -44,6 +44,7 @@ const A = require('./dashboard/aggregate');
 const spruce = require('./engine/spruce');
 const training = require('./training');
 const { createReleases, parseChangelog, modelSourceOf } = require('./releases');
+const repos = require('./repos');
 const { updateInfo, startUpdate, checkNow } = require('./update');
 const { suspiciousWhy } = require('./policy');
 
@@ -106,7 +107,7 @@ const POLICY_TRIES = 5, POLICY_LOCK_MS = 10 * 60 * 1000;
 // What a policy change is for, in Activity's words (a wrong project ID, 0.5.30).
 const POLICY_WHAT = { mode: 'the mode', aiThreshold: 'the AI move threshold', aiSuspicious: 'the AI suspicious line', aiScansInside: 'whether the AI reads inside mail',
     aiMovesInside: 'whether the AI alone moves inside mail', safeBrowsing: 'Google Safe Browsing (on or off)', spamhaus: 'Spamhaus (on or off)', abusech: 'abuse.ch (on or off)', suspiciousLabel: 'the Suspicious label', recheck: 're-checking delivered mail', brakePerHour: 'the brake', timeZone: 'the time zone',
-    allowDomains: 'the allowlisted domains', allowAddresses: 'the allowlisted addresses', allowLinkDomains: 'the allowed link domains', retentionDays: 'how long records are kept', watchScope: 'who is checked (the pilot or the whole domain)' };
+    allowDomains: 'the allowlisted domains', allowAddresses: 'the allowlisted addresses', allowLinkDomains: 'the allowed link domains', releasesRepo: 'the release repository', modelRepo: 'the model repository', retentionDays: 'how long records are kept', watchScope: 'who is checked (the pilot or the whole domain)' };
 // The project ID a policy change must be confirmed with ('' when the dashboard doesn't know it).
 const expectedProject = (cfg) => cfg.project || (cfg.demo ? DEMO_PROJECT : '');
 
@@ -179,7 +180,16 @@ function helpDoc(id) {
 }
 
 function createApp({ cfg, store, service, scheduler = null, cloudrun = null, releases = null }) {
-    releases = releases || (cfg.demo ? demoReleases() : createReleases({ repo: cfg.releasesRepo }));
+    // (0.6.9) The approved versions from the release repository set now (settings.env or the dashboard): a new
+    // reader when it changes.
+    let releasesSource = null;
+    if (!releases && !cfg.demo) {
+        let cur = null;
+        const now = () => { if (!cur || cur.repoSet !== cfg.releasesRepo) { cur = createReleases({ repo: cfg.releasesRepo }); cur.repoSet = cfg.releasesRepo; } return cur; };
+        releasesSource = { reset: () => { cur = null; } };
+        releases = { newest: (o) => now().newest(o), get CACHE_MS() { return now().CACHE_MS; }, get repo() { return now().repo; } };
+    }
+    releases = releases || demoReleases();
     // The hourly job looks for an approved version that needs a manual install (0.5.24), with these.
     if (service && typeof service === 'object' && !cfg.demo) { if (!service.releases) service.releases = releases; if (!service.cloudrun) service.cloudrun = cloudrun; }
     // A lookup service that stopped working is an alert, at most once a day (0.5.28).
@@ -842,6 +852,10 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 return { error: 'That isn\'t the Google Cloud project ID of this service. Nothing was changed.', status: 403 };
             }
             wrong.clear(admin.email);
+            // (0.6.9) Where updates and the AI model come from decides what code runs in this project: ticked, and the
+            // admin's own address typed too; the change is an alert (emailed), never a quiet one.
+            if ((key === 'releasesRepo' || key === 'modelRepo') && (body.agree !== true || String(body.adminEmail || '').trim().toLowerCase() !== String(admin.email || '').toLowerCase()))
+                return { error: 'Tick the box and type your own admin address (the one you are signed in with) to change where updates come from. Nothing was changed.', status: 400 };
             if (key === 'mode' && body.value === 'enforce' && cfg.mode !== 'enforce' && body.agree !== true) return { error: 'Tick "I agree" to switch to enforce mode. Nothing was changed.', status: 400 };
             // The AI alone moving colleagues' mail is a step away from the cautious default: agreed to, too.
             if (key === 'aiMovesInside' && /^(true|on|yes|1)$/i.test(String(body.value)) && !cfg.aiMovesInside && body.agree !== true) return { error: 'Tick "I agree" to let the AI alone move mail from inside. Nothing was changed.', status: 400 };
@@ -863,6 +877,10 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             try {
                 const changed = await service.setPolicy(key, body.value, admin.email);
                 // (0.5.53) A new scope: the directory read again now (the renew-watches job), not at night.
+                if ((key === 'releasesRepo' || key === 'modelRepo') && !changed.unchanged) {
+                    await service.alert('repos', `${admin.email} changed ${key === 'releasesRepo' ? 'the release repository (where updates come from)' : 'the model repository (where the AI model is downloaded from)'} on the dashboard: from ${repos.shown(changed.before) || 'not set'} to ${repos.shown(changed.value) || 'not set'}. If nobody in your team did this, set it back (Settings → Update → Repositories) and check who has access to the dashboard.`, { by: admin.email });
+                    if (key === 'releasesRepo' && releasesSource && releasesSource.reset) releasesSource.reset();
+                }
                 if (key === 'watchScope' && !changed.unchanged) {
                     service.scopeCache = null;
                     if (canRenew()) { try { await scheduler.run(cfg.renewJob); renewAskedAt = Date.now(); renewStatusAt = 0; } catch (e) { /* the hourly job continues it anyway */ } }
@@ -873,8 +891,10 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         },
         // Settings → Update: the approved versions (spruce-google-service_main) and their changes; the button.
         // (demo mode: ?manual=1 shows a made-up approved version that needs a manual install)
-        'GET /api/update': async (q) => updateInfo({ cfg, store, releases: cfg.demo && q && q.get && q.get('manual') ? demoReleases({ manual: true }) : releases, cloudrun,
-            alert: (t) => service.alert('update-manual', t) }),
+        // (0.6.9) With the two repositories (Settings → Update → Repositories): each one's value, settings.env's, and who changed it here.
+        'GET /api/update': async (q) => Object.assign(await updateInfo({ cfg, store, releases: cfg.demo && q && q.get && q.get('manual') ? demoReleases({ manual: true }) : releases, cloudrun,
+            alert: (t) => service.alert('update-manual', t) }), { repos: (() => { const p = service.policyInfo ? service.policyInfo() : {}; return { releasesRepo: p.releasesRepo || { value: cfg.releasesRepo }, modelRepo: p.modelRepo || { value: cfg.modelRepo } }; })(),
+            projectKnown: !!expectedProject(cfg) }),
         'POST /api/update': async (q, body, admin) => startUpdate({ cfg, store, releases, scheduler, service, admin, body, expectedProject, wrong, cloudrun }),
         // Check again (0.5.38): GitHub asked now, at most once a minute for the whole dashboard (src/update.js).
         'POST /api/update/check': async (q, body, admin) => checkNow({ cfg, store, releases: cfg.demo && body && body.manual ? demoReleases({ manual: true }) : releases, cloudrun, admin: admin.email,

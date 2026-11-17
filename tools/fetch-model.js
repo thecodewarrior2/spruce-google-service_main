@@ -29,11 +29,11 @@ const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 function plan(vendor = JSON.parse(fs.readFileSync(VENDOR_FILE, 'utf8'))) {
     const src = vendor.modelSource;
     if (!src || !/^[0-9a-f]{40}$/.test(String(src.commit || '')) || !src.files) throw new Error('vendor/spruce/VENDOR.json has no modelSource (run node tools/sync-model.js <TinyPhishLLM folder>)');
-    const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(String(src.repository || ''));
-    if (!m) throw new Error(`modelSource.repository isn't a GitHub repository: ${src.repository}`);
+    const m = /^https:\/\/[\w.-]+\/[\w.~%\/-]+$/.exec(String(src.repository || '')) || [];
+    if (!m.length) throw new Error(`modelSource.repository isn't an https address: ${src.repository}`);
     const files = Object.entries(src.files).filter(([to]) => to.startsWith('vendor/')).map(([to, f]) => ({ to, from: f.from, sha256: f.sha256 }));
     if (!files.length || files.some(f => !f.from || !/^[0-9a-f]{64}$/.test(f.sha256) || f.to.includes('..') || f.from.includes('..'))) throw new Error('modelSource.files is incomplete');
-    return { repository: src.repository, owner: m[1], repo: m[2], commit: src.commit, files };
+    return { repository: src.repository, commit: src.commit, files };
 }
 
 const matches = (file, hash) => { try { return sha256(fs.readFileSync(file)) === hash; } catch (e) { return false; } };
@@ -53,10 +53,16 @@ async function download(url) {
     throw new Error(`${url}: ${last && (last.cause && last.cause.code || last.message)}`);
 }
 
-async function fetchModel({ from = null, check = false, quiet = false, base = process.env.SPRUCE_MODEL_BASE, vendor, root: into = ROOT } = {}) {
+// (0.6.9) Where the files download from: SPRUCE_MODEL_BASE (an address under which COMMIT/FILE downloads), else
+// MODEL_REPO (the installation's model repository, deploy/settings.env: the image build gets it), else the
+// repository the version pins (VENDOR.json). Wherever they come from, every file must have the pinned SHA-256.
+async function fetchModel({ from = null, check = false, quiet = false, base = process.env.SPRUCE_MODEL_BASE, repo = process.env.MODEL_REPO, vendor, root: into = ROOT } = {}) {
     const p = plan(vendor);
     const say = (s, always) => { if (!quiet || always) console.log(s); };
-    const root = base ? base.replace(/\/+$/, '') : `https://raw.githubusercontent.com/${p.owner}/${p.repo}`;
+    const { rawBase, problem } = require(path.join(__dirname, '..', 'src', 'repos.js'));
+    if (repo && problem(repo)) throw new Error(`MODEL_REPO isn't usable: ${problem(repo)}`);
+    const root = base ? base.replace(/\/+$/, '') : rawBase(repo || p.repository);
+    if (!root) throw new Error(`no address to download the model from (MODEL_REPO: ${repo || 'not set'})`);
     let fetched = 0;
     for (const f of p.files) {
         const dest = path.join(into, f.to);
@@ -70,7 +76,7 @@ async function fetchModel({ from = null, check = false, quiet = false, base = pr
         fs.renameSync(`${dest}.part`, dest);
         fetched++;
     }
-    if (fetched) say(`phish-tiny: ${fetched} of ${p.files.length} files from ${from || p.repository} at ${p.commit.slice(0, 7)}, SHA-256 checked.`, true);
+    if (fetched) say(`phish-tiny: ${fetched} of ${p.files.length} files from ${from || root} at ${p.commit.slice(0, 7)}, SHA-256 checked.`, true);
     else say(`phish-tiny: all ${p.files.length} files are TinyPhishLLM's at ${p.commit.slice(0, 7)} (SHA-256 checked).`);
     return { fetched, files: p.files.length, commit: p.commit };
 }

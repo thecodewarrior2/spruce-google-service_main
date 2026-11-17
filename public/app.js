@@ -1726,19 +1726,20 @@
             preview);
     }
 
-    // --- Settings → Update: the approved versions (spruce-google-service_main), their changes, and the button ----
+    // --- Settings → Update: the approved versions (from the release repository), their changes, the button, and
+    // (0.6.9) the two repositories this installation downloads from ----
     // The button needs the agreement, the project ID and the admin's own email address; it asks the
     // spruce-update job to rebuild and redeploy both services (src/update.js, deploy/cloud-update.sh).
     async function updatePage(q) {
         const demoManual = !!(q && q.get && q.get('manual'));
         const d = await api(`/api/update${demoManual ? '?manual=1' : ''}`);
         const n = d.newest;
-        const out = [h('h1', { text: 'Update' }), h('p', { class: 'sub', text: 'The approved versions, from spruce-google-service_main, and what changed in them. A version that changes only the service is installed from here; one that changes the installation itself (permissions, jobs, settings) from Cloud Shell, with bash deploy/update.sh. Each version names its AI model: the update downloads that model from TinyPhishLLM, the model\'s own repository, and uses it only if every file matches.' })];
+        const out = [h('h1', { text: 'Update' }), h('p', { class: 'sub', text: 'The approved versions, from your release repository (Repositories, below), and what changed in them. A version that changes only the service is installed from here; one that changes the installation itself (permissions, jobs, settings) from Cloud Shell, with bash deploy/update.sh. Each version names its AI model: the update downloads that model from TinyPhishLLM, the model\'s own repository, and uses it only if every file matches.' })];
         // The AI model: each version pins one commit of TinyPhishLLM (its own public repository), which the
         // image build downloads and checks (SHA-256).
         // The repositories are links (a new tab): the model's to TinyPhishLLM (its commit to that commit), the
         // approved versions' to spruce-google-service_main. Only GitHub addresses of the expected shape are linked.
-        const ghLink = (url, text) => (/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\/commit\/[0-9a-f]{40})?$/.test(String(url || ''))
+        const ghLink = (url, text) => (/^https:\/\/(github\.com|gitlab\.[\w.-]+)\/[\w.\/-]+?(\/(-\/)?commit\/[0-9a-f]{40})?$/.test(String(url || ''))
             ? h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', text }) : text);
         const modelText = (v) => {
             if (!v || !v.model) return 'unknown';
@@ -1754,7 +1755,7 @@
             kvRow('Installation level', `${d.installed.installLevel}${d.installed.levelFrom === 'cloud-run' ? ' (read from Cloud Run)' : ''}: what deploy/install.sh last set up. A version with a higher level is installed from Cloud Shell.`),
             kvRow('Newest approved', n ? `${n.version}${n.date ? `, approved ${when(Date.parse(n.date))}` : ''}` : 'unknown'),
             kvNode('Its AI model', n ? modelText(n) : '–'),
-            kvNode('From', n && /^[\w.-]+\/[\w.-]+$/.test(String(n.repo || '')) ? ghLink(`https://github.com/${n.repo}`, n.repo) : (n ? n.repo : '–')),
+            kvNode('From', n && n.repo ? ghLink(n.repo, n.repo) : '–'),
             kvNode('Last checked', checkAgain(d, demoManual)))));
         const st = d.progress;
         if (st && st.phase) {
@@ -1786,6 +1787,7 @@
         } else if (d.canUpdate) out.push(updateForm(d));
         else if (d.why) out.push(h('div', { class: `alert ${n && !d.newer.length ? 'good' : 'warning'}` }, h('div', { text: d.why })));
         if (d.demo) out.push(h('div', { class: 'small muted' }, 'Demo mode: ', demoManual ? h('a', { href: '#/update', text: 'show the made-up version that installs from here' }) : h('a', { href: '#/update?manual=1', text: 'show a made-up version that needs a manual install' }), '.'));
+        if (d.repos) out.push(reposCard(d));
         const entry = (c) => h('article', { class: 'release' }, h('h3', { text: `${c.version}: ${c.title}` }), markdown(c.body));
         out.push(h('section', { class: 'card spaced' }, h('h2', { text: d.newer.length ? `What's new since ${d.installed.version}` : 'What\'s new' }),
             d.newer.length ? d.newer.map(entry) : h('div', { class: 'empty', text: n ? 'Nothing newer than the version installed.' : 'The approved versions couldn\'t be read.' }),
@@ -1824,6 +1826,58 @@
         return h('span', { class: 'check-again' }, text, btn);
     }
     // locked: a manual install is waiting (0.5.24): the form is shown, everything in it off, saying why.
+    // (0.6.9) Settings → Update → Repositories: where this installation downloads from, each with Change. A change
+    // needs the project ID, a ticked box and the admin's own address, is noted in Activity and emailed as an alert:
+    // whoever controls the release repository decides what code an update installs. No default: the maintainer's are
+    // shown only as examples.
+    const REPOS = [
+        { key: 'releasesRepo', env: 'RELEASES_REPO', label: 'Release repository', what: 'The approved versions: what this page offers, and what an update installs',
+          example: 'https://github.com/thecodewarrior2/spruce-google-service_main' },
+        { key: 'modelRepo', env: 'MODEL_REPO', label: 'Model repository', what: 'The AI model\'s files (each version pins their commit and SHA-256: only those exact files are used)',
+          example: 'https://github.com/thecodewarrior2/tinyphishllm' }];
+    function reposCard(d) {
+        let open = null;
+        const body = h('dl', { class: 'kv' });
+        const draw = () => {
+            body.textContent = '';
+            for (const r of REPOS) {
+                const p = d.repos[r.key] || {};
+                const v = String(p.value || '').trim();
+                const src = p.changed ? `Changed here by ${p.changed.by}, ${when(p.changed.at)}. settings.env (${r.env}) says ${String(p.env || '').trim() || 'nothing'}.`
+                    : v ? `From settings.env (${r.env}).` : `Not set: nothing in settings.env (${r.env}) or here.`;
+                const change = h('button', { class: 'btn small', type: 'button', text: v ? 'Change' : 'Set', onclick: () => { open = open === r.key ? null : r.key; draw(); } });
+                body.append(h('dt', { text: r.label }), h('dd', {}, h('div', {}, v ? h('code', { class: 'mid', text: v }) : h('b', { text: 'Not set' }), ' ', change),
+                    h('div', { class: 'small muted', text: `${r.what}. ${src}` }), open === r.key ? repoForm(d, r, v, () => { open = null; draw(); }) : null));
+            }
+            pageBusy = () => !!open;
+        };
+        draw();
+        return h('section', { class: 'card spaced' }, h('h2', { text: 'Repositories' }),
+            h('p', { class: 'sub', text: 'Where this installation downloads from. Neither has a default: use your own copies (a fork of the maintainer\'s, say), public so installations download without a password. A change applies at once, everywhere; deploy/settings.env keeps its own value for the next install from Cloud Shell.' }),
+            body);
+    }
+    function repoForm(d, r, current, close) {
+        const input = h('input', { type: 'url', value: current, placeholder: r.example, spellcheck: 'false', autocapitalize: 'off', 'aria-label': r.label, class: 'wide-input' });
+        const agree = h('input', { type: 'checkbox' });
+        const project = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'Google Cloud project ID', 'aria-label': 'Google Cloud project ID' });
+        const email = h('input', { type: 'email', autocomplete: 'off', placeholder: 'Your admin address', 'aria-label': 'Your admin address' });
+        const err = h('div', { class: 'policy-error', role: 'alert' });
+        const save = h('button', { class: 'btn primary', type: 'button', text: 'Save', onclick: async () => {
+            err.textContent = ''; save.disabled = true; acting++; busyStart('Saving the repository…');
+            try { await api('/api/policy', { method: 'POST', body: { key: r.key, value: input.value.trim(), projectId: project.value, adminEmail: email.value, agree: agree.checked } }); toast(`${r.label} saved. The admins are alerted, and Activity notes it.`); close(); render(); }
+            catch (e) { err.textContent = e.message; save.disabled = false; }
+            finally { acting--; busyEnd('Saving the repository…'); }
+        } });
+        return h('div', { class: 'repo-form' },
+            input,
+            h('div', { class: 'small muted', text: `A GitHub address (https://github.com/OWNER/REPO) or a GitLab one (https://gitlab.com/GROUP/REPO)${r.key === 'modelRepo' ? ', or an https address under which COMMIT/FILE downloads each file' : ''}. The maintainer's, as an example: ${r.example}. Empty: not set.` }),
+            h('label', { class: 'choice' }, agree, h('span', { text: r.key === 'releasesRepo'
+                ? 'I understand: whoever controls this repository decides what code an update installs in our project, and that code reads and moves mail. It is ours, or one we trust.'
+                : 'I understand: the AI model is downloaded from here at the next build (only the files each version pins, checked by SHA-256). It is ours, or one we trust.' })),
+            h('div', { class: 'inline-fields' }, project, email),
+            err,
+            h('div', { class: 'actions' }, save, h('button', { class: 'btn', type: 'button', text: 'Cancel', onclick: close })));
+    }
     function updateForm(d, { locked = false } = {}) {
         const to = d.newest.version;
         const agree = h('input', { type: 'checkbox' });

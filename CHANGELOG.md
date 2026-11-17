@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.9: each installation names the two repositories it downloads from
+
+- **`RELEASES_REPO` and `MODEL_REPO`** (`deploy/settings.env`, and on the dashboard: Settings → Update →
+  Repositories): where this installation gets its approved versions (what Settings → Update offers, what
+  `deploy/update.sh` and the update job install) and the AI model's files. **Neither has a default**: each
+  installation names its own (someone running their own copy points both to their own repositories);
+  `deploy/settings.example.env` gives the maintainer's only as examples. `install.sh` stops when either is empty or
+  not a usable address; `upgrade.sh` asks for them when the old settings don't have them (`deploy/repos.sh`).
+- **Addresses** (`src/repos.js`): a GitHub repository (`https://github.com/OWNER/REPO`, or `OWNER/REPO` as before), a
+  GitLab one (`https://gitlab.com/GROUP/REPO`, or a GitLab server of its own), or, for the model on another host, an
+  https address under which `COMMIT/FILE` downloads each file. https only, never with a name or password in it.
+  Settings → Update lists versions from GitHub and GitLab; a release repository on another host is updated from
+  Cloud Shell.
+- **Changed on the dashboard without reinstalling:** a change applies at once, for every instance. Whoever controls
+  the release repository decides what code an update installs, and that code reads and moves mail, so a change
+  needs the project ID, a ticked box and the admin's own address (admins only, never moderators), is noted in
+  Activity, and is an **alert** (`repos`, emailed). An update still installs only when an admin presses Update.
+- **The update job** (made by `install.sh`, which the dashboard can't change) now reads the release repository from
+  the update request (the dashboard's setting at the time), falling back to `settings.env`'s, and passes the model
+  repository to the image build (`MODEL_REPO`, a build argument: `Dockerfile`, `tools/fetch-model.js`). The model's
+  files are still pinned by each version (commit and SHA-256: `vendor/spruce/VENDOR.json`): the model repository only
+  says where those same files download from. `tools/sync-model.js` pins a model from any public https repository.
+- **Installation level 7:** install it once from Cloud Shell (Settings → Update can't): docs/INSTALL.md, "Upgrading to
+  0.6.9". Tests: `test/repos.test.js`, `test/update.test.js`, `test/install.test.js`, `test/model-source.test.js`.
+
 ## 0.6.8: the repositories are spruce-google-service_testing and spruce-google-service_main
 
 - **New repositories:** `google_service_testing` and `google_service_main` were deleted and made again as

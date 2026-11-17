@@ -17,7 +17,7 @@ SETTINGS=deploy/settings.env
 [ -f "$SETTINGS" ] || fail "copy deploy/settings.example.env to $SETTINGS and fill it in first."
 PROJECT= REGION= ORG_DOMAINS= PILOT_GROUP= DIRECTORY_ADMIN= ADMIN_EMAILS= ADMIN_GROUP= MODERATOR_GROUP= MODE=monitor
 AI_MOVE_THRESHOLD= AI_SUSPICIOUS_THRESHOLD= ALLOW_DOMAINS= ALLOW_ADDRESSES= BRAKE_PER_HOUR= BUDGET_ALERT= ALERT_EMAIL= CAMPAIGN_HOLD_AFTER= TIME_ZONE= WORKER_MAX_INSTANCES= RETENTION_DAYS=
-AUDIT_DAYS= PUBSUB_BACKLOG_ALERT= AUDIT_LOG= AUDIT_LOG_DAYS= GAPS_ALERT_DAY= GAPS_ALERT_MAILBOX=
+AUDIT_DAYS= PUBSUB_BACKLOG_ALERT= AUDIT_LOG= AUDIT_LOG_DAYS= GAPS_ALERT_DAY= GAPS_ALERT_MAILBOX= RELEASES_REPO= MODEL_REPO=
 while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"
     case "$line" in '' | \#*) continue ;; esac
@@ -25,7 +25,7 @@ while IFS= read -r line || [ -n "$line" ]; do
     key="$(echo "$key" | tr -d '[:space:]')"; val="$(echo "$val" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
     case "$val" in *'"'* | *'\'* | *'$'* | *'`'*) fail "$key: quotes, backslashes and \$ are not allowed in settings." ;; esac
     case "$key" in
-        PROJECT | REGION | ORG_DOMAINS | PILOT_GROUP | DIRECTORY_ADMIN | ADMIN_EMAILS | ADMIN_GROUP | MODERATOR_GROUP | MODE | AI_MOVE_THRESHOLD | AI_SUSPICIOUS_THRESHOLD | ALLOW_DOMAINS | ALLOW_ADDRESSES | BRAKE_PER_HOUR | BUDGET_ALERT | ALERT_EMAIL | CAMPAIGN_HOLD_AFTER | TIME_ZONE | WORKER_MAX_INSTANCES | RETENTION_DAYS | AUDIT_DAYS | PUBSUB_BACKLOG_ALERT | AUDIT_LOG | AUDIT_LOG_DAYS | GAPS_ALERT_DAY | GAPS_ALERT_MAILBOX) printf -v "$key" '%s' "$val" ;;
+        PROJECT | REGION | ORG_DOMAINS | PILOT_GROUP | DIRECTORY_ADMIN | ADMIN_EMAILS | ADMIN_GROUP | MODERATOR_GROUP | MODE | AI_MOVE_THRESHOLD | AI_SUSPICIOUS_THRESHOLD | ALLOW_DOMAINS | ALLOW_ADDRESSES | BRAKE_PER_HOUR | BUDGET_ALERT | ALERT_EMAIL | CAMPAIGN_HOLD_AFTER | TIME_ZONE | WORKER_MAX_INSTANCES | RETENTION_DAYS | AUDIT_DAYS | PUBSUB_BACKLOG_ALERT | AUDIT_LOG | AUDIT_LOG_DAYS | GAPS_ALERT_DAY | GAPS_ALERT_MAILBOX | RELEASES_REPO | MODEL_REPO) printf -v "$key" '%s' "$val" ;;
         *) fail "unknown setting '$key' in $SETTINGS." ;;
     esac
 done < "$SETTINGS"
@@ -63,6 +63,13 @@ keep_days_ok() { [ -z "$RETENTION_DAYS" ] || { [[ "$RETENTION_DAYS" =~ ^[0-9]+$ 
 keep_days_ok
 KEEP_BUILDS=3   # images kept in Artifact Registry (the free tier is 0.5 GB; deploy/rollback.sh can go back 2)
 if grep -v '^[[:space:]]*#' "$SETTINGS" | grep -q 'maple-schools.example\|my-spruce-project'; then fail "$SETTINGS still has the example values: put in your own."; fi
+# (0.6.9) Where this installation downloads from: no default, each names its own (deploy/repos.sh).
+. deploy/repos.sh
+for k in RELEASES_REPO MODEL_REPO; do
+    why="$(repo_problem "${!k}")"
+    [ -z "$why" ] || fail "$k in $SETTINGS: $why. Set it to your own repository (deploy/settings.example.env says what it is; the maintainer's, as an example: $( [ "$k" = RELEASES_REPO ] && echo "$EXAMPLE_RELEASES_REPO" || echo "$EXAMPLE_MODEL_REPO"))."
+done
+RELEASES_REPO="$(repo_url "$RELEASES_REPO")"; MODEL_REPO="$(repo_url "$MODEL_REPO")"
 command -v gcloud >/dev/null || fail "gcloud is not installed (use Cloud Shell)."
 
 VERSION="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' package.json | head -1)"
@@ -72,7 +79,7 @@ SA_INVOKER="spruce-invoker@$PROJECT.iam.gserviceaccount.com"
 SA_BUILD="spruce-build@$PROJECT.iam.gserviceaccount.com"
 SA_UPDATER="spruce-updater@$PROJECT.iam.gserviceaccount.com"
 # Where the approved versions are: Settings → Update reads them, and its job installs from there.
-RELEASES="${SPRUCE_RELEASES:-https://github.com/thecodewarrior2/spruce-google-service_main.git}"
+RELEASES="${SPRUCE_RELEASES:-$RELEASES_REPO}"
 INSTALL_LEVEL="$(sed -n 's/^ *"installLevel": *\([0-9]*\).*/\1/p' package.json | head -1)"; INSTALL_LEVEL="${INSTALL_LEVEL:-0}"
 TOPIC=gmail-spruce
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
@@ -225,11 +232,13 @@ IMAGE="$REGION-docker.pkg.dev/$PROJECT/spruce/mail-protection:$VERSION-src$SRC"
 MODEL="$(sed -n 's/.*"model": *"\([^"]*\)".*/\1/p' vendor/spruce/VENDOR.json 2>/dev/null | head -1 || true)"
 # The build downloads the AI model from TinyPhishLLM at the commit VENDOR.json pins (Dockerfile).
 MODEL_COMMIT="$(sed -n 's/.*"commit": *"\([0-9a-f]\{40\}\)".*/\1/p' vendor/spruce/VENDOR.json 2>/dev/null | head -1 || true)"
-echo "  The AI model, phish-tiny ${MODEL:-unknown}, is downloaded from TinyPhishLLM (github.com/thecodewarrior2/TinyPhishLLM, commit ${MODEL_COMMIT:0:7}) during the build, and used only if every file's SHA-256 matches."
+echo "  The AI model, phish-tiny ${MODEL:-unknown}, is downloaded from $MODEL_REPO (commit ${MODEL_COMMIT:0:7}) during the build, and used only if every file's SHA-256 matches."
 # Cloud Build builds and stores the image inside Google Cloud, so it works where Docker can't upload.
 # It runs as spruce-build; its source and logs go to buckets in this project and region.
 cloud_build() {
-    gcloud builds submit --tag "$IMAGE" --region="$REGION" --service-account="projects/$PROJECT/serviceAccounts/$SA_BUILD" \
+    # (0.6.9) A build config, not --tag: the build is told where the model downloads from (MODEL_REPO).
+    printf '{"steps":[{"name":"gcr.io/cloud-builders/docker","args":["build","--build-arg","MODEL_REPO=%s","-t","%s","."]}],"images":["%s"]}\n' "$MODEL_REPO" "$IMAGE" "$IMAGE" > "$TMP/image-build.json"
+    gcloud builds submit --config="$TMP/image-build.json" --region="$REGION" --service-account="projects/$PROJECT/serviceAccounts/$SA_BUILD" \
         --default-buckets-behavior=regional-user-owned-bucket --quiet . \
         || fail "Cloud Build couldn't build the image (its log is above). If it says spruce-build lacks a permission, wait a minute (new permissions take a moment to apply) and run this again. If it couldn't download the AI model, check that the build can reach raw.githubusercontent.com."
 }
@@ -237,7 +246,7 @@ if [ -z "${FORCE_BUILD:-}" ] && gcloud artifacts docker images describe "$IMAGE"
     echo "  These files were built before: using that image, not building again (FORCE_BUILD=1 builds anyway)."
 elif command -v docker >/dev/null && docker info >/dev/null 2>&1; then
     gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet >/dev/null
-    docker build -t "$IMAGE" . || fail "the image didn't build (the error is above; the build downloads the AI model from raw.githubusercontent.com)."
+    docker build --build-arg MODEL_REPO="$MODEL_REPO" -t "$IMAGE" . || fail "the image didn't build (the error is above; the build downloads the AI model from $MODEL_REPO)."
     if ! docker push "$IMAGE"; then
         echo "  Docker couldn't upload the image from here (Cloud Shell can't always reach Artifact Registry)."
         echo "  Building it with Cloud Build instead (a few minutes)."
@@ -287,7 +296,7 @@ gcloud run services add-iam-policy-binding spruce-worker --region="$REGION" --me
 step "8/9 Dashboard (behind Identity-Aware Proxy, for ADMIN_GROUP and ADMIN_EMAILS, and MODERATOR_GROUP for the review pages)"
 AF="$(env_file admin ROLE admin "${COMMON[@]}" IAP_AUDIENCE "$IAP_AUD" ADMIN_EMAILS "$ADMIN_EMAILS" ADMIN_GROUP "$ADMIN_GROUP" MODERATOR_GROUP "${MODERATOR_GROUP:-off}" DIRECTORY_ADMIN "$DIRECTORY_ADMIN" \
     RENEW_JOB "projects/$PROJECT/locations/$REGION/jobs/spruce-renew-watches" ALERT_EMAIL "$ALERT_TO" \
-    UPDATE_JOB "projects/$PROJECT/locations/$REGION/jobs/spruce-update" RELEASES_REPO "$(printf '%s' "$RELEASES" | sed -n 's|^https://github.com/\([^/]*/[^/]*\)$|\1|p' | sed 's/\.git$//')")"
+    UPDATE_JOB "projects/$PROJECT/locations/$REGION/jobs/spruce-update" RELEASES_REPO "$RELEASES" MODEL_REPO "$MODEL_REPO")"
 # Always on from 10,000 watched mailboxes (deploy/dashboard-policy.sh); not known yet (a first install,
 # before the first watch renewal): left as it is, and the next install or Settings → Update decides.
 WATCHED="$(dashboard_watched_count "$PROJECT")"
@@ -362,7 +371,9 @@ gcloud scheduler jobs delete spruce-purge --location="$REGION" --quiet >/dev/nul
 # cleanup of what Firestore's TTL policies don't delete.
 job spruce-sync-feeds "23 * * * *" /tasks/sync-feeds --attempt-deadline=300s
 # Settings → Update runs this job; it starts a Cloud Build as spruce-updater with these steps, fixed
-# here: download spruce-google-service_main, then deploy/cloud-update.sh from it. It also runs by itself once a
+# here: find where the update downloads from (0.6.9: the release repository the request names, which the
+# dashboard's setting decides; else RELEASES_REPO from settings.env), download it, then deploy/cloud-update.sh
+# from it. It also runs by itself once a
 # year, and then does nothing unless an admin asked for an update in the last 30 minutes.
 cat > "$TMP/update-build.json" <<EOF
 {
@@ -371,7 +382,8 @@ cat > "$TMP/update-build.json" <<EOF
   "timeout": "2700s",
   "tags": ["spruce-update"],
   "steps": [
-    { "id": "download", "name": "gcr.io/cloud-builders/git", "args": ["clone", "-q", "$RELEASES", "/workspace/release"] },
+    { "id": "where", "name": "gcr.io/cloud-builders/gcloud", "entrypoint": "bash", "args": ["-c", "u=\$(curl -sS --max-time 20 -H \"Authorization: Bearer \$(gcloud auth print-access-token)\" \"https://firestore.googleapis.com/v1/projects/$PROJECT/databases/(default)/documents/state/updateRequest\" | python3 -c 'import json,sys,re; v=(json.load(sys.stdin).get(\"fields\",{}).get(\"value\") or {}).get(\"mapValue\",{}).get(\"fields\",{}); u=v.get(\"releases\",{}).get(\"stringValue\",\"\"); print(u if re.fullmatch(r\"https://[A-Za-z0-9.-]+/[A-Za-z0-9._~%/-]+\", u) else \"\")' 2>/dev/null); echo \"\${u:-$RELEASES}\" > /workspace/releases-url; echo \"Downloading from \$(cat /workspace/releases-url)\""] },
+    { "id": "download", "name": "gcr.io/cloud-builders/git", "entrypoint": "bash", "args": ["-c", "git clone -q \"\$(cat /workspace/releases-url)\" /workspace/release"] },
     { "id": "check", "name": "gcr.io/cloud-builders/gcloud", "entrypoint": "bash", "args": ["/workspace/release/deploy/cloud-update.sh", "check"], "env": ["PROJECT=$PROJECT", "REGION=$REGION", "BUILD=\$BUILD_ID"] },
     { "id": "pick", "name": "gcr.io/cloud-builders/git", "entrypoint": "bash", "args": ["/workspace/release/deploy/cloud-update.sh", "pick"], "env": ["PROJECT=$PROJECT", "REGION=$REGION"] },
     { "id": "image", "name": "gcr.io/cloud-builders/docker", "entrypoint": "bash", "args": ["/workspace/release/deploy/cloud-update.sh", "image"], "env": ["PROJECT=$PROJECT", "REGION=$REGION"] },

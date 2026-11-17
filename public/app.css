@@ -709,3 +709,9 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .email-links li.flagged code { color: var(--critical-text, #e5534b); }
 .email-links .flag-note { color: var(--critical-text, #e5534b); font-weight: 600; }
 .ai-part { margin-top: 4px; }
+
+/* (0.6.9) Settings → Update → Repositories */
+.repo-form { display: grid; gap: 8px; margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.repo-form .wide-input { width: 100%; box-sizing: border-box; }
+.repo-form .inline-fields { display: flex; gap: 8px; flex-wrap: wrap; }
+.repo-form .inline-fields input { flex: 1 1 200px; min-width: 0; }

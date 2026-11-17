@@ -44,7 +44,7 @@ test('the model\'s files are not in this repository: git ignores them, the image
     assert.equal(tracked, '', 'no model file is committed');
     assert.match(fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8'), /^vendor\/spruce\/models\/$/m);
     const docker = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8');
-    const fetchAt = docker.indexOf('RUN node tools/fetch-model.js');
+    const fetchAt = docker.indexOf('node tools/fetch-model.js && rm -rf tools');
     assert.ok(fetchAt > docker.indexOf('COPY vendor ./vendor') && fetchAt < docker.indexOf('USER node'), 'the build downloads the model after copying vendor/');
     assert.match(fs.readFileSync(path.join(ROOT, '.dockerignore'), 'utf8'), /^!tools\/fetch-model\.js$/m, 'the download tool is in the build context');
     const pkg = require('../package.json');
@@ -87,7 +87,9 @@ test('tools/fetch-model.js downloads the pinned files, checks each SHA-256, and 
         assert.equal((await fetchModel({ base, vendor: v, root: dir, quiet: true })).fetched, 1);
         // A commit that isn't pinned exactly, or a repository that isn't on GitHub, is refused.
         assert.throws(() => plan({ modelSource: { ...v.modelSource, commit: 'main' } }), /no modelSource/);
-        assert.throws(() => plan({ modelSource: { ...v.modelSource, repository: 'https://example.com/x/y' } }), /isn't a GitHub repository/);
+        assert.throws(() => plan({ modelSource: { ...v.modelSource, repository: 'http://example.com/x/y' } }), /isn't an https address/);
+        // (0.6.9) MODEL_REPO says where the same pinned files download from; any other bytes are still refused.
+        await assert.rejects(fetchModel({ repo: 'https://user:pw@example.com/x', vendor: v, root: fs.mkdtempSync(path.join(os.tmpdir(), 'spruce-fetch-')), quiet: true }), /MODEL_REPO isn't usable: It has a name or password/);
     } finally {
         server.close();
         fs.rmSync(dir, { recursive: true, force: true });
