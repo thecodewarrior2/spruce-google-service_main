@@ -129,7 +129,7 @@ it is the third party whose DKIM signature Gmail verified on the email (link.mai
 signed by mail.beehiiv.com for a podcast's own domain; never the sender's own domain). The lookups:
 Cloudflare and the phishing lists checked its domain and found nothing (nor did Safe Browsing, when on),
 and its registry date isn't recent (180 days or more). (The engine's own click-tracker recognition, such
-as Mailchimp's and SendGrid's, still applies.) Then it is a warning: the link is amber,
+as Mailchimp's, SendGrid's and, since 0.6.24, Adobe Campaign's, still applies.) Then it is a warning: the link is amber,
 and the email gets 1 point, never enough to move it alone. Blocked, listed, recently registered, or not
 checked (a lookup that didn't answer): dangerous, as before.
 

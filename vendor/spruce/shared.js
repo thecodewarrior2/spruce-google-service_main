@@ -46,7 +46,9 @@ const espTrackers = [
     'keap-link.com', 'sg.us-west-2.awstrack.me', 'ct.sendgrid.net',
     'sparkpost.com', 'sparkpostmail.com', 'sparkpostmail2.com', 'e.sparkpost.com', 'spmta.com',
     'click.pstmrk.it', 'mandrillapp.com', 'mailgun.net',
-    'pardot.com', 'iterable.com', 'braze.com', 'sendinblue.com'
+    'pardot.com', 'iterable.com', 'braze.com', 'sendinblue.com',
+    // (service 0.6.24) Adobe Campaign's hosted tracking (<client>-mid-prod1-…-t.adobe-campaign.com; Neolane, its earlier name)
+    'adobe-campaign.com', 'neolane.net'
 ];
 
 // Exact host or a real subdomain of it. Never a substring match: "evilgoogle.com" does not

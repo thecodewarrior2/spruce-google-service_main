@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.24: Adobe Campaign's click tracker
+
+- **A cable company's marketing mail sent through Adobe Campaign** was moved: its links show the company's site
+  but go to Adobe Campaign's click tracker (<client>-mid-prod1-…-t.adobe-campaign.com), and two such links made a
+  "dangerous links" sign of 5 on its own. Adobe Campaign's tracking domains (adobe-campaign.com, and neolane.net, its
+  earlier name) are now known email-service click trackers, like SendGrid's, Mailchimp's and Marketo's: a tracker's
+  address says nothing about where the link ends, so its text not matching isn't a sign (`espTrackers` in
+  `vendor/spruce/shared.js`). A look-alike of those domains is judged as before.
+- (The links sign counts once per email: 3 for one dangerous link, 5 for two or more or for all of them.)
+- Tests: `test/adobe-campaign.test.js` (made-up company and links).
+- **Checks level 24:** delivered mail of the last hours is checked again after this update.
+
 ## 0.6.23: a colleague's name from a personal email account alone counts 2; a "RE:" the mailbox has no start of, 1
 
 - **"The sender uses the name of someone in your organization… from a personal email account"** counted 3; with
