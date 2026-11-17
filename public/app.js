@@ -25,7 +25,10 @@
     let role = 'admin';
     const isModerator = () => role === 'moderator';
     const api = async (path, opts) => {
-        const data = await (window.SPRUCE_API || realApi)(path, opts);
+        const sends = !!(opts && opts.method && opts.method !== 'GET');
+        if (sends) busyStart();
+        let data;
+        try { data = await (window.SPRUCE_API || realApi)(path, opts); } finally { if (sends) busyEnd(); }
         if (data && typeof data.aiThreshold === 'number') aiThreshold = data.aiThreshold;
         if (data && typeof data.aiSuspicious === 'number') aiSuspicious = data.aiSuspicious;
         if (data && typeof data.aiMovesInside === 'boolean') aiMovesInside = data.aiMovesInside;
@@ -97,6 +100,38 @@
         card.append(...[(mode === 'enforce'
             ? [h('b', { text: 'Enforce mode' }), 'Mail the policy flags is moved to Spam. The brake stops all moving if too much moves in an hour.', isModerator() ? null : [h('br'), h('a', { href: '#/settings', text: 'The policy' })]]
             : [h('b', { text: 'Monitor mode' }), 'Nothing is moved: emails the policy would move are only recorded, so you can measure false alarms first.', isModerator() ? null : [h('br'), h('a', { href: '#/readiness', text: 'Ready for enforce mode?' })]])].flat(Infinity).filter(Boolean));
+    }
+
+    // (0.6.5) The loading bar: anything the person started (an action, a page, a download) that takes more than
+    // BUSY_AFTER_MS shows a bar across the top with what is happening, until it is done. The live refresh in the
+    // background never shows it. busyStart(label) and busyEnd(); several at once: the newest label shows.
+    const BUSY_AFTER_MS = 1000;
+    let busyLabels = [], busyTimer = null, busyEl = null;
+    function busyShow() {
+        busyTimer = null;
+        if (!busyLabels.length) return;
+        if (!busyEl) {
+            busyEl = h('div', { class: 'busy', role: 'progressbar', 'aria-live': 'polite', 'aria-busy': 'true' }, h('div', { class: 'busy-track' }), h('div', { class: 'busy-label' }));
+            document.body.append(busyEl);
+        }
+        busyEl.querySelector('.busy-label').textContent = busyLabels[busyLabels.length - 1];
+        busyEl.setAttribute('aria-label', busyLabels[busyLabels.length - 1]);
+        busyEl.hidden = false;
+    }
+    function busyStart(label) {
+        // (no words of its own: the action it is part of says what is happening)
+        label = label || busyLabels[busyLabels.length - 1] || 'Working on it…';
+        busyLabels.push(label);
+        if (busyEl && !busyEl.hidden) busyShow();
+        else if (!busyTimer) busyTimer = setTimeout(busyShow, BUSY_AFTER_MS);
+        return label;
+    }
+    function busyEnd(label) {
+        const i = label ? busyLabels.lastIndexOf(label) : busyLabels.length - 1;
+        if (i >= 0) busyLabels.splice(i, 1);
+        if (busyLabels.length) { if (busyEl && !busyEl.hidden) busyShow(); return; }
+        if (busyTimer) { clearTimeout(busyTimer); busyTimer = null; }
+        if (busyEl) busyEl.hidden = true;
     }
 
     function toast(msg) {
@@ -419,10 +454,10 @@
         return async (e) => {
             if (ask && !window.confirm(ask)) return;
             const b = e.currentTarget;
-            b.disabled = true; acting++;
+            b.disabled = true; acting++; busyStart();
             try { const out = await api(path, { method: 'POST', body: body() }); toast(done(out)); render(); pendingAt = 0; refreshPending(); }
             catch (err) { toast(`Couldn't do that: ${err.message}`); b.disabled = false; }
-            finally { acting--; }
+            finally { acting--; busyEnd(); }
         };
     }
     // A campaign's state and an admin's decisions for every copy (Messages, filtered to a campaign).
@@ -632,13 +667,13 @@
     // and model; nothing is moved, and the record keeps what happened on arrival beside it.
     const pctOr = (x) => (typeof x === 'number' ? pct(x) : 'none');
     async function rescanEmail(key) {
-        acting++;
+        acting++; busyStart('Re-scanning: reading the email from Gmail and checking it again…');
         try {
             const out = await api('/api/rescan', { method: 'POST', body: { key } });
             const r = out.rescan;
             toast(`Re-scanned with ${r.model || 'no AI model'}: AI ${pctOr(r.ai)}, rules score ${r.score}. ${PASTED[r.action] || r.action}.`);
             render();
-        } catch (e) { toast(`Couldn't re-scan it: ${e.message}`); } finally { acting--; }
+        } catch (e) { toast(`Couldn't re-scan it: ${e.message}`); } finally { acting--; busyEnd('Re-scanning: reading the email from Gmail and checking it again…'); }
     }
     function rescanButton(m, cls) {
         if (m.pasted || !m.key || MEMORY) return null;
@@ -762,7 +797,7 @@
         // A user took back an email the checks flagged, and no admin has looked yet: worth a look.
         const rescueToCheck = !pasted && m.state === 'released' && m.releasedByUser && !m.markedBy && m.score >= 5 && m.trigger !== 'ai';
         const decisionClass = rescueToCheck ? 'would' : m.state === 'released' ? 'released' : m.action === 'move' ? 'move' : m.action === 'would-move' ? 'would' : m.action === 'none' ? 'released' : 'flag';
-        const act = async (path, body, done) => { acting++; try { const out = await api(path, { method: 'POST', body }); toast(typeof done === 'function' ? done(out) : done); render(); } catch (e) { toast(`Couldn't do that: ${e.message}`); } finally { acting--; } };
+        const act = async (path, body, done) => { acting++; busyStart(); try { const out = await api(path, { method: 'POST', body }); toast(typeof done === 'function' ? done(out) : done); render(); } catch (e) { toast(`Couldn't do that: ${e.message}`); } finally { acting--; busyEnd(); } };
         // Suspicious emails weren't moved, so "not phishing" says it better than "false alarm"; in enforce
         // mode, phishing still in the Inbox is moved to Spam when confirmed.
         const notMoved = m.action === 'flag';
@@ -820,7 +855,7 @@
         const out = h('div', { class: 'check-result', 'aria-live': 'polite' });
         const run = async (raw) => {
             if (!raw.trim()) { toast('Paste the email\'s original first, or choose an .eml file.'); return; }
-            acting++;
+            acting++; busyStart();
             out.textContent = '';
             out.append(h('div', { class: 'muted', text: 'Checking…' }));
             try {
@@ -830,7 +865,7 @@
             } catch (e) {
                 out.textContent = '';
                 out.append(h('div', { class: 'alert critical', role: 'alert' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '⚠️' }), h('div', {}, h('b', { text: 'Couldn\'t check it. ' }), e.message)));
-            } finally { acting--; }
+            } finally { acting--; busyEnd(); }
         };
         file.addEventListener('change', async () => {
             const f = file.files && file.files[0];
@@ -967,7 +1002,7 @@
         const result = h('p', { class: 'small muted', role: 'status' });
         const btn = h('button', { class: 'btn', type: 'button' }, 'Download for retraining');
         btn.addEventListener('click', async () => {
-            btn.disabled = true; btn.textContent = 'Reading the emails (up to a minute)…'; acting++;
+            btn.disabled = true; btn.textContent = 'Reading the emails (up to a minute)…'; acting++; busyStart('Reading the emails for the retraining file (up to a minute)…');
             try {
                 const hd = await downloadPost('/api/training-export', { days, falseAlarms: fa.checked });
                 const n = (k) => Number(hd.get(`x-spruce-${k}`) || 0);
@@ -979,7 +1014,7 @@
                     n('not-reached') ? `${num(n('not-reached'))} more not reached: choose a shorter period for the older ones.` : ''].filter(Boolean).join(' ');
                 toast('Downloaded. Check it before it goes anywhere.');
             } catch (e) { result.textContent = `Couldn't make the file: ${e.message}`; }
-            finally { btn.disabled = false; btn.textContent = 'Download for retraining'; acting--; }
+            finally { btn.disabled = false; btn.textContent = 'Download for retraining'; acting--; busyEnd('Reading the emails for the retraining file (up to a minute)…'); }
         });
         return h('section', { class: 'card spaced' }, title, intro,
             h('label', { class: 'switch' }, fa, h('span', { text: 'Include false alarms' })), warn,
@@ -1097,14 +1132,14 @@
             update();
         } }, 'Change who is checked');
         go.addEventListener('click', async () => {
-            err.textContent = ''; go.disabled = true; acting++;
+            err.textContent = ''; go.disabled = true; acting++; busyStart();
             try {
                 const v = choice();
                 await api('/api/policy', { method: 'POST', body: { key: 'watchScope', value: v, projectId: project.value, adminEmail: email.value, agree: agree.checked } });
                 toast(v === 'domain' ? 'Switched to the whole domain: the directory is being read again; mailboxes are added over the next hours.' : 'Switched to the pilot: the other mailboxes\' watches are being stopped.');
                 render();
             } catch (e) { err.textContent = e.message; update(); }
-            finally { acting--; }
+            finally { acting--; busyEnd(); }
         });
         return h('div', { class: 'spaced' }, opener, box);
     }
@@ -1156,10 +1191,10 @@
         const opener = h('button', { class: 'btn', type: 'button', onclick: () => { box.hidden = false; opener.hidden = true; project.focus(); } }, label);
         project.addEventListener('input', () => { go.disabled = !project.value.trim(); });
         go.addEventListener('click', async () => {
-            err.textContent = ''; go.disabled = true; acting++;
+            err.textContent = ''; go.disabled = true; acting++; busyStart();
             try { const out = await api(path, { method: 'POST', body: Object.assign(body(), { projectId: project.value }) }); toast(done(out)); render(); }
             catch (e) { err.textContent = e.message; go.disabled = false; }
-            finally { acting--; }
+            finally { acting--; busyEnd(); }
         });
         return h('div', {}, opener, box);
     }
@@ -1187,7 +1222,7 @@
         const ready = () => { save.disabled = !keyInput.value.trim() || !project.value.trim(); };
         keyInput.addEventListener('input', ready); project.addEventListener('input', ready);
         save.addEventListener('click', async () => {
-            err.textContent = ''; save.disabled = true; acting++;
+            err.textContent = ''; save.disabled = true; acting++; busyStart();
             const apiKey = keyInput.value;
             keyInput.value = '';                                  // (not left in the page)
             try {
@@ -1195,7 +1230,7 @@
                 toast(`${out.tested ? 'Google accepted the key. ' : ''}It is saved in Secret Manager${out.turnedOn ? ', and Safe Browsing is on' : ''}.`);
                 render();
             } catch (e) { err.textContent = e.message; ready(); }
-            finally { acting--; }
+            finally { acting--; busyEnd(); }
         });
         const keyCard = sb.available ? h('section', { class: 'card spaced' }, h('h2', { text: sb.saved ? 'Replace the API key' : 'Add the API key' }),
             h('div', { class: 'sub', text: 'Paste the key. It is tried with Google first (a lookup of Google\'s own test address, nothing from anyone\'s mail); only a key that works is saved, in Secret Manager. It is never kept in the dashboard\'s records, shown here again, or written to the logs. Saving a new key destroys the old one.' }),
@@ -1440,9 +1475,9 @@
         const emails = (o) => o.groups.reduce((a, g) => a + g.keys.length, 0);
         const left = (k) => { const o = reviewStates[k]; return o && o.days === days && o.groups ? emails(o) : (st.counts[k] || 0); };
         const act = async (groups, action) => {
-            acting++;
+            acting++; busyStart();
             try { toast(await answerGroups(st, groups, action)); render(); }
-            catch (e) { toast(`Couldn't do that: ${e.message}`); } finally { acting--; }
+            catch (e) { toast(`Couldn't do that: ${e.message}`); } finally { acting--; busyEnd(); }
         };
         const head = [h('div', { class: 'page-head' },
             h('div', {}, h('h1', { text: 'Review' }),
@@ -1612,9 +1647,9 @@
         const preview = h('pre', { class: 'digest-preview', hidden: true });
         const toggle = h('input', { type: 'checkbox', role: 'switch', checked: !!g.enabled, 'aria-label': 'Send the weekly summary email' });
         toggle.addEventListener('change', async () => {
-            acting++;
+            acting++; busyStart();
             try { await api('/api/digest', { method: 'POST', body: { enabled: toggle.checked } }); toast(toggle.checked ? 'The weekly summary is on.' : 'The weekly summary is off.'); render(); }
-            catch (e) { toggle.checked = !toggle.checked; toast(`Couldn't change it: ${e.message}`); } finally { acting--; }
+            catch (e) { toggle.checked = !toggle.checked; toast(`Couldn't change it: ${e.message}`); } finally { acting--; busyEnd(); }
         });
         const show = async () => {
             try { const { preview: p } = await api('/api/digest/preview'); preview.textContent = `Subject: ${p.subject}\n\n${p.text}`; preview.hidden = false; }
@@ -1713,7 +1748,7 @@
         };
         const start = () => { tick(); if (!timer && until > Date.now()) timer = setInterval(tick, 1000); };
         btn.addEventListener('click', async () => {
-            btn.disabled = true; acting++;
+            btn.disabled = true; acting++; busyStart();
             try {
                 const o = await api('/api/update/check', { method: 'POST', body: { manual: demoManual || undefined } });
                 toast(o.newest ? `Asked GitHub just now: the newest approved version is ${o.newest.version}.` : `Asked GitHub just now: ${o.why || 'no answer'}`);
@@ -1722,7 +1757,7 @@
                 const m = /in (\d+) seconds/.exec(e.message);
                 if (m) until = Date.now() + Number(m[1]) * 1000;
                 toast(e.message);
-            } finally { acting--; start(); }
+            } finally { acting--; busyEnd(); start(); }
         });
         start();
         return h('span', { class: 'check-again' }, text, btn);
@@ -1741,13 +1776,13 @@
         ready();
         pageBusy = () => !locked && (agree.checked || !!project.value || !!email.value);
         go.addEventListener('click', async () => {
-            err.textContent = ''; go.disabled = true; acting++;
+            err.textContent = ''; go.disabled = true; acting++; busyStart();
             try {
                 const o = await api('/api/update', { method: 'POST', body: { agree: agree.checked, projectId: project.value, email: email.value, version: to } });
                 toast(o.started && o.started.demo ? 'Demo mode: nothing was updated.' : `Update to ${to} started: about 10 minutes.`);
                 pageBusy = () => false; render();
             } catch (e) { err.textContent = e.message; ready(); }
-            finally { acting--; }
+            finally { acting--; busyEnd(); }
         });
         return h('section', { class: `card spaced${locked ? ' locked' : ''}`, 'aria-disabled': locked ? 'true' : null }, h('h2', { text: `Update to ${to}` }),
             locked ? h('div', { class: 'alert warning' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '🔒' }), h('div', { class: 'grow', text: `Off until ${to} is installed from Cloud Shell (Manual install required, above).` })) : null,
@@ -2019,14 +2054,14 @@
         }
         project.addEventListener('input', update); update();
         save.addEventListener('click', async () => {
-            err.textContent = ''; save.disabled = true; acting++;
+            err.textContent = ''; save.disabled = true; acting++; busyStart();
             try {
                 const out = await api('/api/policy', { method: 'POST', body: { key, value: read(), projectId: project.value, agree: !!(agreeBox && agreeBox.querySelector('input').checked) } });
                 toast(out.changed && out.changed.unchanged ? 'That is already the setting: nothing changed.' : 'Changed. It applies everywhere within 30 seconds.');
                 if (key === 'retentionDays' && out.changed) { fitRanges(out.changed.value); $('#foot').textContent = $('#foot').textContent.replace(/deleted after \d+ days/, `deleted after ${out.changed.value} days`); }
                 close(); render();
             } catch (e) { err.textContent = e.message; update(); }
-            finally { acting--; }
+            finally { acting--; busyEnd(); }
         });
         return h('div', { class: 'policy-form' }, extra,
             h('label', { class: 'project' }, h('span', { text: 'Google Cloud project ID, to confirm' }), project),
@@ -2039,9 +2074,9 @@
         const g = d.trainingExport || { enabled: false };
         const toggle = h('input', { type: 'checkbox', role: 'switch', checked: !!g.enabled, 'aria-label': 'Allow the retraining export' });
         toggle.addEventListener('change', async () => {
-            acting++;
+            acting++; busyStart();
             try { await api('/api/training-export/allow', { method: 'POST', body: { enabled: toggle.checked } }); toast(toggle.checked ? 'The retraining export is allowed (Health → Retraining examples).' : 'The retraining export is off.'); render(); }
-            catch (e) { toggle.checked = !toggle.checked; toast(`Couldn't change it: ${e.message}`); } finally { acting--; }
+            catch (e) { toggle.checked = !toggle.checked; toast(`Couldn't change it: ${e.message}`); } finally { acting--; busyEnd(); }
         });
         const facts = g.updatedBy ? `${g.enabled ? 'Allowed' : 'Turned off'} by ${g.updatedBy}, ${when(g.updatedAt)}.` : 'Off: nobody has allowed it.';
         return h('section', { class: 'card spaced' }, h('h2', { text: 'Retraining export' }),
@@ -2098,13 +2133,13 @@
             : h('span', { class: 'muted small', text: `Directory (who is checked) last read ${when(last.at)}: it reached the service.` });
         const button = r.available ? h('button', { class: 'btn', type: 'button', onclick: async (e) => {
             const b = e.currentTarget;
-            b.disabled = true; acting++;
+            b.disabled = true; acting++; busyStart();
             try {
                 await api('/api/renew-watches', { method: 'POST', body: {} });
                 toast('Asked: the group is read again within a minute. This page updates by itself.');
                 setTimeout(() => { if (/mailboxes/.test(currentHash())) render({ quiet: true }); }, 10000);
             } catch (err) { toast(`Couldn't do that: ${err.message}`); b.disabled = false; }
-            finally { acting--; }
+            finally { acting--; busyEnd(); }
         } }, 'Read the directory again now') : null;
         return h('div', { class: 'renew' }, button, status);
     }
@@ -2253,7 +2288,7 @@
         const ready = () => { save.disabled = !keyInput.value.trim() || !project.value.trim(); };
         keyInput.addEventListener('input', ready); project.addEventListener('input', ready);
         save.addEventListener('click', async () => {
-            err.textContent = ''; save.disabled = true; acting++;
+            err.textContent = ''; save.disabled = true; acting++; busyStart();
             const apiKey = keyInput.value;
             keyInput.value = '';                                  // (not left in the page)
             try {
@@ -2261,7 +2296,7 @@
                 toast(`${out.tested ? `${def.label} accepted the key. ` : ''}It is saved in Secret Manager${out.turnedOn ? `, and ${def.label} is on` : ''}.`);
                 render();
             } catch (e) { err.textContent = e.message; ready(); }
-            finally { acting--; }
+            finally { acting--; busyEnd(); }
         });
         const quota = id === 'spamhaus' && o.quota ? kvRow('Lookups today', `${num(o.quota.today)} of ${num(o.quota.max)} (${o.quota.stopped ? 'stopped for the day: the rest of today\'s mail isn\'t looked up with Spamhaus' : 'the day\'s limit'}).`)
             : id === 'abusech' && (o.lists || []).length ? kvRow('Lists', h('ul', { class: 'plain-list' }, o.lists.map(l => h('li', {}, l.missed ? alertIcon('Missed its download') : null,
@@ -2322,11 +2357,11 @@
         const err = h('div', { class: 'policy-error', role: 'alert' });
         const add = h('button', { class: 'btn primary', type: 'button' }, 'Add the rule');
         add.addEventListener('click', async () => {
-            err.textContent = ''; add.disabled = true; acting++;
+            err.textContent = ''; add.disabled = true; acting++; busyStart();
             const secret = value.value; value.value = '';            // (not left in the page)
             try { await api('/api/phish-training/rule', { method: 'POST', body: { name: name.value, header: header.value, value: secret, ips: ips.value, projectId: project.value } }); toast('Rule added: emails it matches are let through unchecked (within a minute everywhere).'); render(); }
             catch (e) { err.textContent = e.message; }
-            finally { add.disabled = false; acting--; }
+            finally { add.disabled = false; acting--; busyEnd(); }
         });
         // (0.5.61) Edit a rule: its fields filled in; the secret value is kept unless a new one is typed or it is removed.
         const editing = d.rules.find(r => r.id === editingRule) || null;
@@ -2343,13 +2378,13 @@
             const save = h('button', { class: 'btn primary', type: 'button' }, 'Save the rule');
             const cancel = h('button', { class: 'btn', type: 'button', onclick: () => { editingRule = null; render(); } }, 'Cancel');
             save.addEventListener('click', async () => {
-                eErr.textContent = ''; save.disabled = true; acting++;
+                eErr.textContent = ''; save.disabled = true; acting++; busyStart();
                 const secret = eValue.value; eValue.value = '';           // (not left in the page)
                 try {
                     await api('/api/phish-training/rule/edit', { method: 'POST', body: { id: editing.id, name: eName.value, header: eHeader.value, value: secret, clearValue: eClear.checked, ips: eIps.value, projectId: eProject.value } });
                     editingRule = null; toast('Rule saved (within a minute everywhere).'); render();
                 } catch (e) { eErr.textContent = e.message; }
-                finally { save.disabled = false; acting--; }
+                finally { save.disabled = false; acting--; busyEnd(); }
             });
             editBusy = () => !!(eValue.value || eProject.value || eName.value !== editing.name || eHeader.value !== editing.header || eIps.value !== editing.ips.join('\n') || eClear.checked);
             editForm = h('div', { class: 'policy-form sb-form', id: 'edit-rule' },
@@ -2368,10 +2403,10 @@
         const err2 = h('div', { class: 'policy-error', role: 'alert' });
         const saveDomains = h('button', { class: 'btn primary', type: 'button' }, 'Save the domains');
         saveDomains.addEventListener('click', async () => {
-            err2.textContent = ''; saveDomains.disabled = true; acting++;
+            err2.textContent = ''; saveDomains.disabled = true; acting++; busyStart();
             try { await api('/api/phish-training/domains', { method: 'POST', body: { domains: domains.value, projectId: project2.value } }); toast('Saved: an email whose links all go to these domains is let through unchecked.'); render(); }
             catch (e) { err2.textContent = e.message; }
-            finally { saveDomains.disabled = false; acting--; }
+            finally { saveDomains.disabled = false; acting--; busyEnd(); }
         });
         pageBusy = () => !!(value.value || ips.value || project.value || project2.value || domains.value !== d.domains.join('\n') || editBusy());
         const seen = (n) => (d.seen[n] ? when(d.seen[n]) : 'not yet');
@@ -2568,7 +2603,12 @@
     let pageBusy = () => false;   // a page sets it when live updates should wait (Messages with emails selected)
     let rendering = 0;
     // quiet: a live update (no loading fade, the scroll position kept, and on failure the page stays).
-    async function render({ quiet = false } = {}) {
+    async function render(opts = {}) {
+        if (opts.quiet) return renderPage(opts);
+        busyStart('Loading the page…');
+        try { return await renderPage(opts); } finally { busyEnd('Loading the page…'); }
+    }
+    async function renderPage({ quiet = false } = {}) {
         const [path, query] = (currentHash().replace(/^#\/?/, '') || 'overview').split('?');
         const name = ROUTES[path] ? path : 'overview';
         const place = placeOf(name);

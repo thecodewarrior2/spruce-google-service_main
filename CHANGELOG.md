@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.5: a loading bar for anything that takes more than a second
+
+- **The dashboard** shows a bar across the top, with what is happening ("Re-scanning: reading the email from Gmail and
+  checking it again…", "Loading the page…", "Reading the emails for the retraining file…"), whenever something the
+  person started takes more than a second: an action (Re-scan, a review answer, saving a setting, a campaign's
+  decision, anything sent to the service), opening a page, or the retraining download. It goes when that is done;
+  the live refresh in the background never shows it; with reduced motion it pulses instead of sliding
+  (`busyStart`/`busyEnd` in `public/app.js`, `.busy` in `public/app.css`). No checks change.
+
 ## 0.6.4: Review notes a sender check that neither passed nor failed
 
 - **Review** shows, under the evidence, a note when an email's sender check (DMARC) neither passed nor failed: Gmail
