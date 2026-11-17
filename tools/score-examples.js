@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Scores a file of examples ({ "facts", "label" } per line, as the retraining export writes them) with
-// the AI model in vendor/spruce/ (the one the service runs), at the service's move threshold. Run it on
+// the AI model in vendor/spruce/ (the one the service runs), at the service's move threshold (--threshold,
+// else AI_MOVE_THRESHOLD from the environment, else 0.9). Lines without facts or a 0/1 label are skipped. Run it on
 // your held-out examples before and after a new model is synced (docs/RETRAINING.md, "Is the new model
 // better?"): the false alarms and the missed phishing should go down, not up.
 //

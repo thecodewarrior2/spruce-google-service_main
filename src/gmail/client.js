@@ -16,6 +16,8 @@ class GoogleApiError extends Error {
 class GmailClient {
     constructor(auth, opts = {}) { this.auth = auth; this.fetch = opts.fetch || fetch; this.labelIds = new Map(); }
 
+    // One API call as user (or as an admin, with another scope and base), tried up to `tries` times while Google
+    // is busy, waiting about 1 s, then 2 s between tries.
     async call(user, method, path, { query = {}, body, scope = SCOPES.gmail, base = `${GMAIL}/${encodeURIComponent(user)}` } = {}, tries = 3) {
         // A value given as a list is sent as the parameter repeated (historyTypes=a&historyTypes=b).
         const q = new URLSearchParams();
@@ -53,6 +55,7 @@ class GmailClient {
         const more = !!pageToken;
         return Object.assign({ ids: [...ids], inboxed: [...inboxed], inboxedAt, historyId: more ? (lastRead || startHistoryId) : lastHistoryId }, more ? { more } : {});
     }
+    // A message whole (format raw: its RFC 822 bytes), with its thread, labels and dates.
     async raw(user, id) {
         const r = await this.call(user, 'GET', `/messages/${encodeURIComponent(id)}`, { query: { format: 'raw' } });
         return { id: r.id, threadId: r.threadId, labelIds: r.labelIds || [], historyId: r.historyId ? String(r.historyId) : null, internalDate: Number(r.internalDate) || null, raw: Buffer.from(String(r.raw || ''), 'base64url') };
@@ -109,6 +112,8 @@ class GmailClient {
         p.catch(() => { if (this.labelIds.get(key) === p) this.labelIds.delete(key); });
         return p;
     }
+    // Gmail notifies the Pub/Sub topic of the mailbox's Inbox changes (a watch lasts 7 days: renewed by the daily
+    // and hourly jobs); stop ends it.
     watch(user, topicName) { return this.call(user, 'POST', '/watch', { body: { topicName, labelIds: ['INBOX'], labelFilterBehavior: 'INCLUDE' } }); }
     stop(user) { return this.call(user, 'POST', '/stop'); }
     // Users of an organizational unit and its sub-units (acting as a Workspace admin).
@@ -167,6 +172,7 @@ class GmailClient {
     // such as event_info.mail_event_type==15. At most max events.
     async gmailEvents(admin, mailbox, { startTime, endTime, filters = '', max = 3000 } = {}) {
         const out = [];
+        // (at most 30 days before endTime, less a minute)
         const start = Math.max(Number(startTime) || 0, Number(endTime) - 30 * 24 * 3600 * 1000 + 60000);
         let pageToken;
         do {

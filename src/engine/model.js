@@ -1,12 +1,14 @@
 'use strict';
 // The AI model, phish-tiny (an ELECTRA-small classifier since 0.18.0, service 0.5.50: 12 layers, 13.5 million
 // parameters), run by the native engine: ONNX Runtime (onnxruntime-node, MIT), from models/phish-tiny/model.onnx
-// (made from model.bin by TinyPhishLLM's training/export-onnx.py, synced by tools/sync-model.js); model.onnx is
+// (made from model.bin by training/export-onnx.py in TinyPhishLLM_Private_Training, published to TinyPhishLLM,
+// downloaded at the commit vendor/spruce/VENDOR.json pins by tools/fetch-model.js); model.onnx is
 // the whole network, so the engine doesn't depend on the architecture. About 68 ms for a 256-token pass (the
 // BERT-tiny models before it took about 6 ms, and the plain JavaScript that ran them until 0.4.1 146 ms), with
 // the reference's answers to rounding (test/engine.test.js holds them to test/fixtures/model-reference.json).
 //
-// The input text and the tokens come from ai.js (modelInputParts, WordPiece), as in training. The
+// The input text and the tokens come from ai.js (modelInputParts, WordPiece), as in training; the tokens are
+// cut to the model's maxLen, keeping its headTokens from the start and the rest from the end. The
 // engine runs at the "basic" level of graph optimization: the higher levels turn the 8-bit weights into
 // 8-bit arithmetic, which changes the answers (by up to 0.36 in the margin); basic keeps them, and is as
 // fast at full length. One thread, no spinning: a Cloud Run instance has one vCPU, and the event loop
@@ -47,7 +49,8 @@ class Model {
         return this.session;
     }
     // How strongly the model leans to phishing (its phishing score minus its genuine score) for each text,
-    // in one run per BATCH (shorter texts padded, the padding never attended to).
+    // in one run per BATCH (shorter texts padded, the padding never attended to). A text seen before (by its
+    // SHA-256) gives its remembered answer: at most MARGINS_KEPT, the least recently used dropped first.
     async margins_(texts) {
         const out = new Array(texts.length);
         const todo = [];
@@ -93,8 +96,8 @@ class Model {
     async probability(text) { return 1 / (1 + Math.exp(-(await this.margin(text)))); }
     // The opinion, and what made it: each sentence is scored on its own ("does this sentence alone read
     // like phishing?"), and so are the facts about the sender and links without the text; the ones that
-    // lean furthest toward phishing are named. Only when the email reads as phishing (50% or more), and
-    // then all in one run.
+    // lean furthest toward phishing are named (at most 3; from the first 25 sentences of 12 characters or
+    // more). Only when the email reads as phishing (50% or more), and then all in one run.
     async analyze(facts) {
         const parts = this.parts(facts);
         const [m] = await this.margins_([`${parts.head} text: ${parts.sentences.join(' ')}`]);
@@ -121,8 +124,9 @@ class Model {
         const parts = this.parts(facts);
         const [m] = await this.margins_([`${parts.head} text: ${parts.sentences.join(' ')}`]);
         // (0.5.66) The whole text, redacted as the model's input is: the input format keeps 60 sentences of a longer
-        // text (modelInputParts: format 3, its first 40 and its last 20; format 2, its first 60), so the whole text is
-        // split and redacted 50 sentences at a time, and the ones the model doesn't read are marked unread.
+        // text (modelInputParts: format 3, its first 40 and its last 20, 0.5.67; format 2, its first 60), so the
+        // whole text is split and redacted 50 sentences at a time (at most 3,000), and the ones the model doesn't
+        // read are marked unread.
         const raw = String(facts.bodyText || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/);
         let every = parts.sentences;
         if (parts.sentences.length >= 60) {

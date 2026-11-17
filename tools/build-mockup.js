@@ -48,7 +48,8 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
                               retentionDays: { value: cfg.retentionDays, env: cfg.retentionDays, changed: null, replaced: null } }, version: require('../package.json').version,
                     checks: { cloudflare: true, safeBrowsing: false, phishingLists: true, siteAge: true }, lists: await intel.feeds.status() }
     };
-    // The API stand-in: the same routes and answers as src/server.js, over the data above.
+    // The API stand-in: the routes the mockup's pages call, answered in src/server.js's shape over the data
+    // above (a subset: Re-scan, Show the email and the like are "not found" here, as is any other route).
     const fakeApi = `
 (function () {
   const D = window.SPRUCE_DEMO_DATA, A = window.SpruceAggregate, ADMIN = 'demo-admin@example.org';
@@ -132,10 +133,11 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
     throw new Error('not found');
   };
 })();`;
-    // Shift the demo's times so the mockup is "live" whenever it's opened.
+    // Shift the demo's times so the mockup is "live" whenever it's opened (the daily counts by whole days).
     const shift = `(function(){const D=window.SPRUCE_DEMO_DATA,d=Date.now()-D.now;if(Math.abs(d)<60000)return;const day=(ms)=>new Date(ms).toISOString().slice(0,10);
 for(const r of D.records){for(const k of ['processedAt','receivedAt','releasedAt'])if(r[k])r[k]+=d;}for(const e of D.events)e.at+=d;
 const sh=Math.round(d/86400000);if(sh)for(const s of D.stats){s.day=day(Date.parse(s.day+'T12:00:00Z')+sh*86400000);}D.now=Date.now();})();`;
+    // Every < escaped, so a "</script>" in the data can't end the inline script early.
     const json = JSON.stringify(data).replace(/</g, '\\u003c');
     let html = read('public/index.html');
     html = html.replace('<title>S.P.R.U.C.E Mail Protection Service</title>', '<title>S.P.R.U.C.E Mail Protection Service</title>\n<meta name="description" content="Clickable mockup of the S.P.R.U.C.E Mail Protection Service admin dashboard, with made-up data.">');

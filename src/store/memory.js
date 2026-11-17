@@ -3,10 +3,13 @@ const { movesForward } = require('./history');
 // Records kept in memory: demo mode and tests. Same interface as the Firestore store.
 //
 // A record (one analyzed email the policy acted on or found suspicious; clean mail is only counted):
-//   { key, user, messageId, threadId, receivedAt, processedAt, sender: { name, address, domain },
-//     subject, campaign, campaignLabel, status, score, signals: [...], links: [...],
-//     ai: { probability, reasons, model }, action: 'move'|'would-move'|'flag', trigger, why,
-//     state: 'moved'|'inbox'|'released', releasedBy, releasedAt, falseAlarm, markedBy }
+//   { key, user, messageId, rfc822MessageId, threadId, receivedAt, processedAt, updatedAt,
+//     sender: { name, address, domain }, subject, campaign, campaignLabel, status, score, signals: [...],
+//     links: [...], checks, ai: { probability, reasons, model }, auth, attachments, attachmentFindings,
+//     action: 'move'|'would-move'|'flag', trigger, why, held: 'brake'|'campaign'|null, braked, mode,
+//     evidence: 'strong'|'weak', confirmedBy, inside, ownAddressUnverified,
+//     state: 'moved'|'inbox'|'released', releasedBy, releasedAt, falseAlarm, unclear, markedBy,
+//     recheck (found after delivery, 0.5.35), rescan (an admin's re-scan) }   (src/pipeline.js makes them)
 class MemoryStore {
     constructor() {
         this.users = new Map(); this.seenIds = new Map(); this.records = new Map(); this.stats = new Map();
@@ -15,6 +18,7 @@ class MemoryStore {
     }
     async getUser(email) { return this.users.get(email) || null; }
     async putUser(email, patch) { this.users.set(email, Object.assign({}, this.users.get(email) || { email }, patch)); }
+    // How many watched, the latest notification, how many watches end before untilMs (see store/firestore.js).
     async mailboxSummary(untilMs = Date.now() + 24 * 3600 * 1000) {
         const us = [...this.users.values()];
         const last = Math.max(0, ...us.map(u => Number(u.lastNotification) || 0));
@@ -52,6 +56,7 @@ class MemoryStore {
         const k = `${user}|${id}`, v = this.seenIds.get(k);
         this.setSeen(k, Object.assign({ at: Date.now(), state: 'done' }, v && v.tries ? { tries: v.tries } : {}, extra));
     }
+    // (at most about 200,000 markers kept: the oldest goes first)
     setSeen(k, v) {
         if (!this.seenIds.has(k) && this.seenIds.size > 200000) this.seenIds.delete(this.seenIds.keys().next().value);
         this.seenIds.set(k, v);
@@ -97,6 +102,7 @@ class MemoryStore {
         Object.assign(r, patch, { updatedAt: Math.max(Date.now(), (r.updatedAt || 0) + 1) });
         return JSON.parse(JSON.stringify(r));
     }
+    // (no limit here: a demo's and a test's records are few)
     async listCampaignRecords(key, sinceMs = 0) { return (await this.listRecords({ sinceMs, limit: Infinity })).filter(r => r.campaign === key); }
     async listRecords({ sinceMs = 0, untilMs = Infinity, limit = 5000 } = {}) {
         return [...this.records.values()].filter(r => r.processedAt >= sinceMs && r.processedAt < untilMs)
@@ -162,6 +168,7 @@ class MemoryStore {
     }
     async getState(name) { return this.state.has(name) ? JSON.parse(JSON.stringify(this.state.get(name))) : null; }
     async setState(name, value) { this.state.set(name, value === null ? null : JSON.parse(JSON.stringify(value))); }
+    // Activity's events: the newest 5,000 kept.
     async addEvent(ev) { const e = Object.assign({ at: Date.now() }, ev); this.events.push(e); if (this.events.length > 5000) this.events.shift(); if (this.onEvent) this.onEvent(e); }
     async listEvents(sinceMs = 0, { limit = 500, untilMs = null } = {}) { return this.events.filter(e => e.at >= sinceMs && (untilMs === null || untilMs === undefined || e.at < untilMs)).sort((a, b) => b.at - a.at).slice(0, limit); }
     // Files shared by every instance (the phishing lists): bytes plus a little information.

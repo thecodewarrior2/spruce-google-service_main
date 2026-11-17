@@ -12,22 +12,24 @@
 //       (not at providers whose servers every customer shares, nor a per-customer pool's names);
 //     • a corporate brand-protection registrar (MarkMonitor, CSC…) and a registrant naming the brand.
 //   likely — a corporate registrar plus one more link to the brand (reports sent to it, a registrant naming
-//     it, or a year or more of age): a caution, never moved.
+//     it, the same per-customer name servers, or a year or more of age): a caution, never moved.
 //   unknown — anything less: judged as before.
 // What is sent: domain names only, to Cloudflare's public resolver (DNS over HTTPS) and to the domain's
-// registry and registrar (RDAP). Answers are kept in the shared store for 30 days (unknown: a day).
+// registry and registrar (RDAP). Answers are kept in the shared store for 30 days (unknown: a day), and by each
+// instance for MEMO_MS; one lookup at a time per domain and brand.
 const { TtlCache } = require('./http');
 
 const DOH = 'https://cloudflare-dns.com/dns-query';
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000, UNKNOWN_KEEP_MS = 24 * 60 * 60 * 1000;
 const MEMO_MS = 6 * 60 * 60 * 1000;
-const WAIT_MS = 4000;          // each lookup; the whole answer is awaited at most TOTAL_MS (analyze.js)
+const WAIT_MS = 4000;          // each request; the whole answer is awaited at most OWNERSHIP_WAIT_MS (analyze.js)
 const CORPORATE_REGISTRARS = /markmonitor|csc corporate domains|corporation service company|com laude|nom-iq|safenames|godaddy corporate domains|brandsight|lexsynergy|nameshield|ip twins|registrarsafe|abion\b|appdetex|safebrands/i;
 const NS_CUSTOMER_POOL = [/^dns\d+\.(p\d+)\.nsone\.net$/, /^ns\d+\.(p\d+)\.dynect\.net$/, /^([a-z]+)\.ns\.cloudflare\.com$/];
 const NS_SHARED = /(^|\.)(ultradns\.(com|net|org|biz|info|co\.uk)|googledomains\.com|azure-dns\.(com|net|org|info)|domaincontrol\.com|registrar-servers\.com|he\.net|wixdns\.net|squarespacedns\.com|name-services\.com|worldnic\.com|ui-dns\.(com|de|org|biz)|ionos\.(com|de)|hostgator\.com|bluehost\.com|dreamhost\.com|siteground\.net|ovh\.net|cloudns\.net|dnsmadeeasy\.com)$/i;
 const REDACTED = /redacted|privacy|protected|withheld|not disclosed|gdpr|data protected|statutory masking/i;
 
 const recordTags = (txt) => Object.fromEntries(String(txt || '').split(';').map(p => p.trim()).filter(Boolean).map(p => { const i = p.indexOf('='); return i < 0 ? [p.toLowerCase(), ''] : [p.slice(0, i).trim().toLowerCase(), p.slice(i + 1).trim()]; }));
+// The registrable domains a DMARC record's rua= and ruf= reports go to.
 function reportDomains(tags, registrable) {
     const out = new Set();
     if (tags) for (const k of ['rua', 'ruf']) for (const part of String(tags[k] || '').split(',')) {
@@ -36,6 +38,8 @@ function reportDomains(tags, registrable) {
     }
     return out;
 }
+// Two sorted name-server lists: 'exact' when the same set (leaving out shared providers' servers and per-customer
+// pool names), 'pool' when they share a provider's per-customer pool (a hint only), else null.
 function sameOperatorNs(a, b) {
     if (!a.length || !b.length) return null;
     const pool = (h) => { for (let i = 0; i < NS_CUSTOMER_POOL.length; i++) { const m = NS_CUSTOMER_POOL[i].exec(h); if (m) return `${i}:${m[1]}`; } return ''; };
@@ -45,6 +49,7 @@ function sameOperatorNs(a, b) {
     const shared = a.find(h => pool(h) && poolsB.has(pool(h)));
     return shared ? { kind: 'pool', host: shared } : null;
 }
+// Whether an RDAP registrant names the brand (its name or tokens, not its ambiguous ones), as whole words.
 function registrantNamesBrand(E, registrant, brand) {
     const text = E.foldName(registrant).replace(/[^a-z0-9& ]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text) return false;
@@ -53,6 +58,8 @@ function registrantNamesBrand(E, registrant, brand) {
     const names = [brand.name.toLowerCase(), ...(brand.tokens || [])].filter(n => !ambiguous.has(n));
     return names.some(n => (n.includes(' ') ? ` ${text} `.includes(` ${n} `) : words.has(n)));
 }
+// The organization (or name) of the first entity with this role in an RDAP answer, nested ones included;
+// '' when none or redacted.
 function rdapWho(data, role) {
     const all = [];
     (function walk(list) { for (const e of Array.isArray(list) ? list : []) { if (e && typeof e === 'object') { all.push(e); walk(e.entities); } } })(data && data.entities);
@@ -65,6 +72,8 @@ function rdapWho(data, role) {
     }
     return '';
 }
+// The registrar's own RDAP address for the domain (not the registry's), where a thin registry leaves the
+// registrant out.
 function registrarLink(data, base) {
     const pick = (links) => { for (const l of Array.isArray(links) ? links : []) { const h = String((l && l.href) || ''); if (/^https:\/\//i.test(h) && /\/domain\//i.test(h) && !h.startsWith(base)) return h; } return ''; };
     if (pick(data && data.links)) return pick(data.links);
@@ -85,6 +94,8 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
     const txt = async (name) => (await dns(name, 'TXT')).filter(r => r.type === 16).map(r => String(r.data || '').replace(/^"|"$/g, '').replace(/"\s*"/g, ''));
     const dmarcTags = async (d) => (await txt(`_dmarc.${d}`)).map(recordTags).find(t => /^dmarc1$/i.test(t.v || '')) || null;
     const nameServers = async (d) => (await dns(d, 'NS')).filter(r => r.type === 2).map(r => String(r.data || '').toLowerCase().replace(/\.$/, '')).filter(Boolean).sort();
+    // RFC 7489's authorization: <domain>._report._dmarc.<home> has a DMARC1 record, and a random name there
+    // doesn't (a wildcard vouches for anyone).
     async function authorized(domain, home) {
         const has = async (name) => (await txt(name)).some(t => /^\s*v\s*=\s*dmarc1\b/i.test(t));
         if (!await has(`${domain}._report._dmarc.${home}`)) return false;

@@ -6,14 +6,15 @@
 //   - the phishing lists: link addresses and sites, the sender's domain and address. The organization's
 //     own domains are matched by exact address only, never as a whole site or domain (as the
 //     extension's senderDomainShared: one listing of a hacked school site must not flag all staff mail);
-//   - registry dates: up to LINK_AGE_LOOKUPS unfamiliar link domains, and the sender's domain.
+//   - registry dates: up to LINK_AGE_LOOKUPS unfamiliar link domains, and the sender's (registrable) domain;
+//   - Spamhaus's DBL and ZRD (0.5.37; off by default): the sender's domain and link sites, at most 6 an email.
 // (0.5.73) An allowed link domain (Settings → Allowlist, ctx.allowLinkDomains, and its subdomains) is matched
 // against the phishing lists by exact address only, as the organization's own domains are: a listing of its
 // whole domain (a newsletter's click tracker listed by mistake) is a note of no weight, a listing of the exact
 // page still flags the link. Cloudflare, Safe Browsing, Spamhaus and where a link leads are checked as before.
-// A link any of them flags becomes "dangerous" (the extension's dangerous-links weight then counts
-// it); the sender's findings and the site ages become signs of their own. A lookup that fails or
-// is slow leaves things "not checked".
+// A link any of them flags becomes "dangerous" (analyze.js linkSignals, the extension's dangerous-links
+// sign, then counts it); the sender's findings and the site ages become signs of their own. A lookup that
+// fails or is slow leaves things "not checked".
 // One exception (0.5.18), the reputation check: a link whose text shows another site (open.spotify.com)
 // but which goes through the mail service that sent the email (mailers.js: the third party whose DKIM
 // signature the receiver verified, such as beehiiv for link.mail.beehiiv.com; no list) becomes a warning
@@ -26,8 +27,8 @@ const YOUNG_SENDER_DAYS = 30, LOOKALIKE_YOUNG_DAYS = 90;
 const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } };
 const { sendingService, mismatchHost, MAILER_MIN_AGE_DAYS } = require('./mailers');
 
-// judged: the links as analyze.judgeLinks made them (mutated: severity and reason of flagged links).
-// Returns { signals: [...], checks: { … } } for the record.
+// judged: the links as analyze.judgeLinks made them (mutated: severity, reason and network of flagged links,
+// mailer of softened ones). Returns { signals: [...], checks: { … } } for the record (checks null without intel).
 async function networkChecks(E, intel, facts, judged, ctx) {
     const checks = { cloudflare: 0, safeBrowsing: 0, lists: false, ages: 0, notChecked: 0 };
     if (!intel) return { signals: [], checks: null };
@@ -55,7 +56,7 @@ async function networkChecks(E, intel, facts, judged, ctx) {
     const ageDomains = [...signInOf.keys()].sort((a, b) => rank(b) - rank(a)).slice(0, LINK_AGE_LOOKUPS);
     const senderReg = senderDomain && !personal && !ours(senderDomain) ? E.registrableDomain(senderDomain) : '';
     // (0.5.62) The organization's domain behind a sender's subdomain is looked up too: newsletters and no-reply
-    // addresses often send from a name with no DNS records of its own (masterpiece.example-tv.org), and then the
+    // addresses often send from a name with no DNS records of its own (news.tv-station.example), and then the
     // organization's domain is what can be judged.
     if (senderReg && senderReg !== senderDomain) hosts.push(senderReg);
     const allowed = (ctx.allowLinkDomains || []).map(d => String(d).toLowerCase());
@@ -136,8 +137,10 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         signals.push({ weight: 0, kind: 'allowed-link-domain', text: `${hosts.length === 1 ? `A link's site (${hosts[0]}) is` : `Links' sites (${hosts.slice(0, 3).join(', ')}) are`} on ${lists.join(' and ')}, but ${hosts.length === 1 ? 'it is an allowed link domain' : 'they are allowed link domains'} (Settings → Allowlist): a listing of the whole domain isn't counted. The other link checks still apply.` });
     }
     if (senderOnList) signals.push({ weight: 5, kind: 'scam-sender-list', text: `The sender's address is on a list of known scam senders (${senderOnList}).` });
-    // Spamhaus (0.5.37): the sender's domain on the DBL (phishing, malware, botnet control: strong; spam: a
-    // sign), or first seen in the last 24 hours (ZRD); a link site on the DBL for spam, or brand new.
+    // Spamhaus (0.5.37): the sender's domain on the DBL (phishing, malware, botnet control: 5; low reputation: 2;
+    // a legitimate site abused: 1), or first seen in the last 24 hours (ZRD: 3); a link site on the DBL as an
+    // abused site for phishing, malware or botnet control (3), for spam or other abuse (2), or brand new (ZRD: 2).
+    // (A link site listed for phishing, malware or botnet control made its link dangerous above.)
     const shSender = senderReg ? shResults.get(senderDomain) : null;
     if (shSender && shSender.dbl && shSender.dbl.severity === 'danger') signals.push({ weight: 5, kind: 'sender-domain-listed', text: `The sender's domain ${senderDomain} is on Spamhaus's Domain Blocklist (${shSender.dbl.list}).` });
     else if (shSender && shSender.dbl) signals.push({ weight: shSender.dbl.severity === 'spam' ? 2 : 1, kind: 'sender-domain-spam', text: `The sender's domain ${senderDomain} is on Spamhaus's Domain Blocklist (${shSender.dbl.list}).` });
@@ -149,6 +152,8 @@ async function networkChecks(E, intel, facts, judged, ctx) {
     if (shSpam) signals.push({ weight: 2, kind: 'spamhaus-spam-link', text: `A link goes to ${shSpam[0]}, on Spamhaus's Domain Blocklist (${shSpam[1].dbl.list}).` });
     const shNew = shLinks.find(([, r]) => typeof r.zrdHours === 'number');
     if (shNew) signals.push({ weight: 2, kind: 'zrd-link', text: `A link goes to ${shNew[0]}, first seen on the internet ${shNew[1].zrdHours <= 2 ? 'less than 2' : `about ${shNew[1].zrdHours}`} hours ago (Spamhaus's Zero Reputation Domains).` });
+    // The sender's domain: blocked by Cloudflare (5), else reported by a community list (2) or on a phishing
+    // list (5).
     const sd = hostResults.get(senderDomain);
     if (sd && sd.verdict === 'unsafe') signals.push({ weight: 5, kind: 'sender-domain-blocked', text: `The sender's domain ${senderDomain} is blocked by Cloudflare Security as malware or phishing.` });
     else if (senderDomainListed && isReport(senderDomainListed)) signals.push({ weight: 2, kind: 'sender-domain-reported', text: `The sender's domain ${senderDomain} was reported as phishing or malware by ${senderDomainListed} (community reports).` });
@@ -168,6 +173,8 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         else if (verified) signals.push({ weight: 0, kind: 'sender-subdomain-unlisted', text: `The sender's domain ${senderDomain} has no DNS records the checks could find, but Gmail verified the sender (DMARC passed), so the address isn't made up.` });
         else signals.push({ weight: 3, kind: 'sender-domain-missing', text: `The sender's domain ${senderDomain} doesn't exist${senderReg && senderReg !== senderDomain ? `, nor does its organization's domain ${senderReg}` : ''}, so the address is made up.` });
     }
+    // The sender's domain's age: under LOOKALIKE_YOUNG_DAYS and a look-alike of a brand, 5; under
+    // YOUNG_SENDER_DAYS, 2.
     if (typeof senderAge === 'number') {
         checks.ages++;
         let look = null;
@@ -175,6 +182,8 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         if (look && senderAge < LOOKALIKE_YOUNG_DAYS) signals.push({ weight: 5, kind: 'young-lookalike-sender', text: `The sender's domain ${senderReg} ${look}, and was registered only ${senderAge} day${senderAge === 1 ? '' : 's'} ago: a look-alike address.` });
         else if (senderAge < YOUNG_SENDER_DAYS) signals.push({ weight: 2, kind: 'young-sender-domain', text: `The sender's domain ${senderReg} was registered only ${senderAge} day${senderAge === 1 ? '' : 's'} ago. Phishing often comes from brand-new domains.` });
     }
+    // Link sites' ages (the engine's linkAgeSigns): a young site counts more when the email or the link is about
+    // signing in or paying, or the sender is new or didn't pass DMARC (weakAuth).
     const known = ages.filter(a => typeof a.days === 'number');
     checks.ages += known.length;
     if (known.length) {

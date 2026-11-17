@@ -48,8 +48,9 @@ TZ_NAME="${TIME_ZONE:-UTC}"
 [[ "$BUDGET_ALERT" =~ ^(off|[0-9]+(\.[0-9]{1,2})?)$ ]] || fail "BUDGET_ALERT must be an amount (like 1 or 5) or off."
 WORKER_MAX="${WORKER_MAX_INSTANCES:-30}"
 [[ "$WORKER_MAX" =~ ^[0-9]+$ ]] && [ "$WORKER_MAX" -ge 1 ] && [ "$WORKER_MAX" -le 100 ] || fail "WORKER_MAX_INSTANCES must be a number from 1 to 100 (or empty for 30)."
-# How long records are kept (also on the dashboard, Settings → Policy). Empty = 35.
 # 0.5.29: how long Activity is kept (AUDIT_DAYS), and the two options Google charges for (off by default).
+# How long records are kept (RETENTION_DAYS, also on the dashboard, Settings → Policy; empty = 35) is checked
+# by keep_days_ok below, again after the dashboard's policy is taken.
 [ -z "$AUDIT_DAYS" ] || { [[ "$AUDIT_DAYS" =~ ^[0-9]+$ ]] && [ "$AUDIT_DAYS" -ge 30 ] && [ "$AUDIT_DAYS" -le 1825 ]; } || fail "AUDIT_DAYS must be a number of days from 30 to 1825 (or empty for 365)."
 onoff() { case "$(echo "${1:-off}" | tr '[:upper:]' '[:lower:]')" in on | true | yes | 1) echo on ;; off | false | no | 0 | '') echo off ;; *) echo bad ;; esac; }
 PUBSUB_BACKLOG_ALERT="$(onoff "$PUBSUB_BACKLOG_ALERT")"; AUDIT_LOG="$(onoff "$AUDIT_LOG")"
@@ -160,10 +161,12 @@ for sec in "$SB_SECRET" "$SH_SECRET" "$AC_SECRET"; do
         retry gcloud secrets add-iam-policy-binding "$sec" --member="serviceAccount:$SA_RUN" --role="$r" --condition=None --quiet >/dev/null
     done
 done
-# The dashboard's "Update group membership now" runs the spruce-renew-watches job, and shows its last run.
+# The dashboard's "Read the directory again now" (Settings → Mailboxes) runs the spruce-renew-watches job, and
+# shows its last run.
 retry gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA_RUN" --role=roles/cloudscheduler.jobRunner --condition=None --quiet >/dev/null
 retry gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA_RUN" --role=roles/cloudscheduler.viewer --condition=None --quiet >/dev/null
-# The dashboard's Status page reads the worker's Cloud Run settings (Identity-Aware Proxy, who may call it).
+# The dashboard's Health → Service status reads the worker's Cloud Run settings (Identity-Aware Proxy, who may
+# call it).
 retry gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA_RUN" --role=roles/run.viewer --condition=None --quiet >/dev/null
 # What Cloud Build runs as when it builds the image (step 6), instead of a default account whose roles
 # differ from project to project.
@@ -417,9 +420,9 @@ alerts() {
         '{ "job": "EXTRACT(resource.labels.job_id)", "why": "EXTRACT(jsonPayload.debugInfo)" }' \
         "A scheduled job couldn't reach the worker. If it says 401 or 403, see docs/INSTALL.md, Troubleshooting, The jobs and notifications are refused." "$channel" || return 1
 }
-if [ -z "$ALERT_TO" ]; then echo "  Alerts: not emailed (ALERT_EMAIL=off); they show in the dashboard's Recent activity."
+if [ -z "$ALERT_TO" ]; then echo "  Alerts: not emailed (ALERT_EMAIL=off); they show in the dashboard's Health → Activity."
 elif alerts; then echo "  Alerts: emailed to $ALERT_TO (the brake, held campaigns, Gmail gone quiet, failed jobs). Google charges about \$0.70 a month for the two alert policies."
-else echo "  (Alerts couldn't be set up from here; they still show in the dashboard's Recent activity. docs/INSTALL.md, Troubleshooting.)"; fi
+else echo "  (Alerts couldn't be set up from here; they still show in the dashboard's Health → Activity. docs/INSTALL.md, Troubleshooting.)"; fi
 
 # --- Optional, OFF by default: Google Cloud charges for these (0.5.29) ---------------------------------------
 # PUBSUB_BACKLOG_ALERT=on: an email when Gmail's notifications have waited in Pub/Sub over 30 minutes (the
@@ -501,11 +504,11 @@ cat <<EOF
   Dashboard:  $ADMIN_URL   (for: $WHO)
   Mode:       $MODE$( [ "$MODE" = monitor ] && echo " (nothing is moved; would-be moves are recorded)")
   Watching:   members of $PILOT_GROUP. Settings in the dashboard shows how many mailboxes are watched.
-  Alerts:     $( [ -n "$ALERT_TO" ] && echo "emailed to $ALERT_TO" || echo "off (Recent activity only)")
+  Alerts:     $( [ -n "$ALERT_TO" ] && echo "emailed to $ALERT_TO" || echo "off (Health → Activity only)")
 
   The watches start within a minute. To see the worker's log:
       gcloud run services logs read spruce-worker --region=$REGION --limit=50
   After you change the group's members, apply it now (otherwise daily at 3:17 AM, $TZ_NAME), or press
-  Settings → Mailboxes → Update group membership now in the dashboard:
+  Settings → Mailboxes → Read the directory again now in the dashboard:
       gcloud scheduler jobs run spruce-renew-watches --location=$REGION
 EOF

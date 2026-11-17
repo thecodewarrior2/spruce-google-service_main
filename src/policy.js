@@ -2,9 +2,11 @@
 // What happens to an analyzed email.
 //
 //   move        to Spam (and the "SPRUCE/Moved" label): the extension's verdict is "flagged" (as the
-//               extension moves flagged email), or the AI model's score is at or above the threshold
-//               (90% by default) for a sender outside the organization.
-//   would-move  the same, in monitor mode or while the brake is on: recorded, nothing moved.
+//               extension moves flagged email; MOVE_ON_RULES, on by default), or the AI model's score is at or
+//               above the threshold (90% by default) for a sender outside the organization (inside too with
+//               AI_MOVES_INSIDE). trigger: 'rules', 'ai' or 'rules+ai'.
+//   would-move  the same, in monitor mode or while the brake is on (braked): recorded, nothing moved. (The
+//               campaign hold and an admin's decision on a campaign come after this: pipeline.js.)
 //   flag        suspicious but not moved (amber verdict, an AI score of cfg.aiSuspicious or more below the
 //               threshold, or a high one the policy doesn't act on, such as an inside sender): recorded.
 //   (The suspicious line is never above the move threshold: config.js and pipeline.js policyValue.)
@@ -19,6 +21,8 @@
 // default of AI_SUSPICIOUS_THRESHOLD (cfg.aiSuspicious; Settings → Policy).
 const AI_SUSPICIOUS = 0.65;
 
+// Whether an address is allowlisted: the exact address, or its domain or a parent domain (ALLOW_ADDRESSES,
+// ALLOW_DOMAINS, Settings → Allowlist). Only the address: whether DMARC passed is the caller's to check.
 function isAllowed(cfg, address) {
     const a = String(address || '').toLowerCase();
     const d = a.split('@')[1] || '';
@@ -46,6 +50,7 @@ function suspiciousWhy(result, cfg) {
     return parts.join(', and ') || 'suspicious';
 }
 
+// The action for an analyzed email ({ action, trigger, why, braked }); state.brake: the domain-wide brake is on.
 function decide(result, cfg, state = {}) {
     if (result.status === 'trusted') return { action: 'none', trigger: null, why: 'allowlisted sender' };
     const p = result.ai && typeof result.ai.probability === 'number' ? result.ai.probability : null;

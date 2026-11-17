@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.6.7: a code review: less load on the server, faster emails, three bugs fixed, the docs brought up to date
+## 0.6.7: a code review: less load, faster emails, five bugs fixed, comments and docs brought up to date
 
-A review of the whole service for speed and unneeded load. Nothing changes how an email is judged (the checks
-level stays 15; the judging files' changes are recorded as speed only).
+A review of the whole service for speed and unneeded load, its comments and its documentation. Only one change
+judges an email differently (the phishing-training bypass below); the rest is speed, and every other verdict is the
+same.
 
 **Bugs fixed**
 - **The dashboard's copy of the records got stuck** after more than 5,000 records changed within a minute (a campaign
@@ -21,6 +22,15 @@ level stays 15; the judging files' changes are recorded as speed only).
 - **A deleted SPRUCE label** made every move in that mailbox fail until the instance restarted; two emails at once could
   both try to make the label. The mailbox's label ids are now asked again after a refusal, one request at a time, and a
   label another instance just made is found (`src/gmail/client.js`).
+
+- **A phishing-training rule could be used to slip phishing through:** an email counted as the vendor's training mail
+  when its first 100 links all went to the vendor's domains (they are public), so 100 such links and then the
+  phisher's own one let it through unchecked. An email with more than 100 links is never training mail by its
+  links now (`matchTraining` in `src/simulations.js`). Test: `test/simulations.test.js`.
+- **Activity's events, more than 5,000 between two looks,** would have left a gap in the dashboard's copy: read page
+  after page now. Test: `test/qol.test.js`.
+- **Example names from a district's retraining file** had been copied into the 0.5.68 comments, a test, this changelog
+  and docs/RETRAINING.md as examples; all are replaced with made-up names and numbers.
 
 **The dashboard (less load)**
 - **Activity's events** are read once and then only the new ones (`EventCache`): Activity read up to 10,000 events at
@@ -47,6 +57,12 @@ level stays 15; the judging files' changes are recorded as speed only).
   every list after each daily download, up to 1.5 million entries each); it still counts as downloaded.
 - **Suspicious mail looked at again** an hour later (looked for up to 6 h) and a day later (up to 30 h), each window
   read on its own: one read of 50 hours, at most 3,000 records, never reached the day-old ones in a busy district.
+
+**Comments:** every source file's comments checked against the code (about 250 fixed or added: wrong numbers and
+names, old menu names, comments above the wrong code, logic without an explanation); the code itself unchanged
+(compared file by file, syntax tree before and after). A few messages that named old pages say the new ones
+(install.sh, clear-data.sh, the lists' "not updated" note).
+- **Checks level 16:** after this update, recent delivered mail is checked again (for the training-rule fix).
 
 **Documentation:** README, PRIVACY (Show the email shows the real email to admins and moderators; attachments are read
 in memory), DEPLOY, INSTALL, ARCHITECTURE, RETRAINING, ROADMAP, COSTS, SCALING, WORKSPACE and DASHBOARD-ROLLBACK
@@ -271,14 +287,14 @@ brought up to date with 0.5.59 to 0.6.7.
 ## 0.5.68: the retraining export catches names in capitals, rosters, IDs and addresses
 
 - **What a district's file showed the export missed** (`src/training.js`): students' names in a records request written
-  "LAST, FIRST" in capitals, a class roster of "Last, First" lines, a first name and an initial ("Theo V.") in a
-  classroom tool's summary, customers' names in capitals in insurance and card emails ("DANIEL QUARRINGTON", "Hello, CASEY
-  FAIRWEATHER"), a 6-digit student number, a card's last four digits, a payment reference and an agent's licence number,
+  "LAST, FIRST" in capitals, a class roster of "Last, First" lines, a first name and an initial ("Theo V.", made up) in a
+  classroom tool's summary, customers' names in capitals in insurance and card emails (made-up examples
+  in `test/training.test.js`), a 6-digit student number, a card's last four digits, a payment reference and an agent's licence number,
   and a street address in a shipping confirmation. Now:
   - **⟦marked⟧ for a person to decide:** names written as a roster (in capitals anywhere; "Last, First" on a line of
     its own), a first name and an initial, and a known first name or surname in capitals with the word after it;
     a mark inside a mark becomes one;
-  - **[NAME]:** a greeting with a comma ("Hello, CASEY FAIRWEATHER");
+  - **[NAME]:** a greeting with a comma ("Hello, CASEY FAIRWEATHER", made up);
   - **taken out:** 5- and 6-digit numbers, a card's last digits, codes of letters and 4 or more digits (`number`), and
     street addresses (`street address`).
 - Nothing about how mail is judged changes. Test: `test/training.test.js`. Docs: `docs/RETRAINING.md`.

@@ -1,6 +1,6 @@
 'use strict';
 // Email that a platform sends for a person (0.5.16): Google Classroom, Drive, Docs, Sheets, Slides, Forms and
-// Calendar; DocuSign; Dropbox; Adobe Acrobat Sign; SharePoint. "Dana Madeup (via Google Docs)"
+// Calendar; DocuSign; Dropbox; Adobe Acrobat Sign; SharePoint; Box. "Dana Madeup (via Google Docs)"
 // <drive-shares-dm-noreply@google.com>, "Jordan Placeholder (Classroom)" <no-reply@classroom.google.com>, "Dana
 // Madeup via Docusign" <dse_na4@docusign.net>. The name is the person's; the address, the sender check and the
 // "[EXTERNAL]" tag a district's own routing rule adds are the platform's, for a colleague's share as much as for
@@ -9,12 +9,14 @@
 // "Name (address)" it writes in the text. Classroom notifications carry neither: the person is then unknown,
 // and their name proves nothing either way.
 //
-// Also here: a colleague's name in the text of an outside share (the compromised-district campaign: a real
-// account elsewhere shares a document "from" someone of yours), and what counts as a share or a signature
-// request. Names are compared only as colleagueNameHash fingerprints, as the directory's are kept.
+// Also here: a sender's name naming one platform from another's domain (0.5.49), a colleague's name on the
+// person behind a notification, a colleague's name in the text of an outside share (the compromised-district
+// campaign: a real account elsewhere shares a document "from" someone of yours), a share asking to sign in, a
+// share sent to many people at once, and what counts as a share or a signature request. Names are compared only
+// as colleagueNameHash fingerprints, as the directory's are kept.
 
-// The platforms' own sending domains (the domain the sender check passed for), and their notification
-// mailboxes (an employee's own address at the platform is not a notification).
+// The platforms' own sending domains (the domain the sender check passed for); their notification mailboxes
+// are NOTIFICATION_MAILBOX below (an employee's own address at the platform is not a notification).
 // owner: the company the domain belongs to (0.5.49), which the platform named in the sender's name must belong to.
 const PLATFORMS = [
     { name: 'Google', domain: 'google.com', owner: 'Google' },
@@ -63,6 +65,7 @@ function platformClaimSigns(E, facts) {
     }
     return [];
 }
+// A notification mailbox's name (before the @): no-reply, notifications, drive-shares, comments, DocuSign's dse_….
 const NOTIFICATION_MAILBOX = /(^|[-_.])(no-?reply|noreply|notifications?|drive-shares|shares|comments|receipts|calendar|classroom|dse)([-_.]|$)|^dse(_[a-z0-9]+)?$/i;
 // "Name (via Google Docs)", "Name (Classroom)", "Name (Google Forms)", "Name via Docusign".
 const VIA_PARENS = /^(.*?)\s*\((?:via\s+)?([^()]{2,40})\)\s*$/i;
@@ -162,7 +165,8 @@ function relaySigns(E, relay, colleagues) {
 // payroll request, the link checks or the AI). Not a greeting ("Hi Dana Madeup"), not the reader's own name
 // (selfHash), not the sender's own (the From checks judge that), and not a quotation of the colleague's own
 // email: the name followed by their address in your domains, or "wrote:" ("On Monday, Dana Madeup
-// <dana@your-district.org> wrote:", "From: Dana Madeup <dana@your-district.org>").
+// <dana@maple-schools.example> wrote:", "From: Dana Madeup <dana@maple-schools.example>"). Names of two or three
+// capitalized words are tried, in the subject and the first 30,000 characters of the text.
 const GREETINGS = new Set(['hi', 'hello', 'dear', 'hey', 'morning', 'afternoon', 'evening', 'greetings', 'attn', 'attention']);
 function colleagueMentionSigns(E, { subject, text, colleagues, selfHash, exclude = [], orgDomains = [] }) {
     if (!colleagues || !colleagues.size) return [];

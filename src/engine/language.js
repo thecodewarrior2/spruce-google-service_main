@@ -47,9 +47,11 @@ const SETS = Object.fromEntries(Object.entries(WORDS).map(([k, v]) => [k, new Se
 
 const MIN_LETTERS = 20, MIN_WORDS = 12;
 
+// Reads the first 6,000 characters.
 function detectLanguage(text) {
     const t = String(text || '').slice(0, 6000);
-    // 1. The writing system: most letters outside the Latin alphabet name the language (or its script).
+    // 1. The writing system: when at least MIN_LETTERS letters and half of them are outside the Latin alphabet,
+    // the commonest script names the language (or its script).
     let latin = 0, other = 0;
     const byScript = new Map();
     for (const ch of t) {
@@ -67,7 +69,9 @@ function detectLanguage(text) {
         return best ? { code: best[0].code, name: best[0].name, english: false, reason: 'script' }
             : { code: null, name: 'a language not written in the Latin alphabet', english: false, reason: 'script' };
     }
-    // 2. The Latin alphabet: the commonest short words of each language.
+    // 2. The Latin alphabet: the commonest short words of each language. Another language only with at least 5
+    // of its words, 2.5 times English's, and a tenth of all the words; English with 4% of them; else unknown
+    // (counted as English: the model reads it). Under MIN_WORDS words: too short to tell.
     const words = t.toLowerCase().match(/[\p{L}']+/gu) || [];
     if (words.length < MIN_WORDS) return { code: null, name: 'unknown', english: true, reason: 'short' };
     const hits = Object.fromEntries(Object.keys(SETS).map(k => [k, 0]));

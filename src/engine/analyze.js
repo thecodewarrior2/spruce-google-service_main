@@ -5,8 +5,12 @@
 // Offline, as in the extension: its decoders unwrap gateway and tracker links, and
 // detectLinkProblem/linkProblemSeverity find look-alike domains, mismatched link text, raw IP
 // addresses and the like. With ctx.intel (src/intel; network.js applies it): Cloudflare Security DNS,
-// Google Safe Browsing, the phishing lists and registry dates. Short links are NOT looked up (no
-// unshorten.me or similar service): a short link is judged by its own host and what decodes offline.
+// Google Safe Browsing, the phishing lists, Spamhaus, registry dates and (0.5.64) whose a sender's domain
+// is. Short links are NOT looked up (no unshorten.me or similar service): a short link is judged by its own
+// host and what decodes offline.
+// Also here: the links and QR codes in attachments (attachments.js), platform notifications and outside shares
+// (notifications.js), fake reply chains (replychain.js), a colleague's name on an outside address
+// (colleagueWithTitle, colleagueInContext), the look-alike watch's domains and mail dressed up as from inside.
 const spruce = require('./spruce');
 const { detectLanguage } = require('./language');
 const N = require('./notifications');
@@ -18,6 +22,9 @@ const MAX_LINKS = 300;
 
 function hostOf(u) { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } }
 
+// Each link (at most MAX_LINKS) as the extension judges it offline: code-running schemes (javascript:, data:…)
+// are dangerous at once; web links are unwrapped (gateways, trackers) and checked for a problem, and a page on a
+// cloud-storage site is a caution. Other schemes (mailto:, tel:) are skipped. network.js may flag them further.
 async function judgeLinks(E, links) {
     const out = [];
     for (const l of links.slice(0, MAX_LINKS)) {
@@ -39,7 +46,8 @@ async function judgeLinks(E, links) {
     return out;
 }
 
-// The extension's emailContentSignals: links flagged dangerous.
+// The extension's emailContentSignals: links flagged dangerous (hidden links not counted). 5 when two or more,
+// or every link, are dangerous; else 3.
 function linkSignals(judged) {
     const web = judged.filter(j => !j.hidden);
     const danger = web.filter(j => j.severity === 'danger');
@@ -50,6 +58,8 @@ function linkSignals(judged) {
               text: `${danger.length === total ? (danger.length === 1 ? 'Its only link is' : `All ${danger.length} of its links are`) : `${danger.length} of its ${total} links ${danger.length === 1 ? 'is' : 'are'}`} flagged as dangerous${why ? ` (${why})` : ''}.` }];
 }
 
+// (0.5.64) Whose the sender's domain is (src/intel/ownership.js), only when the sender's name claims a brand
+// whose known domains don't include it; null otherwise, on a failure, or after OWNERSHIP_WAIT_MS.
 const OWNERSHIP_WAIT_MS = 6000;
 async function senderOwnership(E, facts, intel) {
     if (!intel || !intel.ownership) return null;
@@ -63,7 +73,9 @@ async function senderOwnership(E, facts, intel) {
 }
 
 // Whether Gmail's own DMARC check passed for the sender's domain (the domain in From, which anyone can
-// write). Only then does the address count for the allowlist or as "inside the organization".
+// write). Only then does the address count for the allowlist or as "inside the organization". (0.6.3) For the
+// organization's own domains, a pass worked out from Gmail's SPF or DKIM results when it wrote no DMARC result
+// counts too (mime.js deriveDmarc).
 function senderVerified(facts) {
     const a = facts && facts.auth;
     const domain = String((facts && facts.senderAddress) || '').toLowerCase().split('@')[1] || '';
@@ -76,7 +88,10 @@ function senderVerified(facts) {
 // firstTime: bool (first email from this address anywhere in the organization, after the learning period),
 // keepAiFacts: bool (the answer also has what the model read, for the retraining export),
 // colleagues: Set of colleagueNameHash values (the organization's people), or null,
-// aiInside: bool (the AI model also reads mail from inside the organization; off: the rules alone do) }
+// aiInside: bool (the AI model also reads mail from inside the organization; off: the rules alone do),
+// intel: src/intel (null: no network checks), allowLinkDomains: the allowed link domains (network.js, 0.5.73),
+// threadSize: the Gmail thread's size (replychain.js), lookalikes: Map domain → 'strong' | 'weak' (the look-alike
+// watch), readAttachments: false to skip the attachments }
 async function analyze(facts, ctx = {}) {
     const E = spruce.load();
     const mailbox = String(ctx.mailbox || '').toLowerCase();
@@ -106,7 +121,7 @@ async function analyze(facts, ctx = {}) {
         : await readAttachments(facts.attachmentFiles || [], { outside: !inside }).catch(() => ({ links: [], signals: [], found: [], skipped: 0 }));
     const judged = await judgeLinks(E, [...(facts.links || []), ...att.links]);
     // The network checks (they may flag links, so they come before the link signs are counted).
-    // Allowlisted senders are never moved, so their mail costs no lookups.
+    // Allowlisted senders (ctx.trusted) are never moved, so their mail costs no lookups (nor the ownership one).
     const net = await networkChecks(E, ctx.trusted ? null : (ctx.intel || null), facts, judged, Object.assign({}, ctx, { orgDomains: ctx.orgDomains || [] }))
         .catch(() => ({ signals: [], checks: { failed: true } }));
     const allText = `${facts.subject}\n${facts.visibleText}\n${facts.hiddenText}`;
@@ -159,8 +174,9 @@ async function analyze(facts, ctx = {}) {
     const base = { status: ctx.trusted ? 'trusted' : 'clean', reasons: [], move: false };
     const verdict = E.applyEmailSignals(base, signals) || base;
     // What confirms it from outside the email's own text: a link a security service blocks or a
-    // phishing list has, a sender on a list or blocked, a brand-new look-alike sender domain, or Gmail's
-    // DMARC check failing. Rules plus one of these is "strong" evidence (the brakes never hold it).
+    // phishing list has, a sender on a list or blocked, a brand-new look-alike sender domain, a sender or
+    // reply address the look-alike watch found newly registered, or Gmail's DMARC check failing. Rules
+    // (flagged) plus one of these is "strong" evidence (the brakes never hold it).
     const SENDER_CONFIRMS = new Set(['scam-sender-list', 'sender-domain-blocked', 'sender-domain-listed', 'young-lookalike-sender']);
     const WATCH_CONFIRMS = new Set(['watched-lookalike-sender', 'watched-lookalike-reply-to']);
     const confirmedBy = [
@@ -185,7 +201,7 @@ async function analyze(facts, ctx = {}) {
         attachments: safeOne(() => E.aiAttachmentFacts((facts.attachmentFiles || facts.attachments || []).filter(a => !a.inline))) || [],
         links: judged.filter(j => !j.hidden).slice(0, 8).map(j => ({ text: j.text, host: hostOf(j.url), destHost: j.finalUrl && hostOf(j.finalUrl) !== hostOf(j.url) ? hostOf(j.finalUrl) : '', finding: j.severity ? j.reason : '' })),
         // (0.5.55) At most 8,000 characters: a longer text keeps its first 6,000 and its last 2,000, since the model
-        // (phish-tiny 0.20.0) reads a long email's start and its end.
+        // (since phish-tiny 0.20.0) reads a long email's start and its end.
         bodyText: (t => t.length > 8000 ? `${t.slice(0, 6000)}\n${t.slice(-2000)}` : t)(String(facts.visibleText || '')),
         recipient: mailbox.split('@')[0] || '',
         layout: facts.layout || [],
@@ -232,8 +248,8 @@ async function analyze(facts, ctx = {}) {
     };
 }
 
-// A colleague's name on an outside address (the engine's nameAddressSigns, 3) counts only when something
-// in the email claims to be from inside the organization (0.5.43). People share names: a vendor's Misty
+// colleagueInContext: a colleague's name on an outside address (the engine's nameAddressSigns, 3) counts only
+// when something in the email claims to be from inside the organization (0.5.43). People share names: a vendor's Misty
 // Smith writing from her company's own address with a greeting is no impersonation. It counts when it is
 // written from a personal email account, from an address imitating the organization's domain or a
 // brand-new domain, with Gmail's sender check failing, with replies going elsewhere, with a title or the
@@ -243,6 +259,9 @@ async function analyze(facts, ctx = {}) {
 const COLLEAGUE_SIGN = 'The sender uses the name of someone in your organization, but writes from an outside address';
 const INSIDE_TITLE_RE = /\b(superintendent|principal|director|coordinator|supervisor|chief|cfo|ceo|coo|president|treasurer|business office|finance|payroll|human resources|hr|board (?:member|chair)|dean|head of|manager|administrator)\b/i;
 const IMPERSONATOR_RE = /\b(are you (?:available|around|free|at your desk)|quick (?:favou?r|task|request|question)|i(?:'m| am) (?:in a meeting|on a call|in a conference|travel+ing|busy right now)|can'?t (?:talk|take (?:a )?calls?)|text me|(?:cell|mobile|personal) (?:phone )?(?:number|no\.?)|gift ?cards?|itunes cards?|google play cards?|direct deposit|payroll|bank (?:details|account|information)|wire (?:transfer|the funds)|w-?2s?|keep (?:this|it) (?:confidential|between us)|discreet)\b/i;
+// colleagueWithTitle: when the exact name check found no colleague, the name before a title or the organization's
+// name ("Misty Samplefield, Principal") is compared again; a colleague's adds the same sign (3), which
+// colleagueInContext then weighs like any other.
 function colleagueWithTitle(E, facts, signals, ctx) {
     if (!ctx.colleagues || !ctx.colleagues.size || signals.some(s => s && typeof s.text === 'string' && s.text.startsWith(COLLEAGUE_SIGN))) return;
     const name = String(facts.senderName || '').replace(/["']/g, '').trim();
@@ -253,6 +272,7 @@ function colleagueWithTitle(E, facts, signals, ctx) {
         .map(x => x.trim()).filter(x => x && x !== name && x.split(/\s+/).length >= 2);
     if (parts.some(p => ctx.colleagues.has(E.colleagueNameHash(p)))) signals.push({ weight: 3, text: `${COLLEAGUE_SIGN} (${String(facts.senderAddress).slice(0, 120)}).` });
 }
+// (At most 3 of the reasons are named in the sign's text.)
 function colleagueInContext(E, facts, signals, ctx, bodyText) {
     const i = signals.findIndex(s => s && typeof s.text === 'string' && s.text.startsWith(COLLEAGUE_SIGN));
     if (i < 0) return;
@@ -313,9 +333,9 @@ function addressLinePeople(facts) {
 
 // Signs of mail dressed up as coming from inside the organization:
 //   - its From address is in your domains, but Gmail's DMARC check failed for it: someone else wrote it
-//     (the DMARC failure is a sign of its own too; this one says it imitates a colleague's address);
-//   - the sender's name shows an address of yours ("it@district.org" <x@elsewhere.example>) on an outside
-//     address.
+//     (the DMARC failure is a sign of its own too; this one says it imitates a colleague's address): 2;
+//   - the sender's name shows an address of yours ("it@maple-schools.example" <x@elsewhere.example>) on an outside
+//     address: 3.
 // Mail from inside that passed DMARC gets neither.
 function insideSpoofSigns(E, facts, orgDomains, ownAddress, verified) {
     if (!orgDomains.length) return [];

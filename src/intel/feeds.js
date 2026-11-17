@@ -1,7 +1,8 @@
 'use strict';
 // The phishing lists (PHISH_FEEDS in vendor/spruce/shared.js: OpenPhish's community feed of phishing URLs,
 // Phishing Army's list of phishing domains, HaGeZi's Threat Intelligence Feeds, TweetFeed's domains reported
-// by security researchers, Sefinek's list of scam-sender addresses), matched here.
+// by security researchers, Sefinek's list of scam-sender addresses), and abuse.ch's when it is on (0.5.37:
+// src/intel/abusech.js), matched here.
 //
 // Downloaded ONCE A DAY for the whole district by a Cloud Scheduler task (/tasks/sync-feeds), out of
 // respect for the projects that publish them for free, and kept in the store (gzip, shared by every
@@ -23,8 +24,8 @@ const STALE_MS = 48 * 60 * 60 * 1000;
 const HEALTH = 'feedHealth';
 
 // extra: () => more lists (0.5.37: abuse.ch's, src/intel/abusech.js), each like a PHISH_FEEDS entry plus
-// headers() (the request's headers: its key) and enabled() (turned on, with a key). A list that isn't enabled
-// isn't downloaded or used; its status says "off".
+// fetchWith() (makes its own request, with its key), unpack(res) (the answer as lines), minEntries and
+// enabled() (turned on, with a key). A list that isn't enabled isn't downloaded or used; its status says "off".
 function createFeeds({ http, store, engine, now = () => Date.now(), log = console, extra = () => [] }) {
     const E = engine;
     const extras = () => { try { return extra() || []; } catch (e) { return []; } };
@@ -156,6 +157,7 @@ function createFeeds({ http, store, engine, now = () => Date.now(), log = consol
             try {
                 lastCheck = now();
                 let newer = !sets;
+                // Newer: a list's stored copy (or its being off) differs from what was loaded.
                 for (const feed of allFeeds()) { const i = (await isOn(feed)) ? await store.blobInfo(`feed_${feed.id}`) : null; if ((i ? i.updated : (await isOn(feed)) ? undefined : 'off') !== versions[feed.id]) newer = true; }
                 if (newer) await load();
             } catch (e) { log.error && log.error('phishing lists:', e); if (!sets) sets = null; }

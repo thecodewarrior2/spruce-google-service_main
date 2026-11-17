@@ -24,6 +24,7 @@ class DelegatedAuth {
     }
     // One request at a time per mailbox: calls that need the same new token at once share it (a campaign
     // reaches a mailbox with several notifications), instead of each asking IAM and Google.
+    // A token is used until 5 minutes before it expires (an hour after it was made).
     async tokenFor(user, scope = SCOPES.gmail) {
         const key = `${scope}|${user}`;
         const hit = this.cache.get(key);

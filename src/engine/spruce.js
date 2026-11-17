@@ -47,7 +47,8 @@ function load() {
         colleagueNameHash: fn('colleagueNameHash'),
         colleagueLineSigns: fn('colleagueLineSigns'),
         ownDomainLookalike: fn('ownDomainLookalike'),
-        // (phishing-training domains, src/simulations.js: never a well-known company's or a link shortener)
+        // (phishing-training domains, src/simulations.js: never a well-known company's or a link shortener; the
+        // allowlist, src/pipeline.js: never a link shortener)
         brandOfDomain: fn('brandOfDomain'),
         companyNameOf: fn('companyNameOf'),
         publicShorteners: get('publicShorteners'),

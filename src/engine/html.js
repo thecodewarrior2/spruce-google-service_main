@@ -3,10 +3,13 @@
 // person sees, its links, and how it hides text (the extension's emailLayout, content.js).
 //
 // There is no rendered page here, so "hidden" means hidden by the email's OWN markup: display:none,
-// visibility:hidden, opacity 0, a font under 2px, collapsed max-height with overflow hidden, the hidden
-// attribute, and <head>/<style>/<script>/<noscript>/<template>. That catches what spam and phishing
-// actually use (inline styles, because webmail drops style sheets), but not tricks that need layout
-// (text the same color as its background, text pushed off-screen by a style sheet).
+// visibility:hidden, opacity under 0.05, a font under 2px, a max-height or height of 0 with overflow hidden,
+// and the hidden attribute. (<head>, <style>, <script>, <noscript>, <template>, <title>, <object>, <iframe>
+// and the like are skipped: never text.) That catches what spam and phishing actually use (inline styles,
+// because webmail drops style sheets), but not tricks that need layout (text the same color as its
+// background, text pushed off-screen by a style sheet).
+// Also: the quoted earlier messages (blockquote, Gmail's and others' quote classes) apart from the text, the
+// preheader, pictures that count as content, and filler after a large blank gap.
 const { parseDocument } = require('htmlparser2');
 
 const GAP_PX = 1000;              // an empty spacer this tall (by its own size) is a "large blank gap"
@@ -61,10 +64,11 @@ const textOf = (node) => {
     return node.children.map(textOf).join('');
 };
 const hasMedia = (node) => !!node.children && node.children.some(c => (c.type === 'tag' && ['img', 'video', 'svg', 'canvas', 'iframe'].includes(c.name)) || hasMedia(c));
+// (non-breaking spaces as plain spaces)
 const decode = (s) => String(s || '').replace(/ /g, ' ');
 
-// Reads the HTML. Returns { visibleText, hiddenText, preheader, layout: [...], links: [{ text, href }],
-// pictures, quotedText }.
+// Reads the HTML. Returns { visibleText, hiddenText, preheader, layout: [...], links: [{ text, href, hidden,
+// afterGap }], pictures, quotedText }. Hidden and quoted text are kept up to MAX_TEXT each.
 function readHtml(html) {
     const doc = parseDocument(String(html || ''), { decodeEntities: true, lowerCaseTags: true, lowerCaseAttributeNames: true });
     let visible = '', rest = '', hidden = '', quoted = '', afterGap = 0, gapSeen = false, preheader = '', pictures = 0;
@@ -79,6 +83,7 @@ function readHtml(html) {
         if (node.type === 'text') {
             const t = decode(node.data);
             if (!t.trim()) { if (state.where === 'visible' && !gapSeen) push('visible', ' '); return; }
+            // Text past the blank gap isn't read as visible: only its length counts (filler).
             if (gapSeen && state.where === 'visible') { afterGap += t.trim().length; return; }
             push(state.where, t);
             return;
@@ -90,16 +95,22 @@ function readHtml(html) {
         if (where === 'visible' && hiddenByOwnMarkup(node)) {
             where = 'hidden';
             const t = textOf(node).replace(/\s+/g, ' ').trim();
+            // The preheader: the first hidden text (10 to 300 characters) before any visible text, the line an
+            // inbox shows as a preview.
             if (!preheader && t.length >= 10 && t.length <= 300 && !visible.trim()) preheader = t;
         }
         if (where !== 'hidden' && (name === 'blockquote' || QUOTE_CLASSES.test((node.attribs && node.attribs.class) || ''))) where = 'quoted';
         // An empty spacer at least GAP_PX tall: everything after it is out of the reader's sight.
         if (where === 'visible' && !gapSeen && name && heightPx(node) >= GAP_PX && !textOf(node).trim() && !hasMedia(node)) { gapSeen = true; return; }
+        // A picture counts as content when visible, not a tracking pixel (3 px or less) and PICTURE_MIN_PX wide or
+        // of no stated width.
         if (name === 'img') {
             const w = widthPx(node), h = px(node.attribs && node.attribs.height);
             const pixel = (Number.isFinite(w) && w <= 3) || (Number.isFinite(h) && h <= 3);
             if (where === 'visible' && !gapSeen && !pixel && (!Number.isFinite(w) || w >= PICTURE_MIN_PX)) pictures++;
         }
+        // Links in the quoted earlier messages aren't this email's own. A link's text is its pictures' alt text
+        // when it has no text of its own.
         if (name === 'a' && node.attribs && node.attribs.href && where !== 'quoted') {
             const alt = [];
             (function imgs(n) { for (const c of n.children || []) { if (c.type === 'tag' && c.name === 'img' && c.attribs && c.attribs.alt) alt.push(c.attribs.alt); imgs(c); } })(node);
@@ -116,6 +127,7 @@ function readHtml(html) {
     let visibleText = clean(headTail(visible + rest));
     const layout = [];
     if (gapSeen && afterGap >= FILLER_MIN) layout.push('text after a large blank gap');
+    // Under 60 visible characters with a picture: an email of pictures, whose preheader stands in for its text.
     if (visibleText.replace(/\s+/g, '').length < 60 && pictures > 0) {
         layout.push('images only');
         if (preheader) visibleText = `${preheader}\n${visibleText}`.trim();

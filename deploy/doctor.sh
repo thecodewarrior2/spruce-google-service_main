@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # S.P.R.U.C.E Mail Protection Service: check the installation end to end, and say what to run for each problem.
 # In Cloud Shell, from the folder you installed from:   bash deploy/doctor.sh
-# Read-only: it changes nothing. It checks what the dashboard's Status page can't see from inside the
+# Read-only: it changes nothing. It checks what the dashboard's Health → Service status can't see from inside the
 # service: the Pub/Sub subscription, Gmail's permission to publish, the alert policies, recent errors.
 set -uo pipefail
 cd "$(dirname "$0")/.."

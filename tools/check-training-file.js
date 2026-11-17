@@ -5,11 +5,12 @@
 //     node tools/check-training-file.js spruce-retraining-2026-11-10.jsonl           (after your review)
 //     node tools/check-training-file.js --final spruce-retraining-2026-11-10.jsonl   (before training)
 //
-// It refuses (exit code 1) a file with:
+// The checks themselves are problems() in src/training.js. It refuses (exit code 1) a file with:
 //   - a word still marked ⟦like this⟧ (a possible name nobody decided on);
 //   - an email address, a phone number or a long number (an account, card, student ID, code);
 //   - a line that isn't one example: { "name", "label": 0 | 1, "facts": {…} } (a "text" field too, which
-//     make-dataset.js would use instead of the facts);
+//     make-dataset.js in TinyPhishLLM_Private_Training would use instead of the facts; a "recipient" in the
+//     facts, which the export never writes; a senderAddress that isn't name@domain);
 //   - with --final: a placeholder ([NAME], [SENDER], [OUR-DOMAIN], [SCHOOL], [PLACE]) not yet replaced by
 //     a made-up one.
 // It also says how many are phishing and how many genuine, and which names repeat (the same email twice).
@@ -40,4 +41,4 @@ const twice = [...names].filter(([, c]) => c > 1).map(([k]) => k);
 if (twice.length) console.log(`The same example more than once: ${twice.join(', ')}. Keep one of each (variants you wrote need names of their own).`);
 console.log(`${n} examples: ${phishing} phishing, ${n - phishing} genuine.${n && Math.min(phishing, n - phishing) / n < 0.25 ? ' Mostly one kind: see "Keep the two kinds balanced" in docs/RETRAINING.md.' : ''}`);
 if (bad) { console.log(`${bad} example${bad === 1 ? ' needs' : 's need'} fixing (or leave ${bad === 1 ? 'it' : 'them'} out).`); process.exit(1); }
-console.log(final ? 'Ready for training: copy it into TinyPhishLLM\'s training/data/extra/ (docs/RETRAINING.md, step 6).' : 'No leftovers found. Read every example yourself as well: the check can\'t see a name it doesn\'t know.');
+console.log(final ? 'Ready for training: copy it into TinyPhishLLM_Private_Training\'s training/data/extra/ (docs/RETRAINING.md, step 6).' : 'No leftovers found. Read every example yourself as well: the check can\'t see a name it doesn\'t know.');

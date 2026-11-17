@@ -1,7 +1,8 @@
 'use strict';
-// Secret Manager, for the one secret the dashboard manages (0.5.23): the Google Safe Browsing API key
-// (deploy/install.sh makes the secret, spruce-safe-browsing-key, and lets the services' account read it, add
-// a version and destroy old ones, on that secret only). A secret's value never goes anywhere else: not in
+// Secret Manager, for the secrets the dashboard manages: the Google Safe Browsing API key (0.5.23,
+// SAFE_BROWSING_SECRET) and the Spamhaus and abuse.ch keys (0.5.37, SPAMHAUS_SECRET, ABUSECH_SECRET;
+// src/intel/index.js makes a client for each). deploy/install.sh makes the secrets and lets the services' account read
+// them, add a version and destroy old ones, on those secrets only. A secret's value never goes anywhere else: not in
 // Firestore, settings.env, the logs or an answer of the dashboard.
 const { GoogleAuth } = require('google-auth-library');
 

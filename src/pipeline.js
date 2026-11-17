@@ -29,13 +29,16 @@ const sims = require('./simulations');
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
-const LIST_RETRY_MS = 3 * HOUR;
+const LIST_RETRY_MS = 3 * HOUR;   // a phishing list that missed its download is tried again this often (0.5.22)
 const ERRORS_ALERT = 25;   // errors in an hour that make an alert (0.5.29)
-const GAPS_DAY = 10, GAPS_MAILBOX = 3;   // missed changes that make an alert: in 24 hours, or one mailbox in 7 days (0.5.31)   // a phishing list that missed its download is tried again this often (0.5.22)
-const MAX_TRIES = 3;
+// Missed changes that make an alert (0.5.31): in 24 hours, or one mailbox in 7 days. The defaults of
+// GAPS_ALERT_DAY and GAPS_ALERT_MAILBOX.
+const GAPS_DAY = 10, GAPS_MAILBOX = 3;
+const MAX_TRIES = 3;   // tries per message before it is left unchecked (and an alert)
 // Re-checking delivered mail (0.5.35): queued emails at most, found per list download at most, checked
 // at once, and the hourly run's time for them.
 const RECHECK_QUEUE_MAX = 3000, RECHECK_FIND_MAX = 3000, RECHECK_PARALLEL = 12, RECHECK_BUDGET_MS = 40 * 1000;
+// How far each action goes: a re-check records an email again only when it now goes further than before.
 const RECHECK_RANK = { none: 0, flag: 1, 'would-move': 2, move: 3 };
 // After an update that changes the checks (0.5.51): emails queued per hourly run at most (as the queue has room).
 const UPDATE_QUEUE_STEP = 1500;
@@ -49,24 +52,24 @@ const WHERE_WORDS = { archived: 'archived by its reader', spam: 'in Spam', trash
 const CLAIM_LEASE_MS = 5 * 60 * 1000;
 // How long a notification waits for messages another instance is judging before it keeps the place.
 const WAIT_FOR_OTHERS_MS = 5000;
-// The daily renewal of the watches (Gmail stops notifying for a mailbox whose watch isn't renewed for 7
-// days): 10 at a time (users.watch costs 100 quota units: about 400,000 a minute, a third of the
-// project's 1,200,000), within RENEW_BUDGET_MS so the run ends before the worker's 120-second timeout,
-// the mailboxes renewed longest ago first. Those left are the first of the next run: 10,000 mailboxes are
-// each renewed every two days or so, well within the 7 days. One renewed less than RENEW_FRESH_MS ago is
-// left for the next run.
 // How often a mailbox's "last notification" time is written when its history position doesn't move (it
-// is written with the position otherwise): the Service status page and the quiet-mailbox alert (12 hours) need no more.
+// is written with the position otherwise): Health → Service status and the quiet-mailbox alert (QUIET_HOURS,
+// 12 by default) need no more.
 const NOTED_EVERY_MS = 10 * 60 * 1000;
-// How long a mailbox's sync position may wait when its notifications bring nothing new (see above).
+// How long a mailbox's sync position may wait when its notifications bring nothing new (handleNotification).
 const QUIET_POSITION_MS = 30 * 60 * 1000;
 // Senders remembered per instance (about 100 bytes each).
 const SENDERS_KEPT = 100000;
 // How often the worker writes the day's counters it added up (src/server.js; see Service.count).
 const STAT_FLUSH_MS = 5000;
+// The daily renewal of the watches (Gmail stops notifying for a mailbox whose watch isn't renewed for 7
+// days): RENEW_PARALLEL at a time (users.watch costs 100 quota units: about 400,000 a minute, a third of the
+// project's 1,200,000), within RENEW_BUDGET_MS so the run ends before the worker's 120-second timeout,
+// new mailboxes and the watches renewed longest ago first. Those left are continued by the hourly job
+// (syncFeeds, 0.5.53). One renewed less than RENEW_FRESH_MS ago waits; WATCH_MS is how long a watch lasts.
 const RENEW_PARALLEL = 10, RENEW_BUDGET_MS = 95 * 1000, RENEW_FRESH_MS = 12 * 60 * 60 * 1000, WATCH_MS = 7 * 24 * 60 * 60 * 1000;
-// A day in the organization's time zone (0.5.27; UTC before): the daily counters' key. Kept for callers
-// outside the service, in UTC; the service itself uses this.dayOf.
+// A day in UTC, kept for callers outside the service. The daily counters' key is the day in the
+// organization's time zone (this.dayOf, 0.5.27).
 const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
 const hourOf = (ms) => new Date(ms).toISOString().slice(0, 13);
 // The Message-ID header without its angle brackets: what Google Workspace's Email log search and the
@@ -74,7 +77,6 @@ const hourOf = (ms) => new Date(ms).toISOString().slice(0, 13);
 const messageIdOf = (v) => String(v || '').trim().replace(/^<|>$/g, '').slice(0, 300);
 // The address in a From header ("Name <a@b>" or "a@b").
 const addressOf = (from) => { const m = /<([^<>@\s]+@[^<>\s]+)>/.exec(String(from || '')); return (m ? m[1] : String(from || '').trim()).toLowerCase(); };
-// At most n at once; the others wait their turn, first come first served.
 // The AI's answer as a record keeps it: the score, the model, the sentences that weighed most (unless
 // STORE_AI_QUOTES=off), and why there is no score (an email in a language the model doesn't read).
 function aiRecord(ai, cfg) {
@@ -85,6 +87,7 @@ function aiRecord(ai, cfg) {
     return out;
 }
 
+// At most n at once; the others wait their turn, first come first served.
 class Slots {
     constructor(n) { this.free = n; this.waiting = []; }
     async run(fn) {
@@ -170,9 +173,9 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 }
 
 // --- The policy settings an admin can change on the dashboard (Settings, with the project ID) ----------
-// mode, aiThreshold, aiSuspicious, brakePerHour (0: automatic), timeZone, the allowlists and retentionDays
-// (how long records are kept) come from deploy/settings.env (the services'
-// environment). A change on the dashboard is kept in Firestore (state/policy-<key>: { value, env, before,
+// The settings in POLICY_KEYS (the mode, the AI lines, the optional services, the allowlists, the brake
+// (0: automatic), the time zone, how long records are kept, who is watched…) come from deploy/settings.env
+// (the services' environment). A change on the dashboard is kept in Firestore (state/policy-<key>: { value, env, before,
 // by, at }) and applies to every instance within POLICY_REFRESH_MS. It records the settings.env value it
 // replaced (env): when settings.env later has another value for the same setting (changed, then
 // install.sh), that one is newer and applies. The most recent change wins, wherever it was made.
@@ -180,12 +183,15 @@ const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'ai
 const LIST_KEYS = ['allowDomains', 'allowAddresses', 'allowLinkDomains'];
 const MAX_ALLOWED = 500;
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
-// A list as kept: lower case, no repeats, sorted (from a list, or text with one per line or commas).
-// (one per line, or separated by commas or semicolons: an entry with a space in it is reported whole)
+// A list as kept: lower case, no repeats, sorted (from a list, or text with one entry per line or
+// separated by commas or semicolons: an entry with a space in it is reported whole).
 const asList = (v) => [...new Set((Array.isArray(v) ? v : String(v || '').split(/[\r\n,;]+/)).map(x => String(x).trim().toLowerCase()).filter(Boolean))].sort();
 const POLICY_REFRESH_MS = 30 * 1000;
 const MIN_KEEP_DAYS = 14, MAX_KEEP_DAYS = 365;   // retentionDays (config.js says the same)
+// Marks a configuration whose envPolicy was taken here (Service's constructor), so it is taken only once.
 const OWN_ENV = Symbol('envPolicy of this configuration');
+// Two values of one setting are the same: lists in any order or spelling, numbers as numbers (a number
+// from settings.env may be text).
 const sameSetting = (a, b) => (Array.isArray(a) || Array.isArray(b) ? asList(a).join(',') === asList(b).join(',')
     : typeof a === 'number' || typeof b === 'number' ? Number(a) === Number(b) : String(a) === String(b));
 // (0.5.73) Domains that can't be allowed link domains: sites where anyone can put up a page (a phishing page there
@@ -573,16 +579,12 @@ class Service {
         };
     }
 
-    // An email re-scanned (Review, Messages: Re-scan): read again from its mailbox and judged as it would be
-    // now, with today's checks and model, exactly as "Check an email" does. Its scores, AI opinion and signs
-    // become the new ones (the email's page shows the newest scan); what they were on arrival is kept once
-    // (arrival), and what happened to it (moved, flagged...) stays: nothing is moved, and the admin decides
-    // with the usual buttons. Noted in Activity.
     // The colleague-name check's list: the full name of everyone in the directory, kept only as one-way hashes
     // (the extension's colleagueNameHash: "Notreal, Avery" = "Avery Notreal"), in memory, read again every 12 hours
     // (after a failure, every hour). Off (null) without DIRECTORY_ADMIN or with COLLEAGUE_NAMES=off; a
     // failed read (no Users → Read privilege or no admin.directory.user.readonly scope) keeps the last list
-    // and is noted in state/colleagueNames for Status, never alerted.
+    // and is noted in state/colleagueNames for Health → Service status, never alerted. Emails checked
+    // while it is being read wait for the same read.
     async colleagueNames() {
         if (!this.cfg.colleagueNames || !this.cfg.directoryAdmin || !this.gmail || typeof this.gmail.userNames !== 'function') return null;
         const now = this.now(), c = this.colleagues;
@@ -655,6 +657,12 @@ class Service {
         return { language: result.language, reading, skipped: skipped || null, email };
     }
 
+    // An email re-scanned (Review, Messages, its page: Re-scan): read again from its mailbox and judged as it
+    // would be now, with today's checks and model, as "Check an email" does. Its scores, AI opinion and signs
+    // become the new ones (the email's page shows the newest scan); what they were on arrival is kept once
+    // (arrival), and what happened to it (moved, flagged...) stays: nothing is moved, and the admin decides
+    // with the usual buttons. Noted in Activity. (0.6.6) Refused within RESCAN_COOLDOWN_MS of the email's last
+    // re-scan, or when more than RESCAN_QUEUE_MAX wait for a slot (server.js refuses the same email twice at once).
     async rescan(key, by) {
         const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
         const before = await this.store.getRecord(key);
@@ -902,12 +910,14 @@ class Service {
         if (this.cfg.brakePerHour > 0) return this.cfg.brakePerHour;
         return Math.max(100, Math.ceil((Number(await this.store.getState('watchedCount')) || 0) / 2));
     }
+    // The brake comes on: only the instance that sets it first alerts (the others' moves were refused too).
     async tripBrake(now, count, limit) {
         if (!(await this.store.setStateIfUnset('brake', { at: now, moves: count, limit }))) return;
         await this.alert('brake', `${count} emails were moved within the hour (limit ${limit}). Moving has stopped in every mailbox: from now on, emails that would be moved stay in the Inbox, like any other email, until an admin resumes on the dashboard (Today), which can also move them then.`);
     }
 
-    // An alert: in Recent activity, and a log line Cloud Monitoring emails to ALERT_EMAIL (install.sh).
+    // An alert: in Health → Activity (and Today's Recent activity), and a log line Cloud Monitoring emails to
+    // ALERT_EMAIL (install.sh).
     async alert(kind, text, extra = {}) {
         await this.store.addEvent(Object.assign({ kind, text, alert: true }, extra));
         if (this.log.warn) this.log.warn(JSON.stringify({ severity: 'WARNING', spruceAlert: kind, message: text }));
@@ -1051,7 +1061,7 @@ class Service {
         return { released, failed };
     }
     // Copies of a campaign the service didn't record (judged clean when they came, or before the pilot):
-    // each watched mailbox's Inbox of the last 7 days is searched for mail from the campaign's senders,
+    // each watched mailbox's Inbox of the last 7 days is searched for mail from the campaign's senders (5 at most),
     // and a message counts when its sender's domain and subject make the same campaign. Confirmed
     // campaigns' copies are moved (enforce mode); others are recorded as "would move".
     async findCopies(key, by, { budgetMs = 200000 } = {}) {
@@ -1139,7 +1149,6 @@ class Service {
         return out;
     }
 
-    // An admin's judgment of a record: a false alarm (genuine) or right (phishing or spam).
     // An admin's verdict on one email: a false alarm (not phishing), or phishing. With move, phishing that
     // is still in the Inbox is also moved to Spam, in enforce mode only (Review's "Phishing: move to
     // Spam"). moved: 'moved'; 'gone' (no longer in the Inbox); 'monitor' (nothing is moved in monitor
@@ -1185,8 +1194,10 @@ class Service {
         return { record: out };
     }
 
-    // Cloud Scheduler, daily: watch every pilot mailbox again (a watch lasts 7 days) and forget
-    // mailboxes that left the pilot.
+    // Cloud Scheduler, daily (spruce-renew-watches; also install.sh and Settings → Mailboxes' "Read the directory
+    // again now"): watch every mailbox of the pilot, or of the whole domain (Settings → Mailboxes), again (a
+    // watch lasts 7 days) and stop watching those no longer in it. Within budgetMs; what is left is recorded
+    // (state/watchLeft) and the hourly job continues it. Switches the service on again after stopAll.
     async renewWatches({ budgetMs = RENEW_BUDGET_MS, parallel = RENEW_PARALLEL } = {}) {
         const started = Date.now();
         if (await this.store.getState('stopped')) await this.store.setState('stopped', null);   // (0.6.7) switched on again
@@ -1250,7 +1261,7 @@ class Service {
         await this.store.setState('watchedCount', ok);
         // (0.5.53) Mailboxes still to watch, and watches still to stop: the hourly job continues them (syncFeeds).
         await this.store.setState('watchLeft', { left: left + Math.max(0, gone.length - stopped), at: now, scope: whole ? 'domain' : 'pilot' });
-        // What was found, for Recent activity (and the log, without addresses): so a count that looks
+        // What was found, for Activity (and the log, without addresses): so a count that looks
         // wrong says why.
         const text = watchSummary({ ok, failed, stopped, groups, extra: this.cfg.pilotUsers.length, ou: whole ? '' : this.cfg.pilotOu, orgDomains: this.cfg.orgDomains, renewed: out.size, left, domain: domainCount });
         await this.store.addEvent({ kind: 'watch', text });
@@ -1280,8 +1291,6 @@ class Service {
         return Object.assign({}, v, { watched: Number(await this.store.getState('watchedCount')) || 0, scope: this.cfg.watchScope });
     }
 
-    // Switching the service off: Gmail stops notifying for every watched mailbox. (Also remove the
-    // Scheduler job that renews watches, or it starts them again; docs/DEPLOY.md.)
     // (0.6.7) The off switch (deploy/stop.sh). First every mailbox stops counting as watched (its notifications are
     // ignored from then on, PILOT_USERS too), and an unfinished renewal is dropped (the hourly job continued it,
     // watching them again); then Gmail is told to stop notifying, STOP_PARALLEL at a time within budgetMs, and
@@ -1299,7 +1308,8 @@ class Service {
             : `All ${todo.length} mailbox watches were stopped.` });
         return { stopped: todo.length, gmailStopped: out.stopped, left: out.left };
     }
-    // Gmail told to stop notifying for the mailboxes switched off (stopPending), within budgetMs.
+    // Gmail told to stop notifying for the mailboxes switched off (stopPending), within budgetMs: those given
+    // (stopAll's, all of them), else those still pending (the hourly job). How many are left goes in state/stopped.
     async finishStopping({ users = null, budgetMs = STOP_BUDGET_MS, parallel = STOP_PARALLEL } = {}) {
         const started = Date.now();
         const todo = (users || (await this.store.listUsers())).filter(u => u.stopPending || users);
@@ -1315,13 +1325,15 @@ class Service {
         return { stopped, left };
     }
 
-    // Cloud Scheduler, daily: records older than RETENTION_DAYS are deleted.
-    // Records after RETENTION_DAYS; Activity (what admins did, alerts) after AUDIT_DAYS (0.5.29, a year by default).
+    // Old documents deleted (the hourly job, last, since 0.4.1; POST /tasks/purge for an older installation's daily
+    // job): records after RETENTION_DAYS; Activity (what admins did, alerts) after AUDIT_DAYS (0.5.29, a year by default).
     purge(opts = {}) { return this.store.purge(this.now() - this.cfg.retentionDays * DAY, Object.assign({ eventsBeforeMs: this.now() - (this.cfg.auditDays || 365) * DAY }, opts)); }
 
-    // Cloud Scheduler, hourly (the spruce-sync-feeds job): the health check, then the phishing lists,
-    // downloaded once a day for everyone (src/intel/feeds.js; a failed download is tried again the next
-    // day, not every hour).
+    // Cloud Scheduler, hourly (the spruce-sync-feeds job), each step within what is left of the worker's
+    // 120-second request: the health check and the weekly summary; the phishing lists, downloaded once a day
+    // for everyone (src/intel/feeds.js; a list that missed its download is tried again every LIST_RETRY_MS);
+    // the re-checks of delivered mail, Gmail's logs for them and the look-alike watch; an update's problems;
+    // the watches the daily renewal or the off switch didn't finish.
     // Since 0.4.1 it also deletes what Firestore's TTL policies don't (documents written before 0.4.0),
     // last, with what is left of the request's time (at most 30 s): no daily job of its own, so the
     // installation keeps to Cloud Scheduler's 3 free jobs.
@@ -1336,6 +1348,7 @@ class Service {
         else {
             const last = Number(await this.store.getState('feedsAttemptedAt')) || 0;
             const retried = Number(await this.store.getState('feedsRetriedAt')) || 0;
+            // Once a day: 20 hours, so a run that starts a little early doesn't wait another hour.
             if (this.now() - last >= 20 * HOUR) { await this.store.setState('feedsAttemptedAt', this.now()); out = Object.assign({ health }, await this.intel.feeds.sync()); }
             // A list that missed its download is tried again every 3 hours (only that one), not a day later.
             else if (this.now() - Math.max(last, retried) >= LIST_RETRY_MS && (await this.intel.feeds.status()).some(l => l.missed === 'failed')) {
@@ -1374,7 +1387,8 @@ class Service {
             catch (e) { /* GitHub not reachable: the page says so */ }
         }
         // (0.5.53) Watches the daily renewal didn't get to (a whole domain of 10,000 mailboxes, just switched to, or
-        // back): continued here each hour, with what is left of the request's time.
+        // back): continued here each hour, with what is left of the request's time. While switched off, only the
+        // mailboxes Gmail hasn't yet been told to stop for are continued.
         try {
             const wl = await this.store.getState('watchLeft'), off = await this.store.getState('stopped');
             const budget = Math.min(45 * 1000, 95 * 1000 - (Date.now() - started));
@@ -1386,8 +1400,8 @@ class Service {
         return out;
     }
 
-    // A list that missed its download (0.5.22): an alert (Recent activity, and emailed to ALERT_EMAIL, the
-    // admins by default), when a list newly fails, and once a day while one keeps failing; the overview says
+    // A list that missed its download (0.5.22): an alert (Activity, and emailed to ALERT_EMAIL, the admins by
+    // default), when a list newly fails, and once a day while one keeps failing; Today's "Needs attention" says
     // so until it downloads again. (A list downloading again is noted in Activity by feeds.js.)
     async listsAlert(results) {
         const failed = (results || []).filter(r => r.error);
@@ -1400,6 +1414,8 @@ class Service {
             + `The previous copy is still used, and the download is tried again every 3 hours. Dashboard: Settings → About shows each list's state, with a Re-check button.`);
         return true;
     }
+    // An update from Settings → Update that failed, or still runs after update.js's RUNNING_MS: emailed once
+    // per update (whichever instance first), the text returned.
     async updateProblems() {
         const up = await this.store.getState('update');
         if (!up || !up.at) return null;
@@ -1568,7 +1584,8 @@ class Service {
         const before = await this.store.getRecord(key);
         // A decision already made stands: moved or released, an admin's mark, the reader's own choice, a
         // re-check that already moved it or would.
-        // (A copy held by a brake waits for the admins' decision on its campaign: Threats → Campaigns.)
+        // (A copy held by a brake waits for the admins: the brake's resume on Today, or the campaign's decision
+        // on Threats → Campaigns.)
         if (before && (before.state !== 'inbox' || before.falseAlarm != null || before.unclear || before.userPlaced || before.held || (before.recheck && before.recheck.outcome !== 'flag'))) return { item, outcome: 'skipped' };
         let msg;
         try { msg = await this.gmail.raw(user, id); }
@@ -1660,6 +1677,8 @@ class Service {
     // with the Reports privilege, for each re-checked email: when its reader first opened it, and whether
     // they clicked a link in it.
     async clickLogs() { return Object.assign({ on: false, admin: '' }, await this.store.getState('clickLogs')); }
+    // One email's events in its reader's Gmail log, from 5 minutes before it arrived: mail_event_type 15 and 16
+    // (a link clicked), 7 (opened), each matched to the email by its Message-ID; the first time of each.
     async clicksOf(rec, admin) {
         const now = this.now();
         const from = (Number(rec.receivedAt) || now - this.cfg.recheckDays * DAY) - 5 * 60 * 1000;
@@ -1677,8 +1696,9 @@ class Service {
         }
         return out;
     }
-    // Gmail's logs for re-checked emails: right after the re-check, then again (Google's logs can take
-    // hours) every 3 hours, 4 times in all, within RECHECK_DAYS. A click found is an alert.
+    // Gmail's logs for re-checked emails: first at the hourly run (usually the one that re-checked it), then again (Google's logs can take hours)
+    // every 3 hours, 4 times in all, within 3 days of the re-check, until a click is found. A click found
+    // is an alert; logs that can't be read are an alert once a day.
     async followClicks({ budgetMs = 15000, max = 100 } = {}) {
         const cl = await this.clickLogs();
         if (!cl.on || !cl.admin) return null;
@@ -1741,8 +1761,9 @@ class Service {
     // baselineDone, lastPassAt, found: { domain: { domain, first, last, mx, web, ageDays, status, gone,
     // by, at } } }. status: 'baseline' (there before the watch), 'new' (appeared since, or registered in the
     // last 30 days), 'threat', 'ours', 'harmless' (an admin's marks).
-    // (0.6.7) One read at a time per instance: when the copy expires, the emails being checked at that moment wait
-    // for the same read (each read the document before).
+    // The look-alikes that count in mail ({ domain → weight }), from a copy kept 5 minutes per instance (and
+    // dropped at once when this instance changes the list). (0.6.7) One read at a time per instance: when the
+    // copy expires, the emails being checked at that moment wait for the same read (each read the document before).
     lookalikeMap() {
         if (this.lookalikeCache && Date.now() - this.lookalikeCache.at < 5 * 60 * 1000) return Promise.resolve(this.lookalikeCache.map);
         return this.lookalikeLoading || (this.lookalikeLoading = this.loadLookalikeMap().finally(() => { this.lookalikeLoading = null; }));
@@ -1756,7 +1777,9 @@ class Service {
         this.lookalikeCache = { at: Date.now(), map };
         return map;
     }
-    // The next candidates (a pass a day), within budgetMs; new look-alikes are an alert.
+    // The next candidates (a pass over all of them at most once a day), up to batch, within budgetMs; new
+    // look-alikes are an alert. The first pass only learns what is already there (baseline), unless RDAP says
+    // a domain was registered within LOOKALIKE_NEW_DAYS.
     async lookalikeStep({ budgetMs = 12000, batch = LOOKALIKE_BATCH } = {}) {
         if (!this.cfg.lookalikeWatch || !this.intel || !this.intel.dnsCheck || !this.cfg.orgDomains.length) return null;
         const started = Date.now(), now = this.now();
@@ -1837,6 +1860,7 @@ class Service {
     // src/simulations.js says how they are recognized. state/phishTraining: { rules: [{ id, name, header,
     // headerShown, valueHash, ips }], domains: [], by, at } (a secret value only as a one-way hash);
     // state/phishTrainingSeen: { [name]: lastSeen } (each instance writes it at most every 10 minutes).
+    // The settings are read at most once a minute per instance (a failed read keeps the last copy).
     trainingSettings() {
         if (this.trainingCache && Date.now() - this.trainingCache.at < 60 * 1000) return Promise.resolve(this.trainingCache.v);
         return this.trainingLoading || (this.trainingLoading = this.loadTrainingSettings().finally(() => { this.trainingLoading = null; }));   // (0.6.7) one read at a time
@@ -1906,7 +1930,7 @@ class Service {
             () => (d.domains.length ? `set the phishing-training link domains (${d.domains.length}: ${d.domains.slice(0, 5).join(', ')}${d.domains.length > 5 ? '…' : ''}): an email whose links all go there is let through unchecked` : 'removed the phishing-training link domains'));
     }
 
-    // --- The weekly summary email (dashboard Settings; off by default) --------------------------------
+    // --- The weekly summary email (Settings → Weekly summary; off by default) --------------------------
     // To the dashboard's admins in the organization: ADMIN_EMAILS and the members of ADMIN_GROUP.
     async digestRecipients() {
         const out = new Set(this.cfg.adminEmails);
@@ -1962,11 +1986,12 @@ class Service {
         return { enabled: !!enabled };
     }
 
-    // --- The retraining export (Health → Retraining examples; off until an admin allows it in Settings) ------
+    // --- The retraining export (Health → Retraining examples; off until an admin allows it in Settings → Retraining)
     // The emails an admin marked (confirmed phishing; with falseAlarms, false alarms too), one per
     // campaign, newest first, read from Gmail now and turned into the extension's training format with
     // the people taken out (src/training.js). Nothing of them is stored: the rows are only returned.
-    // Judged again as on arrival (same lookups) for the facts the model read; nothing is counted.
+    // Judged again (without the colleague, look-alike and thread lookups) for the facts the model reads;
+    // nothing is counted.
     async trainingExport({ days = 90, falseAlarms = false, by = '', max = 100, budgetMs = 150000 } = {}) {
         const st = (await this.store.getState('trainingExport')) || {};
         if (!st.enabled) return { error: 'off' };
@@ -2014,10 +2039,10 @@ class Service {
         return { enabled: !!enabled };
     }
 
-    // --- Several emails at once (Messages, and the review queue) -------------------------------------
-    // action: release | false-alarm | phishing. { done, skipped, failed }.
-    // Several at once. Phishing works as for one email: those still in the Inbox are moved to Spam too
-    // (enforce mode); moved says how many.
+    // --- Several emails at once (Messages, and Review) -----------------------------------------------
+    // action: release | false-alarm | phishing | unclear (set aside). { done, skipped, failed }. Each works as
+    // for one email: phishing still in the Inbox is moved to Spam too (enforce mode; moved says how many), a
+    // false alarm in Spam goes back to the Inbox (released says how many). One Activity line for all of them.
     async bulk(keys, action, by) {
         const out = { done: 0, skipped: 0, failed: 0 };
         if (action === 'phishing') out.moved = 0;
@@ -2038,7 +2063,8 @@ class Service {
 
     // Whether the service is getting Gmail's notifications at all, and its watches are renewed. Each
     // problem is alerted once a day: no notification for QUIET_HOURS for any watched mailbox (they may be
-    // refused before reaching the service), or watches ending within a day (the daily re-read failing).
+    // refused before reaching the service), ERRORS_ALERT errors or more in the last hour (0.5.29), or watches
+    // ending within a day (the daily re-read failing). The hourly job runs it.
     // (Counted, not read: three small queries, not 10,000 documents an hour.)
     async health() {
         const now = this.now();

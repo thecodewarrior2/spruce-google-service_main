@@ -1,5 +1,5 @@
 {
-  "checksLevel": 15,
-  "fingerprint": "4f119949845227780968bac818d0460593e2b751d38d1e53dca9564527a5d8e0",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.7: speed only (lookups started together, decoded files remembered, one DNS lookup per site at a time, a phishing list with the same entries not written again): every verdict the same"
+  "checksLevel": 16,
+  "fingerprint": "09c8c3485b7c87a5762283fd748b886e880c1eb1869bc78fa223f25e6582eba3",
+  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
 }

@@ -4,8 +4,9 @@
 // the sending service's click tracker (link.mail.beehiiv.com/v2/c/…), which records the click and sends the
 // reader on; where it ends isn't in the link, and following it would click it as the reader. The sending
 // service is known without any list: the receiver (Gmail) verified its DKIM signature on the email, and it is
-// a third party, not the sender's own domain. A link through it is a warning, and only when the reputation
-// lookups find nothing against that domain and it isn't new (network.js); otherwise it is judged as before.
+// a third party, not the sender's own domain. A link through it is a warning (caution, and a sign of 1), and
+// only when the reputation lookups find nothing against that domain and it isn't new (network.js); otherwise
+// it is judged as before (dangerous).
 
 // The service that sent the email, if the link's host is one: { domain } or null.
 //   facts.auth.dkimDomains: the domains whose DKIM signature the receiver verified (mime.receiverAuth);
@@ -19,11 +20,12 @@ function sendingService(host, facts, registrableDomain) {
     return signers.includes(reg) ? { domain: reg } : null;
 }
 
-// A "link text shows another site" finding: the link's host, or null.
+// A "link text shows another site" finding (detectLinkProblem's wording): the link's host, or null.
 const MISMATCH_RE = /^link text shows \S+(?: \(a well-known brand\))? but the link goes to ([^\s;,)]+)$/;
 function mismatchHost(reason) { const m = MISMATCH_RE.exec(String(reason || '')); return m ? m[1].toLowerCase() : null; }
 
 // Not new: the service's domain registered at least this long ago (a brand-new sender's own setup is not one).
+// An age the registry didn't give doesn't stop it.
 const MAILER_MIN_AGE_DAYS = 180;
 
 module.exports = { sendingService, mismatchHost, MAILER_MIN_AGE_DAYS };

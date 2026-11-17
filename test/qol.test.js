@@ -319,3 +319,17 @@ test('the dashboard\'s event cache: one read per period, then only new events', 
     assert.equal((await ev.list(now - 10 * 86400000)).length, 6, 'an older period');
     assert.equal(calls[2][1], now - 2000 - 2.5 * 86400000, 'read up to where it held them');
 });
+
+// (0.6.7) More than a page of events between two looks: every one arrives.
+test('the dashboard\'s event cache: 12,000 new events between two looks, all arrive', async () => {
+    const { EventCache } = require('../src/dashboard/cache');
+    const store = new MemoryStore();
+    store.events = [];
+    let now = Date.now();
+    const ev = new EventCache(store, { refreshMs: 1000, now: () => now });
+    store.events.push({ at: now - 1000, kind: 'info', text: 'before' });
+    await ev.list(now - 86400000);
+    for (let i = 0; i < 12000; i++) store.events.push({ at: now + Math.floor(i / 2), kind: 'info', text: `e${i}` });
+    now += 10000;
+    assert.equal((await ev.list(now - 86400000, { limit: Infinity })).length, 12001);
+});

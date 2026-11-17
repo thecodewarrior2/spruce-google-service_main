@@ -7,7 +7,8 @@ const list = (v) => String(v || '').split(/[,;]/).map(s => s.trim().toLowerCase(
 const num = (v, d) => (v === undefined || v === '' || !Number.isFinite(Number(v)) ? d : Number(v));
 const bool = (v, d) => (v === undefined || v === '' ? d : /^(1|true|yes|on)$/i.test(String(v)));
 
-// The settings an admin can also change on the dashboard (Settings → Policy, Settings → Allowlist). They read from a live
+// The settings an admin can also change on the dashboard (Settings → Policy, Allowlist, Mailboxes, Safe Browsing,
+// Spamhaus, abuse.ch). They read from a live
 // copy that only setPolicyValues changes (src/pipeline.js: refreshPolicy, setPolicy); envPolicy keeps what
 // the environment (deploy/settings.env) says. The rest of the configuration is frozen.
 const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope'];
@@ -76,10 +77,11 @@ function loadConfig(env = process.env) {
         campaignAlertAfter: num(env.CAMPAIGN_ALERT_AFTER, 50),
         quietHours: num(env.QUIET_HOURS, 12),
         alertEmail: env.ALERT_EMAIL || '',                // shown in Settings (deploy/install.sh sets up the alerts)
-        // The district's time zone (an IANA name, e.g. America/New_York): the scheduled jobs and the weekly
-        // summary (Monday from 7 AM) use it. UTC when unset.
+        // The district's time zone (an IANA name, e.g. America/New_York): the dashboard's days (0.5.27), the
+        // scheduled jobs and the weekly summary (Monday from 7 AM) use it. UTC when unset. A policy setting.
         timeZone: env.TIME_ZONE || 'UTC',
-        // The dashboard's address (in the weekly summary), and where the services run (the Service status page).
+        // The dashboard's address (in the weekly summary), and where the services run (Health → Service status,
+        // Settings → Update).
         dashboardUrl: env.DASHBOARD_URL || '',
         project: env.GOOGLE_CLOUD_PROJECT || '',
         region: env.CLOUD_RUN_REGION || '',
@@ -147,7 +149,8 @@ function loadConfig(env = process.env) {
         retentionDays: num(env.RETENTION_DAYS, 35),
         firstSeenLearningDays: num(env.FIRST_SEEN_LEARNING_DAYS, 14),
         // Google: the service account that acts for each mailbox (domain-wide delegation), the admin it
-        // acts as to list the pilot users, and the Pub/Sub topic Gmail notifies.
+        // acts as to read the directory (the pilot group and OU, the whole domain, the admin and moderator
+        // groups, colleagues' names), and the Pub/Sub topic Gmail notifies.
         delegatedServiceAccount: env.DELEGATED_SA || '',
         directoryAdmin: env.DIRECTORY_ADMIN || '',
         pubsubTopic: env.PUBSUB_TOPIC || '',
@@ -161,8 +164,9 @@ function loadConfig(env = process.env) {
         // A group whose members may use the dashboard too (read as DIRECTORY_ADMIN; groups inside it count).
         adminGroups: list(env.ADMIN_GROUP),
         // (0.6.1) Moderators: the members of this group (spruce-moderators@ORG by default, set by deploy/install.sh;
-        // off = none) may use Today, Review, Threats → Campaigns and Re-checked, Mail and Help, and answer the review
-        // queue; never Health, Settings, or what moves or releases a whole campaign (src/server.js, MODERATOR_ROUTES).
+        // off = none) may use Today, Review, Threats → Campaigns and Re-checked, Mail and Help, answer the review
+        // queue, and confirm, dismiss or search for a whole campaign; never Health, Settings, Look-alikes, the CSV
+        // export, the brake, or moving back an email nobody marked a false alarm (src/server.js, MODERATOR_ROUTES).
         moderatorGroups: String(env.MODERATOR_GROUP || '').trim().toLowerCase() === 'off' ? [] : list(env.MODERATOR_GROUP),
         // Demo mode only: DEMO_ROLE=moderator shows the dashboard as a moderator sees it.
         demoRole: env.DEMO_ROLE === 'moderator' ? 'moderator' : 'admin',

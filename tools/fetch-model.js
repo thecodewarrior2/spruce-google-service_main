@@ -3,7 +3,8 @@
 // tools/fetch-model.js — downloads the AI model (phish-tiny) from TinyPhishLLM, the model's own public
 // repository, at the commit vendor/spruce/VENDOR.json pins ("modelSource"), and checks each file's SHA-256.
 //
-//     node tools/fetch-model.js                  download what is missing or different (npm test does this first)
+//     node tools/fetch-model.js                  download what is missing or different (npm test and npm run demo
+//                                                do this first, with --quiet: says something only when it downloads)
 //     node tools/fetch-model.js --from <folder>  take the files from a TinyPhishLLM checkout instead (offline)
 //     node tools/fetch-model.js --check          download nothing: exit 1 if a file is missing or different
 //
@@ -13,7 +14,8 @@
 // file whose SHA-256 differs is never used: the download (or the build) stops. Nothing else is sent:
 // a plain request for a public file, with no token and nothing about this installation.
 // SPRUCE_MODEL_BASE replaces https://raw.githubusercontent.com/<owner>/<repo> (a mirror; the tests).
-// Self-contained (Node's own modules only): the Dockerfile runs it before anything else is installed.
+// Self-contained (Node's own modules only): the Dockerfile copies only this file of tools/ into the image,
+// runs it and removes it again, so it can't need src/ or any package.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -36,6 +38,7 @@ function plan(vendor = JSON.parse(fs.readFileSync(VENDOR_FILE, 'utf8'))) {
 
 const matches = (file, hash) => { try { return sha256(fs.readFileSync(file)) === hash; } catch (e) { return false; } };
 
+// Up to 3 tries, 2 s then 4 s apart; a 404 (a wrong commit or path) isn't tried again.
 async function download(url) {
     let last;
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -61,6 +64,7 @@ async function fetchModel({ from = null, check = false, quiet = false, base = pr
         if (check) throw new Error(`${f.to} is missing or isn't TinyPhishLLM's (commit ${p.commit.slice(0, 7)}): run node tools/fetch-model.js`);
         const buf = from ? fs.readFileSync(path.join(path.resolve(from), f.from)) : await download(`${root}/${p.commit}/${f.from}`);
         if (sha256(buf) !== f.sha256) throw new Error(`${f.from} from ${from || root} (commit ${p.commit.slice(0, 7)}) has SHA-256 ${sha256(buf)}, not ${f.sha256}: not used`);
+        // Written beside it, then renamed: an interrupted download never leaves a half file under the real name.
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         fs.writeFileSync(`${dest}.part`, buf);
         fs.renameSync(`${dest}.part`, dest);

@@ -88,6 +88,8 @@ class RecordCache {
         }
         return rows;
     }
+    // The first use reads the start period whole; each later one only the records changed since the newest
+    // change seen (cursor), at most every refreshMs. Concurrent calls share one read (loading).
     async refresh(force = false) {
         if (this.loading) return this.loading;
         if (!force && this.loadedAt && this.now() - this.loadedAt < this.refreshMs) return;
@@ -102,6 +104,7 @@ class RecordCache {
                 if (r.processedAt >= this.from) this.byKey.set(r.key, this.slim(r));   // (an older one changed: read when a page needs it)
                 this.cursor = Math.max(this.cursor, r.updatedAt || r.processedAt || 0);
             }
+            // (no record at all yet: changes are looked for from now on)
             if (first && !rows.length) this.cursor = at - 1;
             // Past the retention period (it may have been shortened); and the older part, when no page has
             // needed it for OLDER_KEPT_MS.
@@ -154,7 +157,9 @@ class EventCache {
         this.events = []; this.seen = new Set(); this.from = Infinity; this.newest = 0; this.loadedAt = 0;
         this.loading = null; this.extending = null;
     }
+    // An event's identity (events have no id here): two reads that overlap keep it once.
     static sig(e) { return `${e.at}|${e.kind || ''}|${e.by || ''}|${e.user || ''}|${e.text || ''}`; }
+    // New events in, newest first; past maxEvents the oldest are dropped, and the period held (from) starts later.
     add(rows) {
         let added = 0;
         for (const e of rows) {
@@ -170,16 +175,31 @@ class EventCache {
             this.from = this.events[this.events.length - 1].at;
         }
     }
+    // The events added since the newest held (from EVENT_OVERLAP_MS before it: another instance's event can carry
+    // an earlier time), at most every refreshMs; nothing before the first read (extend makes it).
     async refresh(force = false) {
         if (this.loading) return this.loading;
         if (this.from === Infinity || (!force && this.now() - this.loadedAt < this.refreshMs)) return;
         this.loading = (async () => {
             const at = this.now();
-            this.add(await this.store.listEvents(Math.max(this.from, this.newest - EVENT_OVERLAP_MS), { limit: 5000 }));
+            // Newest first, a page at a time down to where the last look ended (more than a page of events between two
+            // looks: none skipped; the page's last millisecond is read again, kept once).
+            const since = Math.max(this.from, this.newest - EVENT_OVERLAP_MS);
+            let until = null;
+            for (let i = 0; i < 20; i++) {
+                const page = await this.store.listEvents(since, until === null ? { limit: 5000 } : { limit: 5000, untilMs: until });
+                this.add(page);
+                if (page.length < 5000) break;
+                const last = page[page.length - 1].at;
+                if (until !== null && last + 1 >= until) break;     // (more than a page in one millisecond: never in practice)
+                until = last + 1;
+            }
             this.loadedAt = at;
         })().finally(() => { this.loading = null; });
         return this.loading;
     }
+    // The events from sinceMs to the oldest held: the first read, or a page asking for a longer period. When
+    // maxEvents are already held, the period held isn't lowered (the older events didn't fit).
     async extend(sinceMs) {
         while (this.extending) await this.extending;
         if (sinceMs >= this.from) return;

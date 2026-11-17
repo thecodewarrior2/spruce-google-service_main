@@ -1,5 +1,5 @@
 'use strict';
-// The weekly summary email (Settings in the dashboard; off by default). It is put straight into each
+// The weekly summary email (Settings → Weekly summary; off by default). It is put straight into each
 // admin's Inbox with the Gmail API (messages.insert, allowed by the gmail.modify scope the service
 // already has): no mailbox sends it, nothing leaves Google, and no new permission is needed. The service
 // never judges its own summaries (isSummary). Times are in TIME_ZONE.

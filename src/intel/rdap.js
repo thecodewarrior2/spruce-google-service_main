@@ -3,7 +3,8 @@
 // The registry for an ending comes from IANA's bootstrap list (data.iana.org/rdap/dns.json, kept a
 // month). Only the DOMAIN NAME is sent, to its own registry. Answers are kept in the shared store for
 // 30 days (an unknown one for a day), so each domain is asked about once a month for the whole district.
-// An answer slower than WAIT_MS is "unknown": a slow registry never holds an email up.
+// An answer slower than WAIT_MS is "unknown" (and not kept): a slow registry never holds an email up.
+// (0.5.64) serverFor also gives the ownership lookups (src/intel/ownership.js) a registry's RDAP address.
 const { TtlCache } = require('./http');
 const BOOTSTRAP_URL = 'https://data.iana.org/rdap/dns.json';
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000, UNKNOWN_KEEP_MS = 24 * 60 * 60 * 1000;

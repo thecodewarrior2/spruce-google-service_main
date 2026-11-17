@@ -1,6 +1,7 @@
 'use strict';
-// Cloud Run, read-only, for the dashboard's Status page: whether Identity-Aware Proxy is off on the
-// worker, who may call it, and which build it runs. Needs the Cloud Run Viewer role for the service
+// Cloud Run, read-only, for Health → Service status: whether Identity-Aware Proxy is off on the worker, who
+// may call it, and which build it runs; and for the installation's level (the spruce-install-level label:
+// src/update.js, Settings → Update and the hourly look for a manual install). Needs the Cloud Run Viewer role for the service
 // account (deploy/install.sh).
 const { GoogleAuth } = require('google-auth-library');
 

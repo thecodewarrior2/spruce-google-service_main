@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # S.P.R.U.C.E Mail Protection Service: stop watching every mailbox (docs/INSTALL.md, "Turning it off").
 # Run in Cloud Shell from the unzipped folder:  bash deploy/stop.sh
-# Gmail stops sending notifications, so no email is read from then on. Records stay in Firestore.
-# Running deploy/install.sh again starts watching again.
+# (0.6.7) The worker's /tasks/stop-watches switches every mailbox off at once (its notifications are ignored
+# from then on, PILOT_USERS too) and tells Gmail to stop notifying, 10 at a time within the request's time;
+# for a large district the hourly job (spruce-sync-feeds) tells Gmail for the rest, and never renews a watch
+# while the service is switched off. Records stay in Firestore.
+# Running deploy/install.sh again (any watch renewal) switches it on again.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 SETTINGS=deploy/settings.env
@@ -20,13 +23,15 @@ gcloud scheduler jobs pause spruce-renew-watches --location="$REGION" --quiet
 
 echo "== Stopping every watch"
 verb=create; gcloud scheduler jobs describe spruce-stop-watches --location="$REGION" >/dev/null 2>&1 && verb=update
-# A one-off job (Scheduler needs a schedule; it is paused right after this run).
+# A one-off job (Scheduler needs a schedule: once a year, on 1 January; it is paused right after this run).
+# Its call is signed as spruce-invoker, like the other jobs, since the worker takes only verified OIDC tokens.
 gcloud scheduler jobs "$verb" http spruce-stop-watches --location="$REGION" --schedule="0 0 1 1 *" --uri="$WORKER_URL/tasks/stop-watches" --http-method=POST \
     --oidc-service-account-email="$SA_INVOKER" --oidc-token-audience="https://spruce-worker-$NUMBER.$REGION.run.app" --quiet >/dev/null
 gcloud scheduler jobs resume spruce-stop-watches --location="$REGION" --quiet >/dev/null 2>&1 || true
 gcloud scheduler jobs run spruce-stop-watches --location="$REGION" --quiet
 echo "   (waiting for it to run)"; sleep "${SPRUCE_STOP_WAIT:-45}"   # (the tests make it shorter)
-# Paused, so it never runs again by itself; deploy/install.sh deletes it.
+# Paused, so it never runs again by itself; deploy/install.sh deletes it. The wait doesn't cover the whole
+# run: the request may still be telling Gmail when this goes on (the hourly job finishes it either way).
 gcloud scheduler jobs pause spruce-stop-watches --location="$REGION" --quiet >/dev/null
 
 cat <<EOF

@@ -86,7 +86,8 @@ function createSpamhaus({ cfg, store, resolver = undefined, now = () => Date.now
         const today = Math.max(total, count.day === day ? usedToday() : 0);
         return { today, max: cfg.spamhausDailyMax, stopped: today >= cfg.spamhausDailyMax };
     }
-    // One domain: { dbl: { list, severity, abused } | null, zrdHours: n | null } or { error }.
+    // One domain: { dbl: { list, severity: 'danger' | 'spam' | 'abused' } | null, zrdHours: n | null } or { error }.
+    // Kept TTL_MS when both zones answered.
     async function lookup(domain, k) {
         const hit = cache.get(domain);
         if (hit) return hit;

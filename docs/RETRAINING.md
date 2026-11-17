@@ -124,7 +124,7 @@ subject: Your password expires today. from: "Microsoft 365 Security" at micros0f
 | Email addresses | `address at` and the domain |
 | Phone numbers, and long numbers (accounts, cards, student IDs, codes) | `phone number`, `number` |
 | (0.5.68) 5- and 6-digit numbers (student IDs, ZIP codes), a card's last digits ("ending in 4411"), codes of letters and 4 or more digits (payment references, licence numbers) | `number` |
-| (0.5.68) Street addresses ("4417 N 9th Ave") | `street address` |
+| (0.5.68) Street addresses ("4417 N 9th Ave", made up) | `street address` |
 | The middle of a text longer than 20,000 characters (a very long newsletter) | cut, as the service reads it: its first 15,000 and last 4,999 are kept |
 
 An outside phishing sender's name is kept: attackers choose it, and it is part of the trick ("Microsoft

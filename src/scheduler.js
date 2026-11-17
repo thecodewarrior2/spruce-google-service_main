@@ -1,6 +1,7 @@
 'use strict';
 // Cloud Scheduler, for the dashboard's "Read the directory again now": it runs the spruce-renew-watches
-// job (RENEW_JOB), which calls the worker as it does every day. The dashboard never calls the worker
+// job (RENEW_JOB), which calls the worker as it does every day. Also Settings → Update's spruce-update job
+// (UPDATE_JOB, src/update.js), and Health → Service status reads the last runs of the renew and hourly jobs. The dashboard never calls the worker
 // itself: only Pub/Sub and Cloud Scheduler may (docs/ARCHITECTURE.md). The service account needs the
 // Cloud Scheduler Job Runner and Viewer roles (deploy/install.sh).
 const { GoogleAuth } = require('google-auth-library');

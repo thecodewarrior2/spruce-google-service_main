@@ -1,11 +1,12 @@
 'use strict';
 // Every request to an outside service goes through here (the extension's fetchWithTimeout, ported):
-//   - a time limit per request;
-//   - per service (host) at most PARALLEL requests at once, the rest waiting their turn;
+//   - a time limit per request (6 s unless the caller gives one), the time spent waiting for a turn included;
+//   - per service (host) at most PARALLEL requests at once (8; Safe Browsing 4, a registry's RDAP 2), the rest
+//     waiting their turn;
 //   - after "too many requests" (429), or 3 server errors (5xx) in a row, the service is left alone for a
 //     while (its Retry-After, at most 15 minutes, or 2 s doubling to 5 minutes, with jitter), and
 //     requests to it fail at once (ServiceBusyError) so the caller moves on. A failed lookup is never
-//     taken for "safe": the link or domain is only "not checked".
+//     taken for "safe": the link or domain is only "not checked". A success (or a 404) clears the count.
 const PARALLEL_DEFAULT = 8;
 const PARALLEL = { 'safebrowsing.googleapis.com': 4 };
 const BACKOFF = { firstMs: 2000, maxMs: 5 * 60 * 1000, retryAfterMaxMs: 15 * 60 * 1000 };
@@ -57,7 +58,7 @@ function createHttp({ fetch: fetchImpl = fetch, now = () => Date.now(), parallel
 }
 
 // A small time-limited cache (answers are remembered for a while so the same link in 40 copies of a
-// campaign is looked up once).
+// campaign is looked up once). At most max entries: when full, the oldest set is dropped.
 class TtlCache {
     constructor(max = 50000) { this.max = max; this.map = new Map(); }
     get(k) { const e = this.map.get(k); if (!e) return undefined; if (e.exp < Date.now()) { this.map.delete(k); return undefined; } return e.v; }

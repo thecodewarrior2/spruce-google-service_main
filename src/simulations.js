@@ -33,10 +33,13 @@ const PRESETS = [
     { id: 'custom', name: 'Another vendor, or a custom header', header: '', needs: 'value or ips', help: 'Your vendor\'s Google Workspace allow-listing guide names its header; use a secret value if it offers one.' }
 ];
 
+// The secret value as kept: a one-way hash, with the header's name in it.
 const hashValue = (header, value) => crypto.createHash('sha256').update(`spruce-training|${String(header).toLowerCase()}|${String(value).trim()}`).digest('hex');
 
 // --- Addresses ----------------------------------------------------------------------------------------
 const IP_V4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+// An address as { v: 4 | 6, n: BigInt }, or null (an IPv4-mapped IPv6 address, ::ffff:a.b.c.d, counts as IPv4;
+// IPv6's :: is expanded to the missing zero groups).
 function ipToBig(ip) {
     const s = String(ip || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
     const v4 = IP_V4_RE.exec(s.replace(/^::ffff:/, ''));
@@ -64,6 +67,7 @@ function validIpEntry(entry) {
     const n = Number(bits);
     return Number.isInteger(n) && n >= (a.v === 4 ? 8 : 16) && n <= (a.v === 4 ? 32 : 128);
 }
+// Whether ip is one of the entries, or in one of their ranges (the same leading bits).
 function ipInList(ip, list) {
     const a = ipToBig(ip);
     if (!a) return false;
@@ -141,6 +145,7 @@ async function matchTraining(E, facts, settings) {
         for (const rule of settings.rules) {
             const values = headers.filter(([n]) => n === rule.header).map(([, v]) => String(v));
             if (!values.length) continue;
+            // (the token may be the whole value or one word of it)
             if (rule.valueHash && !values.some(v => [v, ...v.split(/[\s;,]+/)].some(x => x && hashValue(rule.header, x) === rule.valueHash))) continue;
             if ((rule.ips || []).length) {
                 if (ip === undefined) ip = deliveringIp(headers);
@@ -151,8 +156,13 @@ async function matchTraining(E, facts, settings) {
     }
     const domains = settings.domains || [];
     if (domains.length) {
-        const raw = (facts.links || []).map(l => (l && (l.href || l.url)) || '').filter(u => /^https?:\/\//i.test(u)).slice(0, 100);
-        if (!raw.length) return null;
+        // (web links only, the first 100)
+        // (0.6.7) More than 100 web links: never matched by its links. Only the first 100 were looked at, so an email
+        // with 100 links to a training vendor's domain (they are public) and its own link after them was let
+        // through unchecked.
+        const all = (facts.links || []).map(l => (l && (l.href || l.url)) || '').filter(u => /^https?:\/\//i.test(u));
+        if (!all.length || all.length > 100) return null;
+        const raw = all;
         // (security gateways' rewrites unwrapped offline first: the real destination counts)
         const web = await Promise.all(raw.map(async u => { try { return ((await E.unwrapNestedUrl(u, false, { redirectorSet: new Set() })) || {}).unwrappedUrl || u; } catch (e) { return u; } }));
         let first = null;

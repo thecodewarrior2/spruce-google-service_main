@@ -1,5 +1,5 @@
 'use strict';
-// (0.6.1) Health → DMARC: each of your own domains' (ORG_DOMAINS) DMARC record and SPF record, as published in DNS,
+// (0.6.1) Health → DMARC & reputation: each of your own domains' (ORG_DOMAINS) DMARC record and SPF record, as published in DNS,
 // what they say, and what would make them stronger. Read through Cloudflare's public resolver (DNS over HTTPS), as
 // the look-alike watch does: only your domain names are sent. Kept 10 minutes; Check again reads them now.
 // Not a judging file: nothing here changes how an email is judged (Gmail's own DMARC result, on each email, does).
@@ -70,6 +70,8 @@ function createDmarcCheck({ http, demo = false, now = () => Date.now() }) {
         // A long TXT record comes as several quoted strings: joined, as receivers read it.
         return { found: j.Status === 0, records: (j.Answer || []).filter(r => r.type === 16).map(r => String(r.data || '').replace(/^"|"$/g, '').replace(/"\s*"/g, '')) };
     }
+    // One domain's records and grades; its parents' DMARC record when it has none of its own. A failed lookup
+    // is an error (shown, and not kept).
     async function one(domain) {
         const d = String(domain).toLowerCase();
         try {

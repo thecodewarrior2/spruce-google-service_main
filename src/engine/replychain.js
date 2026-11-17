@@ -10,12 +10,14 @@
 // thread holding only this email means the mailbox never had the earlier one (threadSize, from the pipeline;
 // null when unknown, as for "Check an email").
 
-// "RE:", and the same in other languages ("AW:", "SV:", "Antw:", "RIF:", "RES:"), possibly after "[EXTERNAL]".
+// "RE:", and the same in other languages ("AW:", "SV:", "Antw:", "RIF:", "RES:", "Odp:", "VS:"), possibly after
+// "[EXTERNAL]" and with a count ("RE[2]:").
 const REPLY_RE = /^\s*(?:\[[^\]]{1,30}\]\s*)?(?:re|aw|sv|antw|rif|res|odp|vs)\s*(?:\[\d+\])?\s*:/i;
 
 function looksLikeReply(subject) { return REPLY_RE.test(String(subject || '')); }
 
-// facts: mime.readMessage's (subject, inReplyTo, references); ctx: { threadSize, outside, firstTime }.
+// facts: mime.readMessage's (subject, inReplyTo, references); ctx: { threadSize, outside, firstTime }. Only for a
+// sender from outside or new; a thread of unknown size (null) counts only the headers.
 function fakeReplySigns(facts, { threadSize = null, outside = true, firstTime = false } = {}) {
     if (!looksLikeReply(facts && facts.subject) || !(outside || firstTime)) return [];
     const names = [].concat(facts.inReplyTo || [], facts.references || []).map(x => String(x || '').trim()).filter(Boolean);

@@ -11,8 +11,9 @@
 //   never leave the district. Needs an API key: saved on Settings → Safe Browsing (Secret Manager,
 //   src/intel/sbkey.js), else SAFE_BROWSING_KEY; turned on and off there (0.5.23: cfg.safeBrowsing is a
 //   policy setting, read at each lookup). The key goes in a header, never in the address.
-// Answers are remembered (TTL) so a campaign's 40 copies cost one lookup. A lookup that fails is
-// "unknown", never "safe".
+// Answers are remembered (TTL) so a campaign's 40 copies cost one lookup: a host blocked a day, clean or
+// nonexistent 6 hours, with no address records 10 minutes; a link listed a day, clean 30 minutes. A lookup that
+// fails is "unknown", never "safe".
 const { TtlCache } = require('./http');
 
 const SINKHOLE_RE = /^(0\.0\.0\.0|127\.|::$|::1$|0:0:0:0:0:0:0:0)/;
@@ -67,7 +68,7 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, now = (
         return { verdict: 'unknown', by: 'Cloudflare Security' };
     }
     // (0.6.7) One lookup of a host at a time per instance: the copies of a campaign arriving together share it (each
-    // asked Cloudflare itself). A host with no address records (unknown) is kept UNKNOWN_TTL, with the same verdict.
+    // asked Cloudflare itself). A host with no address records (verdict unknown) is kept UNKNOWN_TTL.
     const UNKNOWN_TTL = 10 * 60 * 1000;
     const hostLookups = new Map();
     function lookHost(h) {
@@ -83,7 +84,7 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, now = (
         }
         return p;
     }
-    // hosts → Map(host → { verdict: 'unsafe'|'clean'|'nonexistent'|'unknown', by, reason })
+    // hosts → Map(host → { verdict: 'unsafe'|'clean'|'nonexistent'|'unknown', by, reason }); at most 50 hosts.
     async function checkHosts(hosts) {
         const out = new Map();
         const list = [...new Set(hosts.map(h => String(h || '').toLowerCase().replace(/\.$/, '')).filter(h => HOST_RE.test(h)))].slice(0, 50);

@@ -54,6 +54,9 @@ test('matching: the secret token; the vendor\'s address as Gmail\'s own server s
     assert.equal(await m(raw({ body: '<a href="https://track.phish-vendor-training.example/p">Track</a> <a href="https://evil-login.example/x">Sign in</a>' }), dom), null, 'one link elsewhere: checked');
     assert.equal(await m(raw({ body: 'No links here.' }), dom), null);
     assert.equal(await m(raw({ body: '<a href="https://phish-vendor-training.example.evil.example/x">x</a>' }), dom), null, 'a look-alike doesn\'t match');
+    // (0.6.7) 100 links to the vendor's (public) domain, then one elsewhere: checked as usual, not let through.
+    const padded = Array.from({ length: 100 }, (_, i) => `<a href="https://phish-vendor-training.example/p${i}">x</a>`).join(' ') + ' <a href="https://evil-login.example/x">Sign in</a>';
+    assert.equal(await m(raw({ body: padded }), dom), null, 'more than 100 links: never training mail by its links');
 });
 
 test('in the service: a training email is let through unchecked, counted, never recorded; changes need nothing but the admin\'s action and are noted', async () => {

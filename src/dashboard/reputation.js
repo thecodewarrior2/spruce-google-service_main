@@ -55,6 +55,7 @@ function demoAnswer(domain) {
 // intel: src/intel (threats, spamhaus, feeds); store: for the lists' stored copies.
 function createReputation({ cfg, intel, store, demo = false, now = () => Date.now() }) {
     let kept = null;
+    // The lookup services' answers for one domain: listed, clean, unknown (couldn't check) or off.
     async function services(d) {
         const out = [];
         const threats = intel && intel.threats;

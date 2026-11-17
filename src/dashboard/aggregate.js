@@ -57,6 +57,9 @@
         return 'Other signs';
     }
 
+    // Today's numbers for the last n days: from the records (moved, would move, suspicious, released…) and the
+    // daily counters (checked, errors: whole days, from the day after the period's start). usersAffected: people
+    // with an email moved or "would move".
     function summary(records, stats, now, n) {
         const since = now - n * DAY;
         const rs = records.filter(r => r.processedAt >= since);
@@ -100,18 +103,21 @@
         return ds.map(d => byDay[d]);
     }
 
+    // Why emails were moved or "would move" in the last n days: each email counted once per reason, most first.
     function topReasons(records, now, n) {
         const since = now - n * DAY;
         const counts = {};
         for (const r of records) {
             if (r.processedAt < since || (r.action !== 'move' && r.action !== 'would-move')) continue;
             const cats = new Set((r.signals || []).filter(s => s.weight >= 2).map(signalCategory));
-            if (r.ai && r.ai.probability >= 0.65) cats.add('AI: reads like phishing');   // (policy.js AI_SUSPICIOUS)
+            if (r.ai && r.ai.probability >= 0.65) cats.add('AI: reads like phishing');   // (the default suspicious line, policy.js AI_SUSPICIOUS)
             for (const c of cats) counts[c] = (counts[c] || 0) + 1;
         }
         return Object.entries(counts).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
     }
 
+    // Threats → Campaigns: the last n days' records by campaign (the same email to many people), the most
+    // recipients first, each with its most common reason.
     function campaigns(records, now, n) {
         const since = now - n * DAY;
         const m = new Map();
@@ -131,6 +137,7 @@
             .sort((a, b) => b.recipients - a.recipients || b.lastAt - a.lastAt);
     }
 
+    // Mail → Users: each recipient's moved, "would move" and suspicious emails in the last n days.
     function users(records, now, n) {
         const since = now - n * DAY;
         const m = new Map();
@@ -145,6 +152,8 @@
         return [...m.values()].sort((a, b) => (b.moved + b.wouldMove) - (a.moved + a.wouldMove) || b.last - a.last);
     }
 
+    // Mail → Messages' filters (and the CSV's): exact user, campaign, action and state; words in the recipient,
+    // sender, subject or message ids.
     function filterRecords(records, q = {}) {
         const text = String(q.q || '').toLowerCase();
         return records.filter(r => (!q.user || r.user === q.user) && (!q.campaign || r.campaign === q.campaign)
@@ -187,7 +196,7 @@
                 copies: g.copies.sort((a, b) => (b.clicked === true) - (a.clicked === true) || (b.opened === true) - (a.opened === true) || String(a.user).localeCompare(String(b.user))) };
         }).sort((a, b) => b.lastRecheck - a.lastRecheck);
     }
-    // The Today's and Messages' banner: phishing found by a re-check since an admin last marked them seen
+    // Today's and Messages' banner: phishing found by a re-check since an admin last marked them seen
     // (at most 7 days back).
     function recheckAlert(records, now, seenAt = 0) {
         const from = Math.max(now - 7 * DAY, Number(seenAt) || 0);
@@ -246,6 +255,7 @@
         const reviewed = would.filter(r => r.markedBy && r.falseAlarm !== null && r.falseAlarm !== undefined);
         const falseAlarms = reviewed.filter(r => r.falseAlarm === true);
         const staffUnverified = rs.filter(r => r.ownAddressUnverified && r.falseAlarm !== false);
+        // (the busiest clock hour, UTC, as the brake counts moves in an hour)
         const perHour = {};
         for (const r of would) { const h = new Date(r.processedAt).toISOString().slice(0, 13); perHour[h] = (perHour[h] || 0) + 1; }
         const peak = Math.max(0, ...Object.values(perHour));
@@ -271,8 +281,7 @@
                  holdAfter: ctx.holdAfter, campaignsOverHold: overHold.slice(0, 5), checks, ready: checks.every(c => c.ok) };
     }
 
-    // Records as CSV, for reports. A cell a spreadsheet would run as a formula is written as text.
-    // A spreadsheet cell: never read as a formula (=, +, -, @ first), quoted when needed.
+    // A spreadsheet cell: never read as a formula (=, +, -, @, tab or CR first: written as text), quoted when needed.
     const csvCell = (v) => {
         let t = v === null || v === undefined ? '' : String(v);
         if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
@@ -284,6 +293,7 @@
         const rows = events.map(e => [e.at ? new Date(e.at).toISOString() : '', e.kind || '', e.alert && !isAdminAction(e) ? 'yes' : '', isAdminAction(e) ? 'yes' : '', e.user || '', e.text || ''].map(csvCell).join(','));
         return [cols.join(','), ...rows].join('\r\n') + '\r\n';
     }
+    // Mail → Messages' records as CSV (Download CSV), for reports.
     function toCsv(records) {
         const cell = csvCell;
         const iso = (ms) => (ms ? new Date(ms).toISOString() : '');
@@ -295,14 +305,15 @@
         return [cols.map(c => c[0]).join(','), ...records.map(r => cols.map(c => cell(c[1](r))).join(','))].join('\r\n') + '\r\n';
     }
 
-    // An admin's own action (0.5.28): a policy change, an update started, a Safe Browsing key saved or removed.
+    // An admin's own action (0.5.28): an event marked admin (a policy change, a key saved or removed, a sign-in, a
+    // wrong project ID, an export…), a settings change, or an update started.
     // Listed under "What admins did", never "Alerts": an alert is a problem the admins are emailed about.
     // (Before 0.5.28 these were also emailed and marked as alerts: told apart by their kind, and an update's by
     // its text.)
     function isAdminAction(e) {
         return !!e && (e.admin === true || e.kind === 'settings' || (e.kind === 'update' && !!e.alert && / started an update from /.test(String(e.text || ''))));
     }
-    // Recent activity, by kind: alerts (what needs looking at), what admins did, errors, and the watching of
+    // Health → Activity's kinds: alerts (what needs looking at), what admins did, errors, and the watching of
     // mailboxes. An automatic alert of an admin-related kind (a large campaign, an update that failed) is an
     // alert, not something an admin did.
     const ADMIN_KINDS = ['release', 'resume', 'campaign', 'watch-asked', 'mark', 'check', 'settings', 'digest', 'training', 'clear', 'update'];
@@ -313,7 +324,7 @@
     // The review queue's items: the copies of one campaign (the same email to many people) are one item, decided
     // together; an email of no campaign is an item of its own. Each says what the list shows before it is opened
     // (0.6.0): the first copy's subject and sender, when the first arrived, the highest AI score and rules score,
-    // and the copy's three heaviest signs.
+    // and the first copy's three heaviest signs. At most REVIEW_GROUP_MAX keys, recipients and senders an item.
     const REVIEW_GROUP_MAX = 2000;
     function reviewGroups(list) {
         const out = [], byCampaign = new Map();

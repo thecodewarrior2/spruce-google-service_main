@@ -10,7 +10,8 @@
 // branch on GitHub (the service downloads the model from there). This:
 //   1. runs TinyPhishLLM's own check (tools/check.js);
 //   2. checks that the service builds the model's input exactly as the model was trained
-//      (modelInputText in vendor/spruce/ai.js against TinyPhishLLM's model/reference/input-format.jsonl);
+//      (modelInputText, built from modelInputParts, in vendor/spruce/ai.js against TinyPhishLLM's
+//      model/reference/input-format.jsonl);
 //      if it doesn't, nothing changes: change vendor/spruce/ai.js first (TinyPhishLLM's changelog says
 //      how the format changed);
 //   3. pins the model in vendor/spruce/VENDOR.json: "model" (the version, which install and update show)
@@ -41,7 +42,9 @@ const FILES = [
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const fail = (msg) => { console.error(`Not synced: ${msg}`); process.exit(1); };
 
-// The service's own copy of the input format (vendor/spruce), loaded as src/engine/spruce.js loads it.
+// The service's own copy of the input format (vendor/spruce), loaded in a vm context as src/engine/spruce.js
+// loads it (shared.js, then ai.js; decoders.js isn't needed for the input text). The chrome stub stands in
+// for the browser extension these files began in.
 function serviceModelInputText() {
     const ctx = { console, URL, URLSearchParams, TextDecoder, TextEncoder, atob, btoa, setTimeout, clearTimeout, Intl, BigInt,
                   chrome: { runtime: { id: 'spruce-service', getURL: (p) => p, lastError: null } } };

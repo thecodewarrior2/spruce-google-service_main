@@ -87,8 +87,8 @@ if [ "$brake" != off ] || [ "$held" != 0 ]; then
     if [ "$brake" = '?' ] || [ "$held" = '?' ]; then
         echo "  Couldn't check whether the brake or a campaign pause is on (Firestore didn't answer as expected)."
     fi
-    echo "  Decide first on the dashboard (Overview: resume; Threats → Campaigns: confirm, or dismiss as a false alarm)."
-    [ -n "$EVEN_IF_HELD" ] || fail "moving is or may be paused. Check the dashboard's Overview first, then add --even-if-paused to clear anyway."
+    echo "  Decide first on the dashboard (Today: resume; Threats → Campaigns: confirm, or dismiss as a false alarm)."
+    [ -n "$EVEN_IF_HELD" ] || fail "moving is or may be paused. Check the dashboard's Today page first, then add --even-if-paused to clear anyway."
 fi
 
 if [ -z "$YES" ]; then

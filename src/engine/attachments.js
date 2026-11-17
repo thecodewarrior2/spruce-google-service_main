@@ -14,7 +14,8 @@ const crypto = require('crypto');
 //
 // Nothing is stored: the files are read in memory and dropped; the record keeps what was found (a host, a
 // sign), never a file. Limits keep a large or crafted file from costing much: LIMITS below, a time budget per
-// email, and at most HEAVY_AT_ONCE files decoded at a time per instance.
+// email (LIMITS.budgetMs), and at most HEAVY_AT_ONCE files decoded at a time per instance. (0.6.7) What a decoded
+// picture, PDF or Office file gave is remembered by its content (readMemo), so the same file isn't decoded again.
 const LIMITS = {
     files: 12,                     // attachments and inline pictures read per email
     fileBytes: 15 * 1024 * 1024,   // a bigger file is skipped (Gmail allows 25 MB per email)
@@ -44,7 +45,8 @@ async function heavy(fn) {
 // (0.6.7) What a picture, PDF or Office file gave (its QR codes, links and signs), kept by its content's hash: the
 // same logo in every newsletter, the same attachment in every copy of a campaign, is decoded once per instance
 // (a large picture took up to seconds, holding up the instance's other emails). The same bytes always give the same
-// answer; a file read only in part (the time budget ran out) isn't kept.
+// answer; a file read only in part (the time budget ran out) isn't kept. The key also has the kind, the file's name
+// and whether it is inline (the findings name the file); at most READ_MEMO_MAX, the least recently used dropped first.
 const READ_MEMO_MAX = 2000;
 const readMemo = new Map();
 const memoKey = (kind, name, buf) => `${kind}|${name}|${crypto.createHash('sha256').update(buf).digest('hex')}`;
@@ -76,7 +78,8 @@ function kindOf(f) {
     return 'other';
 }
 
-// A QR code in a picture's pixels (RGBA), or null. Big pictures are scaled down first (codes survive it).
+// A QR code in a picture's pixels (RGBA), or null. Big pictures are scaled down first (nearest pixel, made
+// opaque; codes survive it). Its text is kept to 4,096 characters.
 function qrIn(rgba, width, height) {
     const jsQR = require('jsqr');
     const scale = Math.max(width, height) > LIMITS.qrSide ? LIMITS.qrSide / Math.max(width, height) : 1;
@@ -95,6 +98,7 @@ function qrIn(rgba, width, height) {
     const code = jsQR(data instanceof Uint8ClampedArray ? data : new Uint8ClampedArray(data), w, h, { inversionAttempts: 'attemptBoth' });
     return code && code.data ? String(code.data).slice(0, 4096) : null;
 }
+// PNG or JPEG → { width, height, data: RGBA }; jpeg-js refuses a picture over LIMITS.imagePixels itself.
 function decodeImage(kind, buf) {
     if (kind === 'png') { const p = require('pngjs').PNG.sync.read(buf); return { width: p.width, height: p.height, data: p.data }; }
     if (kind === 'jpeg') return require('jpeg-js').decode(buf, { useTArray: true, formatAsRGBA: true, maxResolutionInMP: LIMITS.imagePixels / 1e6, maxMemoryUsageInMB: 512 });
@@ -126,6 +130,8 @@ function pdfImageRgba(im) {
 
 const URL_IN_TEXT = /\bhttps?:\/\/[^\s<>"'()\\]{4,2000}/gi;
 
+// A PDF: whether it needs a password, a script in it, then its first LIMITS.pdfPages pages (until the deadline):
+// link annotations, addresses written in its text, and QR codes in up to LIMITS.pdfImages pictures a page.
 async function readPdf(f, out, deadline) {
     const lib = await loadPdfjs();
     let pdf;
@@ -167,6 +173,9 @@ async function readPdf(f, out, deadline) {
     } finally { try { await pdf.destroy(); } catch (e) { /* gone */ } }
 }
 
+// An Office file (a zip): macros (vbaProject.bin, or a .docm/.xlsm/.pptm name), and only what can hold a link or a
+// QR code is unpacked: the relationship files (external hyperlinks), Word's document.xml (HYPERLINK fields) and the
+// pictures in its media folder. At most LIMITS.zipEntries entries and LIMITS.zipBytes unpacked.
 function readOffice(f, out) {
     const { unzipSync } = require('fflate');
     let total = 0, count = 0, macros = false;
@@ -236,7 +245,9 @@ function readPage(f, out, svg) {
     } else out.sign('html-attachment', 1, `A web page sent as a file (${name}): unusual in real mail.`);
 }
 
-// A plain zip: entries that need a password, and what is inside (no unpacking).
+// A plain zip: entries that need a password, and what is inside (no unpacking). The bytes are scanned for the
+// central directory's entries (signature PK\1\2): bit 0 of the flags at +8 is "encrypted", the name's length is
+// at +28 and the name at +46.
 function readZip(f, out) {
     const b = f.content;
     let encrypted = false, risky = null, seen = 0;
@@ -254,8 +265,9 @@ function readZip(f, out) {
     if (risky) out.sign('archive-risky-file', 3, `The archive ${f.name} holds ${risky}, a program, script or web page.`);
 }
 
-// files: [{ name, type, size, content: Buffer, inline }]. ctx: { outside } (an outside sender; a forged inside
-// address counts as outside). { links: [{ href, text, from }], signals, found: [{ name, what }], skipped }
+// files: [{ name, type, size, content: Buffer, inline }]. Options: { outside (an outside sender; a forged inside
+// address counts as outside), budgetMs }. Returns { links: [{ href, text, from }] (at most 60), signals (each kind
+// once), found: [{ name, what }] (at most 20), skipped (too big, past the time budget, or unreadable) }.
 async function readAttachments(files, { outside = true, budgetMs = LIMITS.budgetMs } = {}) {
     const deadline = Date.now() + budgetMs;
     const links = [], signals = [], found = [], seenLinks = new Set(), seenSigns = new Set();
@@ -303,7 +315,8 @@ async function readAttachments(files, { outside = true, budgetMs = LIMITS.budget
             if (rec && Date.now() <= deadline) memoSet(key, rec.calls);
         } catch (e) { skipped++; }
     }
-    // A QR code from outside is a sign on its own (small): its link is judged like the others.
+    // A QR code from outside is a sign on its own (small): its link is judged like the others. From inside, a web
+    // page sent as a file (1) doesn't count: staff send them.
     if (qrs && outside) signals.push({ weight: 1, kind: 'qr-code', text: `It has ${qrs === 1 ? 'a QR code' : `${qrs} QR codes`}: a QR code hides its link from the reader (and from most checks) until a phone opens it.` });
     if (!outside) for (let i = signals.length - 1; i >= 0; i--) if (signals[i].kind === 'html-attachment') signals.splice(i, 1);
     return { links, signals, found: found.slice(0, 20), skipped };

@@ -1,10 +1,7 @@
 'use strict';
-// What abuse.ch's and Spamhaus's data found is never exported for retraining (0.5.37): their terms don't allow
-// it to train or improve an AI model. Such a link's finding is left empty.
-const NO_TRAINING_RE = /URLhaus|ThreatFox|abuse\.ch|Spamhaus/i;
-// The retraining export (Health → Retraining examples → "Download for retraining"; off until an admin allows it in
-// Settings). The emails an admin marked (confirmed as phishing; with a tick, false alarms too) are read
-// from Gmail at the moment of the download, one per campaign, and each becomes one line of the
+// The retraining export (Health → Retraining examples → "Download for retraining", 0.6.1; off until an admin
+// allows it in Settings → Retraining). The emails an admin marked (confirmed as phishing; with a tick, false
+// alarms too) are read from Gmail at the moment of the download, one per campaign, and each becomes one line of the
 // model's own training format (TinyPhishLLM's training/data/extra/*.jsonl: { facts, label }): the facts phish-tiny
 // read, with the people taken out. The download is the only copy: nothing of the emails is stored.
 // docs/RETRAINING.md says how to check the file and train with it.
@@ -17,12 +14,19 @@ const NO_TRAINING_RE = /URLhaus|ThreatFox|abuse\.ch|Spamhaus/i;
 //   - the sender's name and address when the sender is inside the organization, or when the email is
 //     genuine (a false alarm is a real person's or company's mail): [SENDER];
 //   - the organization's own domains: [OUR-DOMAIN];
+//   - (0.5.68) street addresses, 5- and 6-digit numbers, a card's last digits and codes of letters and digits
+//     (redactMore);
+//   - what abuse.ch's and Spamhaus's lists found about a link (NO_TRAINING_RE below);
 //   - (0.5.56) nothing of the text is cut, up to BODY_CHARS: the whole body, so that a later model that reads
 //     more of an email can be trained on the same file; a longer one keeps its first BODY_HEAD and last
 //     BODY_TAIL characters.
 // Left for a person to decide, marked ⟦like this⟧: other capitalized words that may be names (a
-// student named in the text, an attacker using a real leader's name). tools/check-training-file.js
-// refuses a file with a mark left, and, with --final, with a placeholder left.
+// student named in the text, an attacker using a real leader's name), and (0.5.68) names written as a roster,
+// with an initial or in capitals. tools/check-training-file.js refuses a file with a mark left, and, with
+// --final, with a placeholder left.
+// What abuse.ch's and Spamhaus's data found is never exported for retraining (0.5.37): their terms don't allow
+// it to train or improve an AI model. Such a link's finding is left empty.
+const NO_TRAINING_RE = /URLhaus|ThreatFox|abuse\.ch|Spamhaus/i;
 const fs = require('fs');
 const path = require('path');
 const spruce = require('./engine/spruce');
@@ -126,9 +130,9 @@ function namedPhrases(text) {
         .replace(SIGN_RE, (m, pre, s, sep, run) => keepCommon(pre, s, sep, run) || m);
 }
 
-// (0.5.68) What the export missed in a district's file: names written as a roster ("FAIRBANKS-OYELARAN, TOBIN", "Featherstone,
-// Ilsa Marie" on a line of its own), a first name and an initial ("Theo V."), and names in capitals ("DANIEL
-// QUARRINGTON", in markNames). They are ⟦marked⟧ for a person to decide.
+// (0.5.68) What the export missed in a district's file: names written as a roster ("QUILLBY-MARSH, ODETTE",
+// "Fernhollow, Talia Maren" on a line of its own), a first name and an initial ("Nell T."), and names in capitals
+// ("ROBERT PELLWICK", in markNames). They are ⟦marked⟧ for a person to decide, unless their words are common ones.
 const ROSTER_CAPS_RE = /(?<![\p{L}\p{N}⟦])(\p{Lu}{2,}(?:[-'’ ]\p{Lu}{2,})?), (\p{Lu}{3,}(?: \p{Lu}{3,})?(?: \p{Lu}\b\.?)?)(?![\p{L}\p{N}])/gu;
 const ROSTER_LINE_RE = /^([ \t]*)(\p{Lu}[\p{Ll}'’-]+(?:[- ]\p{Lu}[\p{Ll}'’-]+)?(?: Jr\.?)?), (\p{Lu}[\p{L}'’-]+(?: \p{Lu}[\p{L}'’-]*\.?){0,2})[ \t]*$/gmu;
 const INITIAL_RE = /(?<![\p{L}\p{N}⟦])(\p{Lu}\p{Ll}{1,}) (\p{Lu})\.(?=\s|$)/gu;
@@ -139,9 +143,9 @@ function namePatterns(text) {
         .replace(ROSTER_LINE_RE, (m, sp, a, b) => (common(a) || common(b.split(' ')[0]) ? m : `${sp}${OPEN}${a}, ${b}${CLOSE}`))
         .replace(INITIAL_RE, (m, a, b) => (common(a) || EVERYDAY.has(a.toLowerCase()) ? m : `${OPEN}${a} ${b}.${CLOSE}`));
 }
-// (0.5.68) Taken out of the text as well (the model's own redaction keeps them): a street address, a 5- or 6-digit
-// number (a student ID, a ZIP code), the last digits of a card ("ending in 4411") and a code of letters and 4 or more
-// digits (a payment reference, a licence number: Q50318XK, FL-Q093175).
+// (0.5.68) Taken out of the text as well (the model's own redaction keeps them): a street address ("street
+// address"), and as "number" a 5- or 6-digit number (a student ID, a ZIP code), the last digits of a card ("ending
+// in 1234") and a code of capitals and 4 or more digits (a payment reference, a licence number: R12345ZW).
 const STREET_RE = /\b\d{1,6}[ \t]+(?:[NSEW]\.?[ \t]+)?(?:[\p{L}\d][\p{L}\d.'’-]*[ \t]+){0,3}(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Place|Pkwy|Parkway|Hwy|Highway|Cir|Circle|Ter|Terrace|Trl|Trail)\b\.?/gu;
 function redactMore(text) {
     return String(text)
@@ -182,7 +186,7 @@ function markNames(text, domains, ownNames, lower) {
             const l = base.toLowerCase();
             let mark = false;
             if (!/^\p{Lu}/u.test(w) || base.length < 3) mark = false;
-            // (0.5.68) In capitals: a known name ("ROBERT"), or the word right after a marked one ("QUARRINGTON").
+            // (0.5.68) In capitals: a known name ("ROBERT"), or the word right after a marked one ("PELLWICK").
             else if (base === base.toUpperCase()) mark = !COMMON.has(l) && !EVERYDAY.has(l) && !lower.has(l) && (NAMES.has(l) || next);
             else if (ownNames.has(l)) mark = true;          // the organization's own name (maple from maple-schools.example)
             else if (!COMMON.has(l) && !lower.has(l) && !l.split(/[-'’]/).every(p => COMMON.has(p)) && !domains.some(d => d.includes(l))) {
@@ -198,6 +202,7 @@ function markNames(text, domains, ownNames, lower) {
         .replace(/(?<![\p{L}\p{N}[⟦_])(\p{Lu}[\p{L}\p{M}'’-]+)([ \t]+)⟦/gu, (m, w, sp) => (COMMON.has(w.toLowerCase()) ? m : `${OPEN}${w}${sp}`));
 }
 
+// The first n characters, ending at a word's end when one is near (in the last fifth).
 const cut = (t, n) => { const s = String(t || ''); if (s.length <= n) return s; const c = s.slice(0, n); const sp = c.search(/\s\S*$/); return sp > n * 0.8 ? c.slice(0, sp) : c; };
 // The last n characters, from a word's start.
 const cutEnd = (t, n) => { const s = String(t || ''); if (s.length <= n) return s; const c = s.slice(-n); const sp = c.search(/\s\S/); return sp >= 0 && sp < n * 0.2 ? c.slice(sp + 1) : c; };
@@ -241,7 +246,7 @@ function deidentify(aiFacts, { people = {}, mailbox = '', orgDomains = [], label
         for (const [n, by] of ordered) t = replaceName(t, n, by);
         if (names) t = namedPhrases(t);
         if (mark) t = markNames(namePatterns(t), domains, ownNames, lower);
-        // (a mark inside a mark becomes one: ⟦Featherstone, ⟦Ilsa⟧⟧ → ⟦Featherstone, Ilsa⟧)
+        // (a mark inside a mark becomes one: ⟦Quillby, ⟦Odette⟧⟧ → ⟦Quillby, Odette⟧)
         if (mark) for (let k = 0; k < 4 && /⟦[^⟧]*⟦/u.test(t); k++) t = t.replace(/⟦([^⟦⟧]*)⟦/gu, '⟦$1').replace(/⟧([^⟦⟧]*)⟧/gu, '$1⟧');
         return t;
     };
@@ -249,7 +254,9 @@ function deidentify(aiFacts, { people = {}, mailbox = '', orgDomains = [], label
     const out = {
         subject: clean(cut(f.subject, 200)),
         senderName: dropSender ? (f.senderName ? SENDER : '') : clean(cut(f.senderName, 80)),
+        // (the sender's mailbox name becomes "sender", unless it is a shared one: info@, billing@…)
         senderAddress: sender ? `${E.isSharedMailbox(sender) ? local : 'sender'}@${replaceOrg(domain, orgDomains)}` : '',
+        // (DMARC's result, and SPF and DKIM only when they failed)
         auth: f.auth && f.auth.dmarc ? Object.assign({ dmarc: f.auth.dmarc }, /^(fail|softfail|permerror)$/.test(f.auth.spf || '') ? { spf: f.auth.spf } : {}, /^(fail|permerror)$/.test(f.auth.dkim || '') ? { dkim: f.auth.dkim } : {}) : null,
         links: (f.links || []).slice(0, 8).map(l => ({ text: clean(cut(l.text, 60)), host: replaceOrg(l.host || '', orgDomains), destHost: replaceOrg(l.destHost || '', orgDomains), finding: clean(NO_TRAINING_RE.test(l.finding || '') ? '' : l.finding || '', { names: false, mark: false }) })),
         bodyText: clean(bodyOf(f.bodyText))

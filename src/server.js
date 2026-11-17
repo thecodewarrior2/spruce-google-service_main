@@ -1,14 +1,33 @@
 'use strict';
-// The HTTP service (Cloud Run).
+// The HTTP service (Cloud Run). One image, two services (ROLE): the worker answers /pubsub/push and /tasks/*
+// only, the dashboard (admin) everything else; ROLE=all (demo mode, a computer of your own) answers both.
 //   POST /pubsub/push              Gmail notifications, from Pub/Sub (OIDC-verified)
-//   POST /tasks/renew-watches      daily, from Cloud Scheduler (OIDC-verified)
+//   POST /tasks/renew-watches      daily, from Cloud Scheduler (OIDC-verified): the directory read again, watches renewed
+//   POST /tasks/sync-feeds         hourly, from Cloud Scheduler (spruce-sync-feeds): the health check, the phishing
+//                                  lists (downloaded once for everyone), re-checks, the look-alike watch, the weekly
+//                                  summary and the cleanup (pipeline.js syncFeeds)
 //   POST /tasks/purge              records past RETENTION_DAYS deleted (the hourly sync-feeds does it since
 //                                  0.4.1; kept for an older installation's daily job)
-//   POST /tasks/stop-watches       by hand, to switch the service off: every mailbox watch is stopped
-//   POST /tasks/sync-feeds         daily, from Cloud Scheduler: the phishing lists, downloaded once for everyone
+//   POST /tasks/stop-watches       by hand (deploy/stop.sh, through a one-off Cloud Scheduler job), to switch the
+//                                  service off: every mailbox watch is stopped (pipeline.js stopAll)
 //   GET  /healthz                  for Cloud Run
-//   /api/*  and  /                 the admin dashboard, behind Identity-Aware Proxy, ADMIN_EMAILS / ADMIN_GROUP only
-//                                  (POST /api/renew-watches runs the Cloud Scheduler job: src/scheduler.js)
+//   /api/*  and  /                 the dashboard, behind Identity-Aware Proxy: ADMIN_EMAILS / ADMIN_GROUP, and
+//                                  MODERATOR_GROUP for the review routes only (MODERATOR_ROUTES). POSTs need the
+//                                  x-requested-with: spruce-dashboard header. By page (the `api` table below):
+//     Today, Review            GET overview, pending, review; POST mark, unclear, rescan, bulk, release, resume
+//     Threats                  GET campaigns, campaign, rechecked, lookalikes; POST campaign/confirm,
+//                              campaign/release, campaign/find, rechecked/seen, lookalikes/mark
+//     Mail                     GET messages, message, users, export.csv; POST check, message/context
+//     Health                   GET status, readiness, health, dmarc, reputation, activity, activity.csv;
+//                              POST training-export
+//     Settings                 GET settings, mailboxes, scope-preview, clicks, phish-training, digest/preview,
+//                              update; POST policy, renew-watches (runs the Cloud Scheduler job: src/scheduler.js),
+//                              lists/recheck, keys/save, keys/remove, safe-browsing/key, safe-browsing/remove,
+//                              clicks, clicks/test, phish-training/rule, …/rule/edit, …/rule/remove,
+//                              phish-training/domains, digest, digest/send, update, update/check,
+//                              training-export/allow
+//     Every page, Help         GET session, help
+//   GET  /*                        the dashboard's files (public/)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -56,11 +75,12 @@ async function readBody(req, max = 1024 * 1024) {
     try { return text ? JSON.parse(text) : {}; } catch (e) { throw Object.assign(new Error('not JSON'), { status: 400 }); }
 }
 
-// The dashboard's view of a record: what an admin needs, nothing of the email's text beyond the
-// subject and the checks' own short quotes (both can be turned off: STORE_SUBJECTS, STORE_AI_QUOTES).
 // How long the dashboard keeps today's counters before reading them again (pages refresh every 30 s).
 const STATS_TODAY_MS = 15 * 1000;
+// How long the mailboxes in numbers (and the worker's AI engine report) are kept before reading them again.
 const MAILBOXES_KEPT_MS = 60 * 1000;
+// The dashboard's view of a record in a list (Messages): what an admin needs, nothing of the email's text
+// beyond the subject (which can be turned off: STORE_SUBJECTS); an email's own page reads the whole record.
 const brief = (r) => ({ key: r.key, user: r.user, processedAt: r.processedAt, sender: r.sender, subject: r.subject, campaign: r.campaign,
     status: r.status, score: r.score, ai: r.ai ? Math.round((r.ai.probability || 0) * 1000) / 1000 : null, action: r.action, trigger: r.trigger, state: r.state, releasedByUser: !!r.releasedByUser, falseAlarm: r.falseAlarm, unclear: !!r.unclear,
     // found after delivery (0.5.35): the Messages list marks it
@@ -75,7 +95,7 @@ function withPlainWhy(r, cfg) {
 }
 
 // The group re-read from the dashboard: at most once a minute, and its last run remembered for 15 s
-// (Settings is fetched every 30 s by each open dashboard).
+// (Settings → Mailboxes, Health → Service status and Readiness refresh every 30 s in each open dashboard).
 const RENEW_GAP_MS = 60 * 1000, RENEW_STATUS_MS = 15 * 1000;
 // "Check an email": the largest email accepted (as pasted or uploaded).
 const CHECK_MAX_BYTES = 10 * 1024 * 1024;
@@ -112,7 +132,8 @@ function moderatorMay(route, action) {
     if (!MODERATOR_ROUTES.has(route)) return false;
     return route !== 'POST /api/bulk' || MODERATOR_BULK.includes(action);
 }
-// A user took back an email the checks flagged, and no admin has looked yet.
+// A user took back an email the rule checks flagged (a score of 5 or more, not moved by the AI alone), and no
+// admin has looked yet.
 const rescueToCheck = (r) => r.state === 'released' && r.releasedByUser && !r.markedBy && r.score >= 5 && r.trigger !== 'ai';
 
 // Demo mode reads no GitHub: a made-up newer version, then this version's own changelog.
@@ -169,7 +190,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // key is a list that missed its download: the list-download alert.)
         if (service.intel.keys && service.intel.keys.spamhaus) service.intel.keys.spamhaus.setAlert((text) => service.alertDaily('spamhaus-key', text));
     }
-    // The last 32 days at first, older records when a page shows them (Last 90 days), never past how long
+    // The dashboard's copy of the records (src/dashboard/cache.js): the last 32 days at first, older records
+    // when a page shows them (Last 90 days, plus the day before that `load` reads: 92), never past how long
     // records are kept (RETENTION_DAYS, or Settings → Policy: the copy forgets them too).
     const cache = new RecordCache(store, { keepDays: () => Math.min(92, cfg.retentionDays || 35) });
     const events = new EventCache(store);   // (0.6.7) Activity's events, read once and then only the new ones
@@ -185,19 +207,19 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         p.catch(() => { if (shortCache.get(key) && shortCache.get(key).p === p) shortCache.delete(key); });
         return p;
     };
-    let statusCache = null; const STATUS_CACHE_MS = 60 * 1000;   // (Service status: see GET /api/status)
-    // The daily counters (stats/{day}~{shard}): a past day no longer changes, so each instance reads it
-    // once; today is read again after STATS_TODAY_MS. (Ten minutes after midnight yesterday still counts as
-    // today: instances write what they added up every few seconds. clear-data.sh restarts the dashboard.)
+    let statusCache = null; const STATUS_CACHE_MS = 60 * 1000;   // (Health → Service status: see GET /api/status)
     // The mailboxes in numbers (how many watched, the latest notification, watches ending within a day):
-    // three small queries, kept a minute, for Status, Readiness and Settings, which open pages fetch every
-    // 30 s. (Reading every mailbox's document there cost 10,000 reads a page at 10,000 mailboxes.) Only
-    // Settings → Mailboxes lists them, at most 500.
+    // three small queries, kept a minute, for Health → Service status, Health → Readiness and Settings, which
+    // open pages fetch every 30 s. (Reading every mailbox's document there cost 10,000 reads a page at 10,000
+    // mailboxes.) Only Settings → Mailboxes lists them, a page at a time (GET /api/mailboxes).
     let mailboxInfo = null;
     const mailboxes = async () => {
         if (!mailboxInfo || Date.now() - mailboxInfo.at > MAILBOXES_KEPT_MS) mailboxInfo = { at: Date.now(), v: await store.mailboxSummary(Date.now() + A.DAY) };
         return mailboxInfo.v;
     };
+    // The daily counters (stats/{day}~{shard}): a past day no longer changes, so each instance reads it
+    // once; today is read again after STATS_TODAY_MS. (Ten minutes after midnight yesterday still counts as
+    // today: instances write what they added up every few seconds. clear-data.sh restarts the dashboard.)
     const pastStats = new Map(); let todayStats = null;
     const statsFor = async (fromDay, toDay) => {
         const now = Date.now(), today = A.dayOf(now), settled = A.dayOf(now - 10 * 60 * 1000) < today ? A.dayOf(now - A.DAY) : today;
@@ -218,6 +240,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     };
     let renewAskedAt = 0, renewStatus = null, renewStatusAt = 0;
     const canRenew = () => !!(scheduler && cfg.renewJob);
+    // The renew-watches job's last run (Cloud Scheduler: when, and whether it reached the worker), asked at
+    // most every RENEW_STATUS_MS; null when the job isn't known here (demo mode makes one up).
     async function lastRenew() {
         if (cfg.demo && !canRenew()) return { at: Date.now() - 15 * 60 * 60 * 1000, code: 0 };
         if (!canRenew()) return null;
@@ -228,11 +252,13 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         return renewStatus;
     }
     const groupCheck = cfg.adminGroups.length && service.gmail && service.gmail.hasMember ? adminGroupCheck(cfg, service.gmail) : null;
-    // Health → DMARC (0.6.1): your domains' DMARC and SPF records, read through Cloudflare's resolver (made up in demo mode).
+    // Health → DMARC & reputation (0.6.1): your domains' DMARC and SPF records, read through Cloudflare's resolver (made up in demo mode).
     const dmarcCheck = createDmarcCheck({ http: service.intel && service.intel.http, demo: !!cfg.demo });
     // ... and whether they are on a blocklist or in the downloaded phishing lists (made up in demo mode).
     const reputation = createReputation({ cfg, intel: service.intel, store, demo: !!cfg.demo });
+    // (0.6.1) Who is in MODERATOR_GROUP, checked like ADMIN_GROUP (src/auth/verify.js; an admin stays an admin).
     const moderatorCheck = (cfg.moderatorGroups || []).length && service.gmail && service.gmail.hasMember ? adminGroupCheck(cfg, service.gmail, () => Date.now(), cfg.moderatorGroups) : null;
+    // A page's period (?days=, 1 to 90, 30 by default): its start, and its number of days (nDays below).
     const since = (q) => Date.now() - Math.min(90, Math.max(1, Number(q.get('days')) || 30)) * A.DAY;
     // Activity's period: up to how long it is kept (AUDIT_DAYS); its kind and words to look for.
     const activityFor = async (q) => {
@@ -246,7 +272,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     // A page's records (all of its period: the cache holds slim copies of every one) and daily counters.
     const load = async (q) => ({ records: await cache.list(since(q) - A.DAY), stats: await statsFor(A.dayOf(since(q)), A.dayOf(Date.now())) });
 
-    // The brake, and how many emails it holds (still in the Inbox, recorded since it came on).
+    // The brake, and how many emails it holds (still in the Inbox, recorded since it came on). The brake and the
+    // held campaigns are read at most every 15 s (0.6.7, shortLived), shared with GET /api/pending.
     async function brakeInfo(records) {
         const b = await shortLived('brake', 15000, () => store.getState('brake'));
         if (!b) return null;
@@ -258,8 +285,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         return held.map(c => ({ campaign: c.key, label: c.label, heldAt: c.heldAt, held: records.filter(r => r.campaign === c.key && r.held === 'campaign' && r.state === 'inbox').length }))
             .sort((a, b) => b.held - a.held).slice(0, 20);
     }
-    let digestSentAt = 0;
-    // The Status page's checks: { id, ok (true, false, or null: couldn't check), text, fix }.
+    let digestSentAt = 0;   // the weekly summary's "Send one now": at most once a minute (this instance)
     // The worker's AI engine, as its newest instance reported it when it started (state/engine-worker), kept
     // a minute like the mailboxes.
     let workerEngine = null;
@@ -270,6 +296,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     const pc = (x) => `${Math.round(x * 1000) / 10}%`;
     const ago = (ms) => { const m = Math.max(1, Math.round(ms / 60000)); return m < 120 ? `${m} minute${m === 1 ? '' : 's'} ago` : m < 48 * 60 ? `${Math.round(m / 60)} hours ago` : `${Math.round(m / 1440)} days ago`; };
     const checkWords = (c) => (c && typeof c.phishing === 'number' ? `self-check: a made-up phishing email ${pc(c.phishing)}, a made-up genuine one ${pc(c.genuine)}` : 'no self-check');
+    // Health → Service status's checks: [{ id, ok (true, false, or null: couldn't check), text, fix }].
     async function statusChecks() {
         const now = Date.now(), out = [];
         const add = (id, ok, text, fix) => out.push({ id, ok, text, fix: ok === true ? null : fix || null });
@@ -316,6 +343,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         if (renew && renew.at) add('renew', !renew.code, renew.code ? `The last re-read of the group (${new Date(renew.at).toISOString().slice(0, 16).replace('T', ' ')} UTC) didn't reach the worker.` : 'The last re-read of the group reached the worker.',
             'docs/INSTALL.md, Troubleshooting, "The jobs and notifications are refused" (or run bash deploy/doctor.sh).');
         else add('renew', null, renew && renew.error ? `Couldn't read the re-read job: ${renew.error}` : 'The re-read job isn\'t known here (RENEW_JOB).', 'Run bash deploy/install.sh again.');
+        // The hourly job: its name is the renew job's with spruce-sync-feeds in place of spruce-renew-watches
+        // (install.sh makes both in the same project and region); late after 2 hours.
         if (canRenew()) {
             const sync = await scheduler.lastRun(cfg.renewJob.replace(/spruce-renew-watches$/, 'spruce-sync-feeds')).catch(e => ({ error: e.message }));
             if (sync.error) add('hourly', null, `Couldn't read the hourly job: ${String(sync.error).slice(0, 160)}`);
@@ -362,11 +391,12 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         add('brake', !brake, brake ? 'The domain-wide brake is on: nothing is moved.' : 'The domain-wide brake is off.', 'Today → Resume.');
         return out;
     }
-    const ACTIONS_GAP_MS = 5000;   // a campaign action at most every 5 s per campaign (no double clicks)
+    const ACTIONS_GAP_MS = 5000;   // once()'s default: the same action (a campaign's, a key's…) at most every 5 s (no double clicks)
     const RESCAN_GAP_MS = 30 * 1000, rescanning = new Set();   // (0.6.6) re-scans: see POST /api/rescan
     const lastAction = new Map();
     let exporting = false;   // one retraining export at a time (it reads up to 100 emails from Gmail)
-    // Wrong project IDs (and email addresses) typed per admin, on the policy and Update: five in 10 minutes lock both.
+    // Wrong project IDs (and email addresses) typed per admin, on any change that asks for them (the policy, Update,
+    // the keys, Phishing training, Look-alikes, Link clicks: projectCheck): five in 10 minutes lock them all.
     const wrongIds = new Map();
     const lockedNoted = new Map();
     const wrong = {
@@ -391,7 +421,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         },
         clear: (who) => wrongIds.delete(who)
     };
-    // Who opened the dashboard (0.5.29): once a day per admin (the organization's day), in What admins did.
+    // Who opened the dashboard (0.5.29): once a day per admin or moderator (the organization's day), in What admins
+    // did; the last 26 hours of events are looked at first, so another instance's note isn't repeated.
     const opened = new Map();
     async function noteOpened(email, role = 'admin') {
         const day = A.dayIn(Date.now(), cfg.timeZone);
@@ -401,6 +432,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         if (today.some(e => e.kind === 'signin' && e.by === email && A.dayIn(e.at, cfg.timeZone) === day)) return;
         await store.addEvent({ kind: 'signin', by: email, admin: true, text: `${email} opened the dashboard${role === 'moderator' ? ' (as a moderator)' : ''}.` });
     }
+    // true the first time key is asked, then false until gap has passed (per instance: a double click, two admins).
     const once = (key, gap = ACTIONS_GAP_MS) => { const t = lastAction.get(key) || 0; if (Date.now() - t < gap) return false; lastAction.set(key, Date.now()); return true; };
     // Google Safe Browsing (0.5.23): the key's state (src/intel/sbkey.js), never the key itself.
     const sbKey = () => (service.intel && service.intel.sbKey) || null;
@@ -421,6 +453,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         wrong.clear(admin.email);
         return null;
     };
+    // Settings → Spamhaus, Settings → abuse.ch: each one's key state (never the key) and on or off; Spamhaus's
+    // lookups today against its daily limit, abuse.ch's list downloads.
     const optionalInfo = async () => {
         const out = {};
         for (const id of ['spamhaus', 'abusech']) {
@@ -440,7 +474,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         return lists.filter(l => l.missed).map(l => ({ id: l.id, name: l.name, missed: l.missed, error: l.error, failedSince: l.failedSince, updated: l.updated }));
     };
 
+    // The dashboard's routes: (query, body, admin) → an answer; { error, status } for a refusal.
     const api = {
+        // Today: the period's numbers, the chart, top reasons and campaigns, the last week's alerts, and the banners.
         'GET /api/overview': async (q) => {
             const { records, stats } = await load(q);
             const n = nDays(q), now = Date.now();
@@ -530,6 +566,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (!once(`clicks-test|${admin.email}`, 10 * 1000)) return { error: 'Tested less than 10 seconds ago.', status: 429 };
             return service.testClickLogs(body.admin, admin.email);
         },
+        // Threats → Campaigns, Mail → Users and Mail → Messages (the newest 500 shown; the filters as the CSV's).
         'GET /api/campaigns': async (q) => { const { records } = await load(q); return { campaigns: A.campaigns(records, Date.now(), nDays(q)) }; },
         'GET /api/users': async (q) => { const { records } = await load(q); return { users: A.users(records, Date.now(), nDays(q)) }; },
         'GET /api/messages': async (q) => {
@@ -539,6 +576,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         },
         // An email's record, with the mode now (whether confirming it as phishing also moves it).
         'GET /api/message': async (q) => { const r = await store.getRecord(String(q.get('key') || '')); return r ? { message: withPlainWhy(r, cfg), mode: cfg.mode } : { error: 'not found', status: 404 }; },
+        // Health → Model health: the AI's scores and how its moves were undone, the model in use, the threshold.
         'GET /api/health': async (q) => {
             const { records } = await load(q);
             const tx = (await store.getState('trainingExport')) || {};
@@ -559,12 +597,13 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             return { mailboxes: page.items.map(u => ({ email: u.email, lastNotification: u.lastNotification || null, watchExpiration: u.watchExpiration || null })), next: page.next, watched: mb.watched,
                      ending: mb.ending == null ? null : mb.ending, scope: cfg.watchScope, left: ((await store.getState('watchLeft')) || {}).left || 0 };
         },
-        // (0.6.1) Who is signed in, as what, and what every page's frame needs (the menu, the footer, About & credits):
-        // the only settings a moderator reads.
-        // Health → DMARC (0.6.1, admins only): ?fresh=1 reads them again now (at most every 30 s).
+        // Health → DMARC & reputation (0.6.1, admins only): the DMARC and SPF records; ?fresh=1 reads them again now
+        // (at most every 30 s).
         'GET /api/dmarc': async (q) => ({ domains: await dmarcCheck(cfg.orgDomains, { fresh: !!(q && q.get && q.get('fresh')) && once('dmarc-fresh', 30 * 1000) }) }),
         // Health → DMARC & reputation (0.6.1, admins only): blocklists and the downloaded lists; ?fresh=1 reads again (at most every 30 s).
         'GET /api/reputation': async (q) => ({ domains: await reputation(cfg.orgDomains, { fresh: !!(q && q.get && q.get('fresh')) && once('reputation-fresh', 30 * 1000) }) }),
+        // (0.6.1) Who is signed in, as what (added to every answer below), and what every page's frame needs (the
+        // menu, the footer, About & credits): the only settings a moderator reads.
         'GET /api/session': async () => {
             const E = spruce.load();
             return { mode: cfg.mode, orgDomains: cfg.orgDomains, retentionDays: cfg.retentionDays, model: E.modelInfo, version: VERSION, donateButton: cfg.donateButton, timeZone: cfg.timeZone };
@@ -576,7 +615,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const trainingExport = Object.assign({ enabled: false }, await store.getState('trainingExport'));
             const policy = service.policyInfo ? service.policyInfo() : null;
             const mb = await mailboxes();
-            // (the list, for Settings → Mailboxes only: ?mailboxes=1)
+            // (the list, only with ?mailboxes=1, at most 500: Settings → Mailboxes reads GET /api/mailboxes since 0.5.53)
             const listed = q && q.get && q.get('mailboxes') ? await store.listWatched(500) : null;
             return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
                      brakeLimit: await service.brakeLimit(), campaignHoldAfter: cfg.campaignHoldAfter, alertEmail: cfg.alertEmail || '',
@@ -659,6 +698,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             await service.adminNotice('settings', `${admin.email} removed the Google Safe Browsing API key on the dashboard (confirmed with the project ID): every copy in Secret Manager was destroyed, and Safe Browsing is off.`);
             return { removed: true, safeBrowsing: await safeBrowsingInfo() };
         },
+        // Move one email back to the Inbox (admins only: a moderator marks it a false alarm instead).
         'POST /api/release': async (q, body, admin) => service.release(String(body.key || ''), admin.email),
         // move: phishing still in the Inbox is moved to Spam too (enforce mode).
         'POST /api/mark': async (q, body, admin) => service.mark(String(body.key || ''), body.falseAlarm === true, admin.email, { move: body.move === true }),
@@ -679,8 +719,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             catch (e) { if (e.status) return { error: e.message, status: e.status }; throw e; }
             finally { rescanning.delete(key); }
         },
-        // "Show more" on the AI opinion: what the model reads of the email, sentence by sentence (read from
-        // Gmail now; nothing stored; Activity notes it). At most every 5 s per email and admin.
+        // "Show the email" (0.6.6; "Show more" on the AI opinion before): the email itself, then what the model reads
+        // of it, sentence by sentence (read from Gmail now; nothing stored; Activity notes it; pipeline.js aiContext).
+        // At most every 5 s per email and admin.
         'POST /api/message/context': async (q, body, admin) => {
             const key = String(body.key || '');
             if (!key) return { error: 'Choose an email.', status: 400 };
@@ -751,7 +792,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode,
                 counts: { moved: queue === 'moved' ? list.length : records.filter(unreviewed).length, suspicious: queue === 'suspicious' ? list.length : records.filter(suspiciousUnreviewed).length } };
         },
-        // Several emails at once: release, false-alarm or phishing (at most 500).
+        // Several emails at once: release, false-alarm, phishing or unclear (ignore, treat as suspicious), at most
+        // 500. Moderators: not release (moderatorMay).
         'POST /api/bulk': async (q, body, admin) => {
             const keys = Array.isArray(body.keys) ? [...new Set(body.keys.map(String))].slice(0, 500) : [];
             if (!['release', 'false-alarm', 'phishing', 'unclear'].includes(body.action) || !keys.length) return { error: 'Choose emails and what to do with them.', status: 400 };
@@ -766,7 +808,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const rescues = records.filter(rescueToCheck).length;
             return { brake, held, rescues, unreviewed: records.filter(unreviewed).length, total: (brake ? 1 : 0) + held + rescues };
         },
-        // The Status page: what this week's troubleshooting needed, checked in one place.
+        // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).
         // (0.6.7) Shared by every open dashboard for a minute: each look asks Cloud Run, Cloud Scheduler and the lists.
         // ?fresh=1 checks again now (at most every 5 s).
         'GET /api/status': async (q) => {
@@ -784,10 +826,10 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (cfg.demo) return { sent: 0, to: [], failed: [], demo: true };
             try { return await service.sendDigest({ by: admin.email }); } catch (e) { return { error: `Couldn't send it: ${String(e.message).slice(0, 200)}`, status: 502 }; }
         },
-        // A policy setting changed on the dashboard (POLICY_KEYS: the mode, the AI lines, the brake, the time
-        // zone, the allowlists). Needs the
-        // project ID typed in; switching to enforce mode, or letting the AI alone move inside mail, also needs
-        // the agreement ticked.
+        // A policy setting changed on the dashboard (POLICY_KEYS, src/config.js: the mode, the AI lines, the
+        // brake, the time zone, the allowlists, the optional services, who is checked…). Needs the project ID
+        // typed in (five wrong ones lock the account: `wrong`); switching to enforce mode, or letting the AI alone
+        // move inside mail, also needs the agreement ticked.
         'POST /api/policy': async (q, body, admin) => {
             const key = String(body.key || '');
             if (!POLICY_KEYS.includes(key)) return { error: 'Choose a setting to change.', status: 400 };
@@ -829,7 +871,6 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             }
             catch (e) { if (e.status) return { error: `${e.message} Nothing was changed.`, status: e.status }; throw e; }
         },
-        // The retraining export: allowed or not (off by default), and the download (docs/RETRAINING.md).
         // Settings → Update: the approved versions (google_service_main) and their changes; the button.
         // (demo mode: ?manual=1 shows a made-up approved version that needs a manual install)
         'GET /api/update': async (q) => updateInfo({ cfg, store, releases: cfg.demo && q && q.get && q.get('manual') ? demoReleases({ manual: true }) : releases, cloudrun,
@@ -838,6 +879,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // Check again (0.5.38): GitHub asked now, at most once a minute for the whole dashboard (src/update.js).
         'POST /api/update/check': async (q, body, admin) => checkNow({ cfg, store, releases: cfg.demo && body && body.manual ? demoReleases({ manual: true }) : releases, cloudrun, admin: admin.email,
             alert: (t) => service.alert('update-manual', t) }),
+        // The retraining export (docs/RETRAINING.md): allowed or not (Settings → Retraining, off by default), and
+        // the download (Health → Retraining examples): the marked emails read from Gmail again, one download at a
+        // time (`exporting`).
         'POST /api/training-export/allow': async (q, body, admin) => service.setTrainingExport(body.enabled === true, admin.email),
         'POST /api/training-export': async (q, body, admin) => {
             if (!((await store.getState('trainingExport')) || {}).enabled) return { error: 'The retraining export is off. An admin can allow it in Settings → Retraining.', status: 403 };
@@ -856,7 +900,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                         'x-spruce-gone': String(c.gone), 'x-spruce-failed': String(c.failed), 'x-spruce-not-reached': String(c.notReached), 'x-spruce-conflicting': String(c.conflicting), 'x-spruce-not-english': String(c.notEnglish || 0) } } };
             } finally { exporting = false; }
         },
-        // Everything in Recent activity for the period, by kind (alert, admin, error, watch).
+        // Health → Activity: everything for the period, by kind (alert, admin, error, watch: aggregate.js activity).
         // (adminAction: an admin's own change, emailed like an alert but not one: shown as "emailed", 0.5.28)
         // Activity (0.5.29): any period it is kept for (AUDIT_DAYS), a kind, words to look for; the newest 500
         // shown, and all of them (up to 10,000) as CSV, which is recorded.
@@ -869,7 +913,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (admin && service.adminNotice) await service.adminNotice('export', `${admin.email} downloaded ${events.length} Activity entr${events.length === 1 ? 'y' : 'ies'} as CSV (last ${days} days${q.get('kind') || q.get('q') ? ', filtered' : ''}).`);
             return { csv: A.activityCsv(events), filename: `spruce-activity-${A.dayOf(Date.now())}.csv` };
         },
-        // "Ready for enforce mode?"
+        // Health → Readiness: "Ready for enforce mode?" (aggregate.js readiness).
         'GET /api/readiness': async (q) => {
             const { records } = await load(q);
             const mb = await mailboxes();
@@ -877,8 +921,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 brakeLimit: await service.brakeLimit(), holdAfter: cfg.campaignHoldAfter, watched: mb.watched,
                 lastNotification: mb.lastNotification, quietHours: cfg.quietHours, renew: await lastRenew() }) };
         },
-        // "Read the directory again now" ("Update group membership now" before 0.5.53): runs the daily re-read job at once (it calls the worker; the
-        // dashboard doesn't). Said in Recent activity, with who asked.
+        // Settings → Mailboxes' "Read the directory again now" ("Update group membership now" before 0.5.53): runs the
+        // daily re-read job at once (it calls the worker; the dashboard doesn't). Noted in Activity, with who asked.
         'POST /api/renew-watches': async (q, body, admin) => {
             if (Date.now() - renewAskedAt < RENEW_GAP_MS) return { error: 'Asked less than a minute ago. The list updates once that re-read has run.', status: 429 };
             if (canRenew()) {
@@ -924,7 +968,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 if (!v.ok) return send(res, 403, { error: v.why });
                 return send(res, 200, await TASKS[route]());
             }
-            // Everything else is the dashboard: admins only.
+            // Everything else is the dashboard: admins, and moderators for the review routes (checked below).
             const admin = await verifyAdmin(req, cfg, groupCheck, moderatorCheck);
             if (!admin.ok) return send(res, admin.status || 403, { error: admin.why });
             await noteOpened(admin.email, admin.role).catch(() => {});
@@ -939,6 +983,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 const body = req.method === 'POST' ? await readBody(req, route === 'POST /api/check' ? CHECK_MAX_BYTES * 2 : 64 * 1024) : {};
                 if (admin.role === 'moderator' && !moderatorMay(route, body && body.action)) return send(res, 403, forModerators);
                 const out = await api[route](url.searchParams, body, admin);
+                // (0.6.7) A change made on the dashboard: the records, events and short-lived answers are read again.
                 if (req.method === 'POST') { cache.stale(); events.stale(); statusCache = null; shortCache.clear(); }
                 if (out && typeof out.csv === 'string') return send(res, 200, out.csv, 'text/csv; charset=utf-8', { 'content-disposition': `attachment; filename="${out.filename}"` });
                 if (out && out.download) return send(res, 200, out.download.body, out.download.type, Object.assign({ 'content-disposition': `attachment; filename="${out.download.filename}"` }, out.download.headers));
@@ -947,6 +992,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 const code = out && Number.isInteger(out.status) && out.status >= 100 && out.status <= 599 ? out.status : (out && out.error ? 400 : 200);
                 return send(res, code, Object.assign({ admin: admin.email, role: admin.role || 'admin', demo: cfg.demo, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, aiMovesInside: cfg.aiMovesInside }, out));
             }
+            // The dashboard's own files (public/), never a path outside it.
             if (req.method === 'GET') {
                 const rel = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
                 const file = path.resolve(PUBLIC, rel);
@@ -973,9 +1019,9 @@ async function main() {
         let raws, staff;
         ({ store, intel, raws, staff } = await buildDemo({ cfg, now: Date.now() }));
         gmail = { labelId: async (u, n) => `Label_${n}`, modify: async () => ({}), labels: async () => ['INBOX'], search: async () => ({ ids: [], next: null }), headers: async () => ({}),
-            // the made-up emails themselves, for the retraining export
             // the made-up directory, for the colleague-name check
             userNames: async () => directoryNames(staff),
+            // the made-up emails themselves, for Re-scan, Show the email and the retraining export
             raw: async (u, id) => { const b = raws.get(id); if (!b) throw Object.assign(new Error('not found'), { status: 404 }); return { id, threadId: `t-${id}`, labelIds: ['INBOX'], historyId: null, internalDate: Date.now(), raw: b }; },
             // Settings → Link clicks's Test: a made-up day of an admin's Gmail log (0.5.35)
             gmailEvents: async () => require('./demo/seed').demoLogEvents(Date.now()) };
@@ -996,9 +1042,9 @@ async function main() {
     const service = new Service({ cfg, store, gmail, intel, statFlushMs: cfg.demo ? 0 : STAT_FLUSH_MS });
     // The AI engine started now (about 100 ms), not on the first email; the worker notes how it went.
     reportEngine({ cfg, store }).catch((e) => console.error('noting the AI engine\'s status:', e));
-    // The dashboard can start the group re-read job (Cloud Scheduler); the worker doesn't need to.
+    // The dashboard can start the group re-read job and the update job (Cloud Scheduler); the worker doesn't need to.
     const scheduler = !cfg.demo && cfg.role !== 'worker' && (cfg.renewJob || cfg.updateJob) ? require('./scheduler').createScheduler() : null;
-    // The Status page reads the worker's Cloud Run settings (a stand-in in demo mode).
+    // Health → Service status and Settings → Update read the worker's Cloud Run settings (a stand-in in demo mode).
     // (the worker too, from 0.5.24: the installation's level, for the hourly look for a manual install)
     const cloudrun = cfg.demo ? { service: async () => ({ iap: false, image: `demo:${VERSION}-demo`, url: '', labels: {} }), invokers: async () => ['serviceAccount:spruce-invoker@demo.iam.gserviceaccount.com'] }
         : require('./cloudrun').createCloudRun();
@@ -1011,14 +1057,14 @@ async function main() {
 }
 
 // Loads the AI model and runs its self-check; a worker (or the one instance, ROLE=all) then notes the result
-// in Firestore (state/engine-worker: one write per instance start), for the dashboard's Status page.
+// in Firestore (state/engine-worker: one write per instance start), for Health → Service status.
 async function reportEngine({ cfg, store }) {
     const m = spruce.load().model;
     try { await m.ready(); await m.selfCheck(); } catch (e) { console.error('the AI model could not be loaded:', e); }
     const st = m.status();
     if (cfg.role === 'admin') return st;
     const ok = st.state === 'ready' && !!(st.check && st.check.ok);
-    // (0.6.2) With the domains it counts as the organization's (ORG_DOMAINS as the worker has it), for Status.
+    // (0.6.2) With the domains it counts as the organization's (ORG_DOMAINS as the worker has it), for Service status.
     await store.setState('engine-worker', Object.assign({}, st, { ok, at: Date.now(), version: VERSION, revision: process.env.K_REVISION || '', orgDomains: [...(cfg.orgDomains || [])] }));
     // The AI model not working is an alert (0.5.28), once a day whichever instance starts.
     if (!ok && await store.setStateIfUnset(`alert-ai-model-${new Date().toISOString().slice(0, 10)}`, { at: Date.now() })) {

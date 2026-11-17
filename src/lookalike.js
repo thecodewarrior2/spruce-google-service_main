@@ -8,7 +8,8 @@
 // (cedarvale-k12.org, cedarvaleschools.com for cedarvale.k12.fl.us). Each hour the next ones are asked of
 // Cloudflare's public DNS resolver (cloudflare-dns.com, DNS over HTTPS): does the name exist, does it
 // have mail servers (MX), a website (A)? Only these candidate names are sent, nothing about any email.
-// A full pass takes a few hours; then it starts again.
+// A full pass takes a few hours (LOOKALIKE_BATCH names an hourly run, pipeline.js lookalikeStep); the next
+// starts a day after the last one began.
 //
 // The first pass only takes stock: what already exists is listed ("there before the watch"), with no
 // alert, and counts as a small sign in mail. A name that appears afterwards, or one there before but
@@ -21,8 +22,8 @@ const HOMOGLYPHS = [['o', '0'], ['l', '1'], ['i', '1'], ['i', 'l'], ['l', 'i'], 
 const DISTRICT_WORDS = ['k12', 'schools', 'school', 'sd', 'district', 'county', 'countyschools', 'edu'];
 const ROLE_WORDS = ['mail', 'portal', 'hr', 'payroll', 'staff', 'login', 'secure'];
 const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-const NEW_DAYS = 30;
-const PER_DOMAIN_MAX = 900;
+const NEW_DAYS = 30;            // registered within this many days: new, even when there before the watch
+const PER_DOMAIN_MAX = 900;     // candidates per organization domain at most
 
 // The registrable name's label and its ending (cedarvale.k12.fl.us → cedarvale, k12.fl.us; maple-schools.example
 // → maple-schools, example).

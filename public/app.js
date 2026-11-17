@@ -308,7 +308,8 @@
             h('span', { class: `svc-badge ${state}`, role: 'status' }, h('span', { class: 'svc-icon', 'aria-hidden': 'true', text: icon }), text));
     }
     const SERVICE_WORDS = { on: 'Service is on', bad: 'Service is on, but not working', off: 'Service is off' };
-    // Phishing found after it was delivered (0.5.35), on Today and Messages until an admin marks it seen.
+    // Phishing found after it was delivered (0.5.35), on Messages until an admin marks it seen (Today lists it
+    // under Needs attention since 0.6.0).
     function recheckBanner(rc) {
         if (!rc) return null;
         const one = rc.emails === 1;
@@ -630,8 +631,8 @@
         const { message: m, mode } = await api(`/api/message?${q({ key })}`);
         return emailView(m, { mode });
     }
-    // A Copy button: the text goes to the clipboard (or, where the browser doesn't allow it, by a hidden
-    // field), and a message says so. label: the button's text ("Copy").
+    // Copies text to the clipboard (or, where the browser doesn't allow it, through a hidden field), then says
+    // done in a toast. copyButton: a Copy button for an identifier (what: what it is; label: the button's text).
     async function copyText(text, done) {
         try { await navigator.clipboard.writeText(text); }
         catch (e) {
@@ -663,10 +664,11 @@
     const vaultQuery = (id) => `rfc822msgid:${String(id || '').replace(/^<|>$/g, '')}`;
     const PASTED = { move: 'Would be moved to Spam', 'would-move': 'Would be recorded as "would move" (monitor mode: nothing is moved)', flag: 'Would be recorded as suspicious, not moved', none: 'Nothing would happen: the checks find nothing to act on' };
 
-    // Re-scan (Review, Messages): the email read again from its mailbox and judged now, with today's checks
+    // Re-scan (Review, an email's page): the email read again from its mailbox and judged now, with today's checks
     // and model; nothing is moved, and the record keeps what happened on arrival beside it.
     const pctOr = (x) => (typeof x === 'number' ? pct(x) : 'none');
     // (0.6.6) An email being re-scanned isn't asked again until it is done (its button is greyed out meanwhile).
+    // The service refuses one too (within 30 s of its last re-scan, or while one runs) and says why: the toast shows it.
     const rescanning = new Set();
     async function rescanEmail(key) {
         if (rescanning.has(key)) { toast('This email is being re-scanned now: wait for it to finish.'); return; }
@@ -722,8 +724,9 @@
     }
 
     // The AI's opinion of one email: its score and where that stands against the lines that move or flag
-    // mail, what weighed most, and "…show more": what the model reads of it, sentence by sentence (read from
-    // Gmail on demand; the service keeps no email text). No score: why (a language it doesn't read).
+    // mail, what weighed most, and "…show more" (showAiReading: the email itself, then what the model reads of
+    // it, sentence by sentence; read from Gmail on demand, the service keeps no email text). No score: why
+    // (mail from inside, or a language it doesn't read).
     function aiOpinion(m, ai, opts = {}) {
         if (ai === null) {
             if (m.ai && m.ai.skipped === 'inside') return h('div', { class: 'ai-none' },
@@ -754,9 +757,9 @@
             h('div', { class: 'small muted' }, 'The model reads the subject, the sender\'s name and domain, the sender check, where the links go and the text, with addresses and numbers replaced. ',
                 more ? [more, ' to see the whole email as the model reads it, sentence by sentence, with what weighed most.'] : null)];
     }
-    // "…show more": what the model reads of the email, read from Gmail now (nothing is kept), in a popup.
     // (0.6.6) The email itself, as received: who, the subject, all its text (the quoted earlier messages and any text
     // hidden from the reader folded away), every link with where it really goes (not clickable), the attachments.
+    // m.links (the record's flagged links) marks the links the checks flagged.
     function emailAsReceived(e, m) {
         const who = (p) => (p.name ? `${p.name} <${p.address}>` : p.address);
         const row = (k, v) => (v ? [h('dt', { text: k }), h('dd', {}, v)] : null);
@@ -779,6 +782,8 @@
             e.pictures ? h('div', { class: 'small muted', text: `${num(e.pictures)} picture${e.pictures === 1 ? '' : 's'} in the email (not loaded here).` }) : null,
             h('div', { class: 'small muted', text: 'Shown as text: nothing in it is opened, loaded or clickable here. Read from Gmail just now; nothing is kept.' }));
     }
+    // "…show more" and Show the email: the email as received (0.6.6), then what the model reads of it, read from
+    // Gmail now (nothing is kept; Activity notes the look), in a popup.
     async function showAiReading(m) {
         const body = h('div', { class: 'ai-reading' }, h('div', { class: 'empty', text: 'Reading the email from Gmail…' }));
         popup(`The email: ${m.subject || '(no subject)'}`, body);
@@ -881,7 +886,7 @@
                         h('dt', { text: 'Checked' }), h('dd', { text: when(m.processedAt) })))))];
     }
 
-    // --- Check an email: what the service would decide for a reported email ----------------------------
+    // --- Mail → Check an email: what the service would decide for a reported email -----------------------
     async function check() {
         const area = h('textarea', { class: 'paste', rows: 10, spellcheck: 'false', 'aria-label': 'The email\'s original',
             placeholder: 'In Gmail, open the email, then ⋮ → Show original → Copy to clipboard, and paste it here. Or choose a saved .eml file below.' });
@@ -955,8 +960,8 @@
             h('p', { class: 'small muted', text: verdict }));
     }
 
-    // --- Health → DMARC (0.6.1): each of your domains' DMARC and SPF records as published, what they say, and
-    // what would make them stronger (src/dashboard/dmarc.js).
+    // --- Health → DMARC & reputation (0.6.1): each of your domains' DMARC and SPF records as published, what they
+    // say, and what would make them stronger (src/dashboard/dmarc.js), with its reputation beside them.
     const DMARC_TAGS = [['p', 'Policy', (v) => ({ none: 'none: report only, deliver anyway', quarantine: 'quarantine: to spam', reject: 'reject: refuse it' })[String(v).toLowerCase()] || v],
         ['sp', 'Subdomains', (v) => v || null], ['pct', 'Applies to', (v) => `${v}% of failing mail`], ['adkim', 'DKIM alignment', (v) => (String(v).toLowerCase() === 's' ? 'strict' : 'relaxed')],
         ['aspf', 'SPF alignment', (v) => (String(v).toLowerCase() === 's' ? 'strict' : 'relaxed')], ['rua', 'Aggregate reports to', (v) => v], ['ruf', 'Failure reports to', (v) => v]];
@@ -1055,7 +1060,7 @@
             h('div', { class: 'actions' }, btn), result, guide);
     }
 
-    // --- Settings, in pages (a menu on the left): Policy, Allowlist, Mailboxes, Weekly summary, Retraining, About
+    // --- Settings, in pages (its own menu beside the page, in four groups: SECTIONS.settings below) ------------
     async function settingsData(query = '') { const d = await api(`/api/settings${query}`); showMode(d.mode); return d; }
     const kvRow = (k, v) => [h('dt', { text: k }), v instanceof Node ? h('dd', {}, v) : h('dd', { text: v })];
     async function settings() {   // Policy
@@ -1214,7 +1219,8 @@
     }
     // --- Settings → Safe Browsing (0.5.23): the API key (tested, kept in Secret Manager, never shown again),
     // and on or off. Each change needs the project ID, as the policy does.
-    // A small form under a button: the project ID, then confirm; posts body() with it to path.
+    // A small form under a button (on every Settings page that turns something on or off): the project ID, then
+    // confirm; posts body() with it to path.
     function confirmForm(label, path, body, done, note = null) {
         const err = h('div', { class: 'policy-error', role: 'alert' });
         const project = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', placeholder: 'project-id', 'aria-label': 'Google Cloud project ID' });
@@ -1322,7 +1328,7 @@
             if (!l.missed) return l.name;
             const what = l.missed === 'failed'
                 ? `Missed its download${l.failures > 1 ? ` ${num(l.failures)} times` : ''} since ${when(l.failedSince)}: ${l.error}. ${l.updated ? `The copy from ${when(l.updated)} is still used.` : 'It has no copy yet, so it isn\'t used.'}`
-                : `Not updated since ${when(l.updated)}: the daily download isn't happening (Status shows the hourly job). Its copy is still used.`;
+                : `Not updated since ${when(l.updated)}: the daily download isn't happening (Health → Service status shows the hourly job). Its copy is still used.`;
             return h('div', {}, h('div', { class: 'list-name' }, alertIcon(`Alert: ${l.name} missed its download`), h('b', { text: l.name })), h('div', { class: 'small list-problem', text: what }));
         };
         const recheck = h('button', { class: missed.length ? 'btn primary' : 'btn', type: 'button',
@@ -1360,7 +1366,7 @@
     }
 
     // --- Keeping the page up to date --------------------------------------------------------------
-    // While the tab is visible, the page shown is fetched again every LIVE_MS, quietly. A round is skipped
+    // While the tab is visible, the page shown is fetched again every LIVE_MS (liveTick looks every 5 s), quietly. A round is skipped
     // while someone is using the page (typing in a field, focus on something in it, a tooltip open, text
     // selected, an action under way), and taken as soon as they stop. Pausing is remembered per browser.
     const LIVE_MS = Number(window.SPRUCE_LIVE_MS) || 30000;   // (a test page may set it shorter)
@@ -1402,14 +1408,15 @@
     }
     function liveDone(err) { liveError = err; updatedAt = Date.now(); showLive(); }
     function liveTick() {
-        // (not on Check an email: its answer isn't fetched again)
+        // (not on Check an email, whose answer isn't fetched again, nor on Review, which keeps its list while it is
+        // answered; the badges and the brake banner still update there)
         if (away()) { showLive(); return; }
         if (!document.hidden) refreshPending();
         const every = STILL_PAGES.test(currentHash()) ? STILL_MS : LIVE_MS;
         if (live && !document.hidden && Date.now() - updatedAt >= every && !inUse() && !/^#\/?(check|review)/.test(currentHash())) render({ quiet: true });
     }
 
-    // --- Activity: alerts, what admins did, errors, the watching of mailboxes ---------------------
+    // --- Health → Activity: alerts, what admins did, errors, the watching of mailboxes ------------
     // Activity (0.5.29): its own period, up to how long it is kept (AUDIT_DAYS, a year by default), a kind,
     // words to look for, and all of it as CSV for an audit (recorded under What admins did).
     async function activity(params) {
@@ -1437,7 +1444,7 @@
                 : h('div', { class: 'empty', text: 'Nothing in this period.' }))];
     }
 
-    // --- Ready for enforce mode? -------------------------------------------------------------------
+    // --- Health → Readiness: ready for enforce mode? ------------------------------------------------
     async function readiness() {
         const { readiness: r } = await api(`/api/readiness?days=${days}`);
         const todo = r.checks.filter(c => !c.ok).length;
@@ -1514,6 +1521,8 @@
     async function review(params) {
         const queue = params.get('queue') === 'suspicious' ? 'suspicious' : 'moved', Q = QUEUES[queue];
         const plain = queue === 'moved' ? '#/review' : `#/review?queue=${queue}`;
+        // A queue is read once and kept while it is answered (answered items leave it here; live updates skip
+        // Review); read again for Look again (restart) or another period.
         let st = reviewStates[queue];
         if (!st || params.get('restart') || st.days !== days) {
             const d = await api(`/api/review?${q({ days: String(days), queue })}`);
@@ -1692,7 +1701,7 @@
                         h('a', { class: 'btn spaced-btn', href: '#/health' }, 'Model health')) : null))];
     }
 
-    // --- Settings: the weekly summary email (off by default) ---------------------------------------------
+    // --- Settings → Weekly summary: the weekly summary email (off by default) ----------------------------
     function digestCard(d) {
         const g = d.digest || { enabled: false };
         const preview = h('pre', { class: 'digest-preview', hidden: true });
@@ -1805,6 +1814,7 @@
                 toast(o.newest ? `Asked GitHub just now: the newest approved version is ${o.newest.version}.` : `Asked GitHub just now: ${o.why || 'no answer'}`);
                 render();
             } catch (e) {
+                // A press too soon: the service's refusal says in how many seconds; the button counts down to it.
                 const m = /in (\d+) seconds/.exec(e.message);
                 if (m) until = Date.now() + Number(m[1]) * 1000;
                 toast(e.message);
@@ -1855,6 +1865,7 @@
         if (file && HELP_FILES[file]) return h('a', { href: `#/${HELP_FILES[file]}`, text: label });
         return document.createTextNode(label);
     }
+    // One line's **bold**, `code` and [links](…), as elements; the rest stays text.
     function inlineMd(text) {
         const out = [], re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
         let last = 0, m;
@@ -1921,8 +1932,9 @@
         return root;
     }
 
-    // --- Settings: the policy, changed here with the project ID ---------------------------------------------
-    // Mode, the AI lines, the brake, the time zone and how long records are kept. Each Change opens a form under its row; it
+    // --- Settings → Policy and Settings → Allowlist: the policy, changed here with the project ID ---------------
+    // POLICY_ROWS (the mode, the AI lines and switches, the label, re-checking, the brake, the time zone, how long
+    // records are kept) and ALLOW_ROWS (the allowlists). Each Change opens a form under its row; it
     // needs the project ID, and switching to enforce mode the agreement too. Live updates wait while a form
     // is open. deploy/install.sh asks which to keep when settings.env says otherwise (deploy/dashboard-policy.sh).
     const POLICY_ROWS = [
@@ -1967,7 +1979,7 @@
             if (p.changed && key === 'allowLinkDomains') return `Changed here by ${p.changed.by}, ${when(p.changed.at)}.`;
             if (p.changed) return `Changed here by ${p.changed.by}, ${when(p.changed.at)}. settings.env (${ENV_NAME[key]}) says ${short(key, p.env)}.`;
             if (p.replaced) return `From settings.env (${ENV_NAME[key]}). It replaced ${short(key, p.replaced.value)}, set here by ${p.replaced.by}.`;
-            // (install.sh doesn't pass these two: off unless changed here, or set in the services' environment)
+            // (install.sh doesn't pass these: off, or for recheck on, unless changed here or set in the services' environment)
             if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel') return p.env ? `On in the services' environment (${ENV_NAME[key]}).` : `Off: the default (${ENV_NAME[key]}).`;
             if (key === 'recheck') return p.env ? `On: the default (${ENV_NAME[key]}).` : `Off in the services' environment (${ENV_NAME[key]}=false).`;
             if (key === 'allowLinkDomains') return (p.env || []).length ? `From the services' environment (${ENV_NAME[key]}).` : 'None: the default. Added here.';
@@ -2120,7 +2132,7 @@
             h('div', { class: 'actions' }, save, cancel), err);
     }
 
-    // --- Settings: the retraining export (off by default) -----------------------------------------------
+    // --- Settings → Retraining: the retraining export (off by default) ----------------------------------
     function trainingSettingCard(d) {
         const g = d.trainingExport || { enabled: false };
         const toggle = h('input', { type: 'checkbox', role: 'switch', checked: !!g.enabled, 'aria-label': 'Allow the retraining export' });
@@ -2137,8 +2149,9 @@
     }
 
     // The tab's title shows how many things need you (the brake, held campaigns, users who took flagged
-    // mail back); the Review item in the menu (and in the phone's tab bar), how many emails wait for review. Every 30 s, with
-    // the live updates.
+    // mail back); the Review item in the menu (and in the phone's tab bar), how many emails wait for review.
+    // Read at most every 25 s, from the live updates' tick (paused or not, but not while the person is away) and
+    // after an action.
     let pendingAt = 0, unreviewed = 0;
     function showUnreviewed() {
         for (const badge of [$('#reviewCount'), $('#reviewCountTab')]) {
@@ -2172,8 +2185,9 @@
         } catch (e) { /* the next tick tries again */ }
     }
 
-    // "Read the directory again now" (Settings; "Update group membership now" before 0.5.53): runs the daily re-read of who is checked at once, and
-    // says when the group was last read and whether that reached the service.
+    // "Read the directory again now" (Settings → Mailboxes; "Update group membership now" before 0.5.53): runs the
+    // daily re-read of who is checked at once (the spruce-renew-watches job), and says when the directory was last
+    // read and whether that reached the service.
     function renewBar(r) {
         if (!r) return null;
         const last = r.last;
@@ -2651,7 +2665,7 @@
         for (const b of [$('#menuBtn'), $('#moreBtn')]) if (b) b.setAttribute('aria-expanded', String(open));
         if (open) { const a = side.querySelector('a'); if (a) a.focus(); }
     }
-    let pageBusy = () => false;   // a page sets it when live updates should wait (Messages with emails selected)
+    let pageBusy = () => false;   // a page sets it when live updates should wait (emails ticked on Messages, a form being filled in)
     let rendering = 0;
     // quiet: a live update (no loading fade, the scroll position kept, and on failure the page stays).
     async function render(opts = {}) {
@@ -2690,7 +2704,8 @@
     }
 
     // The period buttons, within how long records are kept (Settings → Policy): with 35 days, Last 90 days
-    // becomes Last 35 days.
+    // becomes Last 35 days. The first button at or over the period is capped to it, the longer ones are hidden,
+    // and a period no longer offered moves to the longest one left at or under it (else the shortest).
     function fitRanges(keep) {
         const k = Math.round(Number(keep));
         if (!(k > 0)) return;

@@ -1,7 +1,7 @@
 'use strict';
 // Records in Firestore (native mode), in the organization's own Google Cloud project. Same interface
 // as MemoryStore. Collections:
-//   users/{email}           historyId, watchExpiration, lastNotification
+//   users/{email}           historyId, watchExpiration, lastNotification, watched (stopped mailboxes: false)
 //   seen/{user|messageId}   messages being or already analyzed: state working (claimed by one instance),
 //                           retry (a try failed) or done (also an older document with no state); for an
 //                           email left in the Inbox, ix (re-check hashes, src/recheck.js) and rx (received)
@@ -14,14 +14,14 @@
 //   moveCounts/{hour|resume}~{i} moves in a clock hour (the domain-wide brake; a slot reserved before each
 //                           move), in up to 32 shards whose limits add up to the brake's limit exactly
 //   campaigns/{key}         the campaign brake: weak moves, held, an admin's decision; moves (alerts)
-//   events/{auto}           alerts and errors for the dashboard
+//   events/{auto}           Activity: alerts, errors, what admins did, the watching of mailboxes (AUDIT_DAYS)
 //   blobs/{name}, ~{i}      the phishing lists (gzip, in chunks), shared by every instance
 //   cache/{kind|key}        remembered answers shared by every instance (registry dates)
 // Documents that expire carry expireAt (a Timestamp): Firestore's TTL policies (deploy/install.sh) delete
 // them by themselves, typically within a day after it, at no request's cost. purge() removes what has no
 // expireAt (written before 0.4.0) and what a shorter RETENTION_DAYS has made old. Reads leave it out.
-// Queries use only single-field indexes (processedAt), which Firestore creates by itself; filtering
-// by user, action or campaign is done on the (bounded) result. That is enough for a pilot and a
+// Queries use only single-field indexes (processedAt, updatedAt, campaign, rx, ix, at…), which Firestore
+// creates by itself; filtering by user, action or state is done on the (bounded) result. That is enough for a pilot and a
 // mid-sized district; a large one would add composite indexes (docs/ROADMAP.md).
 const { Firestore, FieldValue, FieldPath, Timestamp } = require('@google-cloud/firestore');
 const { movesForward } = require('./history');
@@ -62,7 +62,6 @@ class FirestoreStore {
         ]);
         return { watched: watched.data().count, lastNotification: latest.empty ? null : (Number(latest.docs[0].data().lastNotification) || null), ending: ending.data().count };
     }
-    // Watched mailboxes for Settings → Mailboxes, at most limit (by address).
     // (0.5.53) A page of the watched mailboxes for Settings → Mailboxes (a district has 10,000): by address, after
     // `after`, those starting with `prefix` only. Ordered by the address alone (its automatic single-field index;
     // "watched" is filtered here, so no composite index is needed): a few more are read than shown.
@@ -81,6 +80,8 @@ class FirestoreStore {
         const page = items.slice(0, limit);
         return { items: page, next: items.length > limit ? String(page[page.length - 1].email) : null };
     }
+    // Watched mailboxes, at most limit, by address (GET /api/settings?mailboxes=1; Settings → Mailboxes pages
+    // through listWatchedPage).
     async listWatched(limit = 500) {
         return (await this.col('users').where('watched', '==', true).limit(limit).get()).docs.map(d => d.data()).sort((a, b) => String(a.email).localeCompare(String(b.email)));
     }
@@ -118,9 +119,6 @@ class FirestoreStore {
     }
     async unclaim(user, id) { await this.seenRef(user, id).set({ state: 'retry' }, { merge: true }); }
     async markSeen(user, id, extra = {}) { const at = Date.now(); await this.seenRef(user, id).set(Object.assign({ at, state: 'done', expireAt: this.expiry(at) }, extra), { merge: true }); }
-    // The emails whose re-check hashes (seen.ix, src/recheck.js) include any of these, received since
-    // sinceMs: [{ user, id, receivedAt, ix }]. Firestore's own single-field index on ix (array-contains-any,
-    // 30 values a query), a few queries at once.
     // (0.5.51) The emails with re-check hashes (seen markers with rx) delivered between sinceMs and untilMs,
     // newest first, at most limit: the sweep after an update that changed the checks (pipeline.js
     // checksUpdate). One field's range and order: Firestore's automatic single-field index serves it.
@@ -128,6 +126,9 @@ class FirestoreStore {
         const q = await this.col('seen').where('rx', '>=', sinceMs).where('rx', '<=', untilMs).orderBy('rx', 'desc').limit(limit).get();
         return q.docs.map(d => { const k = d.id.lastIndexOf('|'), v = d.data(); return { user: d.id.slice(0, k), id: d.id.slice(k + 1), receivedAt: Number(v.rx) || 0 }; });
     }
+    // The emails whose re-check hashes (seen.ix, src/recheck.js) include any of these, received since
+    // sinceMs: [{ user, id, receivedAt, ix }], at most limit. Firestore's own single-field index on ix
+    // (array-contains-any, 30 values a query), 5 queries at once.
     async findIndexed(hashes, sinceMs = 0, limit = 5000) {
         const out = new Map(), parts = [];
         for (let i = 0; i < hashes.length; i += 30) parts.push(hashes.slice(i, i + 30));
@@ -142,6 +143,7 @@ class FirestoreStore {
         }
         return [...out.values()];
     }
+    // A record, whole (updatedAt for the dashboard's cache; it expires RETENTION_DAYS after it was processed).
     async saveRecord(rec) { await this.col('records').doc(safeId(rec.key)).set(Object.assign({}, rec, { updatedAt: Date.now(), expireAt: this.expiry(Number(rec.processedAt) || Date.now()) })); }
     // Records saved or changed after a time, oldest change first (the dashboard's cache).
     // after (0.6.7): { updatedAt, id } of the last record of the page before (its key): the page after it, in
@@ -157,6 +159,7 @@ class FirestoreStore {
         return q.docs.map(d => clean(d.data())).filter(r => r.processedAt >= sinceMs).sort((a, b) => b.processedAt - a.processedAt);
     }
     async getRecord(key) { const d = await this.col('records').doc(safeId(key)).get(); return d.exists ? clean(d.data()) : null; }
+    // Fields merged into a record (updatedAt raised); null when there is no such record.
     async updateRecord(key, patch) {
         const ref = this.col('records').doc(safeId(key));
         const d = await ref.get();
@@ -165,6 +168,7 @@ class FirestoreStore {
         await ref.set(p, { merge: true });
         return Object.assign(d.data(), p);
     }
+    // Records processed from sinceMs to before untilMs, newest first, at most limit.
     async listRecords({ sinceMs = 0, untilMs = Number.MAX_SAFE_INTEGER, limit = 5000 } = {}) {
         const q = await this.col('records').where('processedAt', '>=', sinceMs).where('processedAt', '<', untilMs).orderBy('processedAt', 'desc').limit(limit).get();
         return q.docs.map(d => clean(d.data()));
@@ -176,6 +180,7 @@ class FirestoreStore {
         for (const [k, n] of Object.entries(counts)) v[k] = FieldValue.increment(n);
         await this.col('stats').doc(`${day}~${Math.floor(Math.random() * STAT_SHARDS)}`).set(v, { merge: true });
     }
+    // The days' counters, each day's shards added up: [{ day, scanned, moved, … }], oldest first.
     async getStats(fromDay, toDay) {
         const q = await this.col('stats').where('day', '>=', fromDay).where('day', '<=', toDay).orderBy('day').get();
         const byDay = new Map();
@@ -250,11 +255,10 @@ class FirestoreStore {
             return { held: false, count: c.weakMoves + 1 };
         });
     }
-    // Counts a campaign's moves (an increment, no transaction); true once, for the move that reached
-    // alertAt first (the "large campaign" alert).
-    // A moved copy of a campaign, counted until its alert is sent (alertAt moves). alerted() is called once
-    // it has been: the caller then stops counting (a campaign to 10,000 mailboxes writes ~50 times, not
-    // 10,000 times, to its one document).
+    // A moved copy of a campaign, counted (an increment, no transaction) until its alert is sent: true once,
+    // for the move that reached alertAt first (the "large campaign" alert, in a transaction). alerted() is
+    // called once it has been: the caller then stops counting (a campaign to 10,000 mailboxes writes ~50
+    // times, not 10,000 times, to its one document).
     async campaignMoved(key, alertAt, now = Date.now(), alerted = () => {}) {
         const ref = this.col('campaigns').doc(safeId(key));
         await ref.set({ key, moves: FieldValue.increment(1), at: now, expireAt: this.expiry(now) }, { merge: true });
@@ -272,8 +276,9 @@ class FirestoreStore {
     }
     async getCampaign(key) { const d = await this.col('campaigns').doc(safeId(key)).get(); return d.exists ? clean(d.data()) : null; }
     async setCampaign(key, patch) { const at = Date.now(); await this.col('campaigns').doc(safeId(key)).set(Object.assign({ key }, patch, { at, expireAt: this.expiry(at) }), { merge: true }); }
-    // Only the campaigns ever held (the dashboard asks every 30 s: a few documents, not every campaign).
+    // Only the campaigns ever held (the dashboard asks at most every 15 s: a few documents, not every campaign).
     async listHeldCampaigns() { return (await this.col('campaigns').where('heldAt', '>', 0).limit(500).get()).docs.map(d => clean(d.data())); }
+    // Every campaign's state document of the last 90 days, at most 2,000.
     async listCampaignStates() { return (await this.col('campaigns').where('at', '>=', Date.now() - 90 * 24 * 3600 * 1000).limit(2000).get()).docs.map(d => clean(d.data())); }
     // Sets a state only when it isn't set yet (the brake: one alert when instances trip it together).
     async setStateIfUnset(name, value) {
@@ -289,6 +294,7 @@ class FirestoreStore {
     async setState(name, value) { await this.col('state').doc(name).set({ value }); }
     // Activity is kept AUDIT_DAYS (0.5.29; a year by default), not RETENTION_DAYS like the email records.
     async addEvent(ev) { const e = Object.assign({ at: Date.now() }, ev); await this.col('events').add(Object.assign(e, { expireAt: this.expiry(Number(e.at) || Date.now(), (Number(this.cfg.auditDays) || 365) * DAY) })); if (this.onEvent) this.onEvent(e); }
+    // Activity's events from sinceMs (to before untilMs), newest first, at most limit.
     async listEvents(sinceMs = 0, { limit = 500, untilMs = null } = {}) {
         let q = this.col('events').where('at', '>=', sinceMs);
         if (untilMs !== null && untilMs !== undefined) q = q.where('at', '<', untilMs);
@@ -315,6 +321,7 @@ class FirestoreStore {
     // Remembered answers shared by every instance (registry dates of domains): cache/{kind|key}.
     async getCached(kind, key) { const d = await this.col('cache').doc(safeId(`${kind}|${key}`)).get(); const v = d.exists ? d.data() : null; return v && v.exp > Date.now() ? v.value : null; }
     async setCached(kind, key, value, ttlMs) { await this.col('cache').doc(safeId(`${kind}|${key}`)).set({ value, exp: Date.now() + ttlMs, expireAt: this.expiry(Date.now(), ttlMs) }); }
+    // How many of the newest 5,000 records since sinceMs have this action.
     async countActions(sinceMs, action) {
         const q = await this.col('records').where('processedAt', '>=', sinceMs).orderBy('processedAt', 'desc').limit(5000).get();
         return q.docs.filter(d => d.data().action === action).length;

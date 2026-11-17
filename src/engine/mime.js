@@ -1,14 +1,17 @@
 'use strict';
 // A raw email (RFC 822, as the Gmail API returns it with format=raw) → the facts the checks and the
-// model use: sender, subject, the receiving server's verification results, links, the text a person
-// sees, how the email hides text, attachments (names and types only).
+// model use: sender, subject, the receiving server's verification results (with a DMARC result worked out
+// when Gmail wrote none for the organization's own domains: deriveDmarc, 0.6.3), links, the text a person
+// sees, how the email hides text, the people in its address lines, and the attachments (their names and
+// types, and the files themselves in memory for the attachment checks, 0.5.34).
 const { simpleParser } = require('mailparser');
 const { readHtml, headTail } = require('./html');
 
-const MAX_RAW = 2 * 1024 * 1024;   // headerAnomalies reads at most this much of the message
+const MAX_RAW = 2 * 1024 * 1024;   // headerAnomalies reads at most this much of the message (the parser reads it all)
 
 // The receiving server's own verdict (Gmail writes "Authentication-Results: mx.google.com; …" on
-// arrival). Results written by anyone else (the sender can add their own) are ignored.
+// arrival). Results written by anyone else (the sender can add their own) are ignored. Returns { dmarc, spf,
+// dkim, arc, headerFrom, dkimDomains, spfDomain } from the first such line, or null.
 function receiverAuth(rawHead, receiverHost = 'mx.google.com') {
     const lines = String(rawHead || '').replace(/\r\n/g, '\n').replace(/\n[ \t]+/g, ' ').split('\n');
     for (const line of lines) {
@@ -46,7 +49,8 @@ function deriveDmarc(auth, senderAddress, ownDomains = []) {
 }
 
 function textToHtmlish(text) {
-    // Plain-text emails: the text is what a person sees; links are the web addresses in it.
+    // Plain-text emails: the text is what a person sees (cut as html.js cuts it); links are the web addresses
+    // in it (at most 300).
     return { visibleText: headTail(text), hiddenText: '', quotedText: '', preheader: '', layout: [], pictures: 0,
              links: [...String(text || '').matchAll(/\bhttps?:\/\/[^\s<>"')\]]+/gi)].slice(0, 300).map(m => ({ text: m[0], href: m[0], hidden: false, afterGap: false })) };
 }

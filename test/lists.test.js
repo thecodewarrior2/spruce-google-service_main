@@ -86,7 +86,7 @@ test('the hourly job: an alert when a list newly misses its download, once a day
     await svc.syncFeeds();
     assert.equal(listAlerts().length, 1);
     assert.equal(listAlerts()[0].message, 'A phishing list missed its download: TweetFeed (researchers\' reports) (HTTP 503). The previous copy is still used, and the download is tried again every 3 hours. Dashboard: Settings → About shows each list\'s state, with a Re-check button.');
-    assert.ok((await store.listEvents(0)).some(e => e.alert && e.kind === 'list-download'), 'in Recent activity too');
+    assert.ok((await store.listEvents(0)).some(e => e.alert && e.kind === 'list-download'), 'in Health → Activity too');
     // An hour later: not yet retried; three hours later: only TweetFeed, and no second alert the same day.
     now += HOUR; n.calls.length = 0;
     assert.equal((await svc.syncFeeds()).skipped, 'checked within the day');

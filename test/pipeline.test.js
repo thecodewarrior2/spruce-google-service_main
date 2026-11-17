@@ -460,7 +460,7 @@ test('a security group as the pilot: its members are watched, those removed are 
     await svc.renewWatches();
     assert.deepEqual(gmail.stopped, ['b@maple-schools.example']);
     assert.match(store.events.filter(e => e.kind === 'watch').pop().text, /^Watching 1 mailbox\. .* Stopped watching 1 mailbox no longer in the pilot\.$/);
-    // Why people in the group aren't watched: said in Recent activity, with the domains that don't match.
+    // Why people in the group aren't watched: said in Health → Activity, with the domains that don't match.
     const members = gmail.groupMembers;
     gmail.groupMembers = async (admin, group, domains, found) => { Object.assign(found, { entries: 6, inactive: 1, outside: 2, outsideDomains: ['elsewhere.example', 'students.maple-schools.example'], everyone: 1, groups: 1 }); return ['a@maple-schools.example']; };
     let fail = true;

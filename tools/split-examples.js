@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Splits a checked retraining file into the examples to train on and the ones kept aside to measure the
-// new model with (docs/RETRAINING.md, step 6): every third email of each kind (phishing, genuine) is held
+// new model with (docs/RETRAINING.md, step 5): every third email of each kind (phishing, genuine) is held
 // out. Variants of one email (names ending -v1, -v2…) stay together, on the same side, or the score
 // would be measured on emails the model has already seen.
 //
@@ -13,6 +13,7 @@ const file = process.argv[2];
 if (!file) { console.error('Usage: node tools/split-examples.js FILE.jsonl'); process.exit(2); }
 const rows = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(l => l.trim()).map(l => JSON.parse(l));
 const emailOf = (r) => String(r.name || '').replace(/-v\d+$/, '');
+// Every third distinct email of each label (indexes 2, 5, 8…), counted after its variants are folded together.
 const held = new Set();
 for (const label of [1, 0]) {
     const emails = [...new Set(rows.filter(r => r.label === label).map(emailOf))];
