@@ -123,8 +123,9 @@ To delete what the dashboard shows sooner, all at once: `bash deploy/clear-data.
 
 - **The dashboard:** only through Identity-Aware Proxy, and only for the addresses in `ADMIN_EMAILS` or
   the members of `ADMIN_GROUP` (accounts in your own domains); and, for the review pages only, the members of
-  `MODERATOR_GROUP` (0.6.1). Moderators see the records (sender, recipients, subject, the checks' findings) to
-  answer them, but can't read an email from Gmail, download the CSV or the retraining file, or see Settings or Health.
+  `MODERATOR_GROUP` (0.6.1). Moderators see the records (sender, recipients, subject, the checks' findings) and
+  can read an email from Gmail to answer it (Show the email: nothing is kept, and Activity notes who looked), but
+  can't download the CSV or the retraining file, or see Settings or Health.
   Every move back to the Inbox, mark and setting change records who did it.
 - **The service's own accounts:** in your Cloud project, under IAM. Limit project access to the people
   who run the service.

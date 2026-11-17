@@ -86,12 +86,14 @@ const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' &
 // (src/dashboard/aggregate.js, shared with the clickable mockup).
 const reviewGroups = A.reviewGroups;
 // (0.6.1) What a moderator (MODERATOR_GROUP) may use: Today, Review, Threats → Campaigns and Re-checked, Mail
-// (Messages, an email's page, Check an email, Users) and Help, and the review answers: phishing, false alarm, ignore
-// and re-scan, one at a time or ticked together. Never Health, Settings, Look-alikes, the CSV export, reading an
-// email from Gmail, moving an email back, the brake, or what moves, releases or searches for a whole campaign.
+// (Messages, an email's page, Check an email, Users) and Help; the review answers: phishing, false alarm (which moves
+// one in Spam back to the Inbox), ignore and re-scan, one at a time or ticked together; reading an email from Gmail
+// to decide (Show the email); and confirming, dismissing or searching for a whole campaign. Never Health, Settings,
+// Look-alikes, the CSV export, the brake, or moving back an email nobody marked a false alarm.
 const MODERATOR_ROUTES = new Set(['GET /api/session', 'GET /api/overview', 'GET /api/pending', 'GET /api/review', 'GET /api/message', 'GET /api/messages',
     'GET /api/campaigns', 'GET /api/campaign', 'GET /api/users', 'GET /api/rechecked', 'GET /api/help',
-    'POST /api/mark', 'POST /api/unclear', 'POST /api/rescan', 'POST /api/check', 'POST /api/bulk']);
+    'POST /api/mark', 'POST /api/unclear', 'POST /api/rescan', 'POST /api/check', 'POST /api/bulk',
+    'POST /api/campaign/confirm', 'POST /api/campaign/release', 'POST /api/campaign/find', 'POST /api/message/context']);
 const MODERATOR_BULK = ['false-alarm', 'phishing', 'unclear'];
 function moderatorMay(route, action) {
     if (!MODERATOR_ROUTES.has(route)) return false;

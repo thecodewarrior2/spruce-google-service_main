@@ -420,7 +420,7 @@
             if (ask && !window.confirm(ask)) return;
             const b = e.currentTarget;
             b.disabled = true; acting++;
-            try { const out = await api(path, { method: 'POST', body: body() }); toast(done(out)); render(); }
+            try { const out = await api(path, { method: 'POST', body: body() }); toast(done(out)); render(); pendingAt = 0; refreshPending(); }
             catch (err) { toast(`Couldn't do that: ${err.message}`); b.disabled = false; }
             finally { acting--; }
         };
@@ -437,7 +437,7 @@
         const found = (f) => (f ? `; ${num(f.found)} more found in ${num(f.searched)} of ${num(f.of)} mailboxes${f.moved ? `, ${num(f.moved)} moved` : ''}` : '');
         return h('section', { class: `card campaign-bar${c.held && !c.decision ? ' held' : ''}` },
             h('div', {}, h('b', { text: c.label }), h('div', { class: 'small muted', text: status })),
-            isModerator() ? h('div', { class: 'small muted', text: 'Confirming or dismissing a whole campaign is for an administrator; answer its copies in Review.' }) : h('div', { class: 'actions' },
+            h('div', { class: 'actions' },
                 c.decision !== 'confirmed' ? [
                     h('button', { class: 'btn primary', type: 'button', onclick: postButton('/api/campaign/confirm', () => ({ key, search: search.checked }),
                         (o) => (o.moved && o.moved.monitor ? `Confirmed as phishing. Monitor mode: nothing moved${found(o.found)}.` : `Confirmed: ${num(o.moved.moved)} copies moved to Spam${found(o.found)}${o.moved.left ? `; ${num(o.moved.left)} left, press again` : ''}.`),
@@ -697,7 +697,7 @@
             : ai >= aiSuspicious ? `over the suspicious line (${pct(aiSuspicious)}), under the move line (${pct(aiThreshold)}): recorded as suspicious, not moved`
             : ai >= 0.5 ? `50% or more, so it leans toward phishing, but under the suspicious line (${pct(aiSuspicious)}): the AI alone does nothing`
             : `under 50%: the AI reads it as genuine`;
-        const canRead = !m.pasted && !!m.key && !isModerator();
+        const canRead = !m.pasted && !!m.key;
         const more = canRead ? h('button', { class: 'linkbtn', type: 'button', text: '…show more' }) : null;
         if (more) more.addEventListener('click', () => showAiReading(m));
         return [
@@ -770,7 +770,7 @@
         const actions = quiet ? null : h('div', { class: 'actions' },
             rescanButton(m, 'btn'),
             m.state === 'moved' && !isModerator() ? h('button', { class: 'btn primary', type: 'button', onclick: () => act('/api/release', { key: m.key }, 'Moved back to the Inbox.') }, 'Move back to Inbox') : null,
-            m.falseAlarm !== true ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: true }, notMoved ? 'Marked as not phishing.' : 'Marked as a false alarm.') }, notMoved ? 'Mark not phishing' : 'Mark false alarm') : null,
+            m.falseAlarm !== true ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: true }, (o) => `${notMoved ? 'Marked as not phishing' : 'Marked as a false alarm'}${o && o.released ? ', and moved back to the Inbox' : ''}.`) }, m.state === 'moved' ? 'False alarm: move back to Inbox' : notMoved ? 'Mark not phishing' : 'Mark false alarm') : null,
             m.falseAlarm !== false || moves ? h('button', { class: `btn${moves ? ' primary' : ''}`, type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, move: moves }, (out) => phishedText(out.moved)) }, moves ? 'Confirm phishing: move to Spam' : 'Confirm phishing') : null,
             !(m.unclear && m.markedBy) ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/unclear', { key: m.key }, 'Set aside: left as it is for the reader to decide, and not used for retraining.'), title: 'Neither clearly phishing nor clearly safe' }, 'Ignore, treat as suspicious') : null);
         const verdictText = pasted ? 'Checked from a pasted copy: nothing was stored, moved or counted.'
@@ -1343,16 +1343,16 @@
             else {
                 // Moved only in enforce mode, as the button said (the server checks the mode, and the Inbox, again).
                 const out = await api('/api/mark', { method: 'POST', body: { key, falseAlarm: action === 'false-alarm', move: action === 'phishing' && st.mode === 'enforce' } });
-                msg = action === 'false-alarm' ? Q.noDone : phishedText(out.moved);
+                msg = action === 'false-alarm' ? (out.released ? `${Q.noDone.replace(/\.$/, '')}, and moved back to the Inbox.` : Q.noDone) : phishedText(out.moved);
             }
         } else {
-            const sum = { done: 0, moved: 0, failed: 0 };
+            const sum = { done: 0, moved: 0, released: 0, failed: 0 };
             for (let i = 0; i < keys.length; i += 500) {
                 const out = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 500), action } });
-                sum.done += out.done || 0; sum.moved += out.moved || 0; sum.failed += out.failed || 0;
+                sum.done += out.done || 0; sum.moved += out.moved || 0; sum.released += out.released || 0; sum.failed += out.failed || 0;
             }
             msg = action === 'unclear' ? `Set aside: ${num(sum.done)} copies left as they are, not used for retraining.`
-                : action === 'false-alarm' ? `${Q.noDone.replace(/\.$/, '')}: ${num(sum.done)} copies.`
+                : action === 'false-alarm' ? `${Q.noDone.replace(/\.$/, '')}: ${num(sum.done)} copies${sum.released ? `, ${num(sum.released)} moved back to the Inbox` : ''}.`
                 : `Confirmed as phishing: ${num(sum.done)} copies${sum.moved ? `, ${num(sum.moved)} moved to Spam` : ''}.`;
             if (sum.failed) msg += ` ${num(sum.failed)} couldn't be marked.`;
         }
@@ -1478,7 +1478,7 @@
             h('div', { class: 'small', text: `AI ${pct(ai)} (moves at ${pct(aiThreshold)}) · rules score ${m.score === null || m.score === undefined ? '–' : m.score} (flagged at 5) · ${num(against.length)} sign${against.length === 1 ? '' : 's'} against, ${num(pro.length)} for` }));
         const users = g.users.length ? g.users : [m.user].filter(Boolean);
         const quotes = m.ai && m.ai.reasons && m.ai.reasons.length ? m.ai.reasons.slice(0, 3).map(r => h('div', { class: 'quote', text: r.facts ? 'Who sent it, the sender check and where its links go' : `“${r.sentence}”` })) : null;
-        const canRead = !!m.key && !m.pasted && !isModerator();
+        const canRead = !!m.key && !m.pasted;
         return h('div', { class: 'rv-open' },
             h('div', { class: 'rv-head' },
                 h('div', { class: 'rv-who' }, 'From ', m.sender.address ? addr(m.sender.address, m.sender.name ? `${m.sender.name} <${m.sender.address}>` : m.sender.address) : (m.sender.name || 'an unknown sender'),
@@ -1994,6 +1994,19 @@
             badge.title = `${num(unreviewed)} email${unreviewed === 1 ? '' : 's'} to review`;
         }
     }
+    // (0.6.1) The brake, across the top of every page, for admins and moderators alike, until an admin resumes moving.
+    function showBrake(on) {
+        const b = $('#brakeBanner');
+        if (!b || (b.hidden === !on && b.dataset.role === role)) return;
+        b.hidden = !on;
+        b.dataset.role = role;
+        b.textContent = '';
+        if (!on) return;
+        b.append(h('span', { class: 'brake-icon', 'aria-hidden': 'true', text: '!' }),
+            h('div', { class: 'grow' }, h('b', { text: 'Moving is paused by the brake. ' }),
+                'Too many emails were moved within an hour, so emails the checks flag are not being moved to Spam: they stay in the Inbox. ',
+                isModerator() ? h('b', { text: 'Contact an administrator.' }) : ['Contact an administrator; an administrator resumes moving on ', h('a', { href: '#/overview', text: 'Today' }), '.']));
+    }
     async function refreshPending() {
         if (Date.now() - pendingAt < 25000) return;
         pendingAt = Date.now();
@@ -2002,6 +2015,7 @@
             document.title = p.total ? `(${p.total}) S.P.R.U.C.E Mail Protection Service` : 'S.P.R.U.C.E Mail Protection Service';
             unreviewed = p.unreviewed || 0;
             showUnreviewed();
+            showBrake(!!p.brake);
         } catch (e) { /* the next tick tries again */ }
     }
 

@@ -6,9 +6,9 @@
   unless `deploy/settings.env` names another; `off` for none), may open the dashboard to review and categorize
   emails. They see **Today**, **Review**, **Threats → Campaigns** and **Re-checked**, **Mail** (Messages, an
   email's page, Check an email, Users) and **Help**; they answer phishing, false alarm or ignore, and re-scan, one
-  at a time or ticked together. They don't see **Health** or **Settings** (nor Look-alikes), and can't move an
-  email back to the Inbox, resume the brake, confirm or dismiss a whole campaign, download the CSV, or read an
-  email from Gmail (Show the email).
+  at a time or ticked together; read an email from Gmail to decide (Show the email); and confirm, dismiss or
+  search for the copies of a whole campaign. They don't see **Health** or **Settings** (nor Look-alikes), and
+  can't resume the brake, download the CSV, or move an email back without marking it a false alarm.
   - The service refuses everything else to them (403), whatever the page shows: `MODERATOR_ROUTES` in
     `src/server.js`. Someone in both groups is an admin. A failed check of the moderator group lets nobody in as a
     moderator, and never keeps an admin out (`src/auth/verify.js`).
@@ -18,6 +18,12 @@
     which is for admins).
   - `DEMO_ROLE=moderator` shows the demo as a moderator sees it.
   - Test: `test/moderators.test.js`.
+- **A false alarm goes back to the Inbox:** marking an email a false alarm (not phishing) moves it back to the Inbox
+  when it is in Spam, in Review, on its page and ticked together (`mark` in `src/pipeline.js`); Activity notes the
+  move. On its page the button then reads **False alarm: move back to Inbox**. In monitor mode nothing was moved,
+  so nothing moves back.
+- **The brake banner:** while the brake holds, a red banner across the top of every page, for admins and
+  moderators, says moving is paused and to contact an administrator (an admin resumes it on Today).
 - **Health → Retraining examples:** the export of marked emails for retraining the AI model has its own page
   (it was at the foot of Model health). Settings → Retraining still allows it or stops it.
 - **Install level 6:** `deploy/install.sh` passes `MODERATOR_GROUP` to the dashboard and lets the group through

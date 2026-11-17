@@ -212,7 +212,7 @@ Even someone IAP lets through is refused unless their address is in `ADMIN_EMAIL
 `DIRECTORY_ADMIN`) and grant IAP to `group:spruce-moderators@ORG`; `deploy/install.sh` does both, with that name
 unless `deploy/settings.env` says another (`off` for none). The group is checked the same way as `ADMIN_GROUP`; a
 failed check lets nobody in as a moderator, and never keeps an admin out. A moderator can call only the review
-pages' routes (`MODERATOR_ROUTES` in `src/server.js`); every other one answers 403. Removing the group later: set
+pages' routes (with reading an email from Gmail and whole-campaign decisions) (`MODERATOR_ROUTES` in `src/server.js`); every other one answers 403. Removing the group later: set
 `MODERATOR_GROUP=off`, run `install.sh`, and remove the group's IAP access in the console (Security →
 Identity-Aware Proxy → spruce-admin).
 

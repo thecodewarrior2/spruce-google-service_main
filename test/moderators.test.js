@@ -36,13 +36,14 @@ test('MODERATOR_GROUP: a list, or off; it needs DIRECTORY_ADMIN like ADMIN_GROUP
     assert.ok(!configProblems(loadConfig(Object.assign({ MODERATOR_GROUP: 'off' }, base))).some(p => /MODERATOR_GROUP/.test(p)));
 });
 
-test('what a moderator may call: the review pages and answers; never settings, health, look-alikes, release, exports or reading mail', () => {
+test('what a moderator may call: the review pages, answers, whole campaigns and reading mail; never settings, health, look-alikes, the brake, release alone or exports', () => {
     for (const r of ['GET /api/session', 'GET /api/overview', 'GET /api/review', 'GET /api/message', 'GET /api/messages', 'GET /api/campaigns', 'GET /api/rechecked', 'GET /api/users', 'GET /api/help',
-        'POST /api/mark', 'POST /api/unclear', 'POST /api/rescan', 'POST /api/check']) assert.equal(moderatorMay(r), true, r);
+        'POST /api/mark', 'POST /api/unclear', 'POST /api/rescan', 'POST /api/check', 'POST /api/campaign/confirm', 'POST /api/campaign/release', 'POST /api/campaign/find',
+        'POST /api/message/context']) assert.equal(moderatorMay(r), true, r);
     for (const a of ['phishing', 'false-alarm', 'unclear']) assert.equal(moderatorMay('POST /api/bulk', a), true, a);
     assert.equal(moderatorMay('POST /api/bulk', 'release'), false);
     for (const r of ['GET /api/settings', 'POST /api/policy', 'GET /api/status', 'GET /api/health', 'GET /api/readiness', 'GET /api/activity', 'GET /api/lookalikes', 'POST /api/lookalikes/mark',
-        'POST /api/release', 'POST /api/resume', 'POST /api/campaign/confirm', 'POST /api/campaign/release', 'POST /api/campaign/find', 'GET /api/export.csv', 'POST /api/message/context',
+        'POST /api/release', 'POST /api/resume', 'GET /api/export.csv',
         'POST /api/training-export', 'POST /api/training-export/allow', 'GET /api/update', 'POST /api/update', 'POST /api/rechecked/seen', 'GET /api/mailboxes', 'POST /api/digest/send']) assert.equal(moderatorMay(r), false, r);
 });
 
@@ -74,4 +75,23 @@ test('the service refuses a moderator whatever the page shows, and says the role
         assert.equal(marked.status, 200); assert.equal(marked.body.done, 1);
         assert.equal((await store.getRecord(key)).markedBy, 'demo-moderator@example.org', 'Activity and the record name the moderator');
     } finally { srv.close(); }
+});
+
+test('a false alarm in Spam goes back to the Inbox (Review, Messages, ticked together); one in the Inbox stays', async () => {
+    const cfg = loadConfig({ DEMO: '1', ORG_DOMAINS: 'maple-schools.example' });
+    const { store } = await buildDemo({ cfg, now: Date.now() });
+    const calls = [];
+    const g = { labelId: async (u, n) => `L_${n}`, modify: async (...a) => { calls.push(a); return {}; } };
+    const service = new Service({ cfg, store, gmail: g });
+    const all = await store.listRecords({ sinceMs: 0, limit: 100000 });
+    const inSpam = all.filter(r => r.state === 'moved' && !r.markedBy);
+    const inInbox = all.find(r => r.state === 'inbox' && !r.markedBy);
+    const one = await service.mark(inSpam[0].key, true, 'mod@maple-schools.example');
+    assert.equal(one.released, true);
+    assert.equal(one.record.state, 'released'); assert.equal(one.record.falseAlarm, true);
+    assert.deepEqual(calls[0].slice(2), [['INBOX', `L_${cfg.releasedLabel}`], ['SPAM', `L_${cfg.movedLabel}`]]);
+    const kept = await service.mark(inInbox.key, true, 'mod@maple-schools.example');
+    assert.equal(kept.released, false); assert.equal(kept.record.state, 'inbox');
+    const bulk = await service.bulk(inSpam.slice(1, 3).map(r => r.key), 'false-alarm', 'mod@maple-schools.example');
+    assert.equal(bulk.done, 2); assert.equal(bulk.released, 2);
 });

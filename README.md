@@ -235,7 +235,7 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   - **Open one** to weigh the evidence: who sent it to whom (the first two, **…show more** for everyone), where
     the AI score and the rules score stand, the signs that **point to phishing** and those that **point to safe**
     (each weak, medium or strong), and what the AI weighed most. Its answers, with their keys:
-    - **P Phishing**; **F False alarm** (**Not phishing**); **I Ignore, unclear** (0.5.60): for an email that is
+    - **P Phishing**; **F False alarm** (**Not phishing**): an email in Spam goes back to the Inbox too (0.6.1); **I Ignore, unclear** (0.5.60): for an email that is
       neither clearly phishing nor clearly safe, such as an outside request for access to a form, where only the
       reader can tell. It is left as it is (still in the Inbox, with its Suspicious label), counts as reviewed so it
       leaves the queue, is never used for retraining, and the later checks and the re-check after an update leave
@@ -385,11 +385,14 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
 - **Moderators** (0.6.1): the members of `MODERATOR_GROUP` (`spruce-moderators@` your first domain unless set in
   `deploy/settings.env`; `off` for none) review and categorize emails without being admins. They see **Today**,
   **Review**, **Threats → Campaigns** and **Re-checked**, **Mail** (Messages, an email's page, Check an email, Users)
-  and **Help**, and can answer: phishing, false alarm, ignore, re-scan, one at a time or ticked together. They don't
-  see **Health** or **Settings** (nor Look-alikes), and can't move an email back to the Inbox, resume the brake,
-  confirm or dismiss a whole campaign, download the CSV, or read an email from Gmail (**Show the email**). The
-  service refuses those to them whatever the page shows. Activity names who answered, and notes a moderator's
+  and **Help**. They can answer phishing, false alarm (which moves an email in Spam back to the Inbox), ignore or
+  re-scan, one at a time or ticked together; read an email from Gmail to decide (**Show the email**); and confirm,
+  dismiss or search for the copies of a whole campaign. They don't see **Health** or **Settings** (nor Look-alikes),
+  and can't resume the brake, download the CSV, or move an email back without marking it a false alarm. The service
+  refuses those to them whatever the page shows. Activity names who answered, and notes a moderator's
   sign-in "as a moderator". Someone in both groups is an admin.
+- **The brake** (0.6.1): while it holds, a red banner across the top of every page, for admins and moderators,
+  says moving is paused and to contact an administrator; an admin resumes it on Today.
 - **The browser tab's title** counts what needs you: the brake, paused campaigns, users who took flagged
   mail back.
 

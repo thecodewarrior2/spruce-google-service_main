@@ -649,3 +649,8 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 }
 /* (0.6.1) Hidden from moderators: Health and Settings in the menu and the tab bar. */
 .nav a[hidden], .tabbar a[hidden] { display: none; }
+/* (0.6.1) The brake, across the top of every page. */
+.brake-banner { display: flex; gap: 12px; align-items: flex-start; padding: 12px 28px; background: var(--critical-soft); border-bottom: 2px solid var(--critical); color: var(--text); font-size: 13.5px; overflow-wrap: anywhere; }
+.brake-banner[hidden] { display: none; }
+.brake-banner .brake-icon { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--critical); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; }
+@media (max-width: 860px) { .brake-banner { padding: 10px 16px; } }

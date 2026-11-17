@@ -1113,6 +1113,12 @@ class Service {
             try { await this.gmail.modify(rec.user, rec.messageId, [], [await this.gmail.labelId(rec.user, this.cfg.suspiciousLabelName)]); out = await this.store.updateRecord(key, { suspiciousLabel: false }); }
             catch (e) { this.log.error(`suspicious label off ${rec.user} ${rec.messageId}:`, e); }
         }
+        // (0.6.1) A false alarm that is in Spam goes back to the Inbox at once (Review, Messages, ticked together).
+        let released = false;
+        if (falseAlarm && rec.state === 'moved') {
+            const r = await this.release(key, by, { quiet });
+            if (r && r.record) { out = r.record; released = true; }
+        }
         let moved = null;
         if (!falseAlarm && move) {
             await this.refreshPolicy();
@@ -1122,7 +1128,7 @@ class Service {
                 if (!quiet) await this.store.addEvent({ kind: 'mark', user: rec.user, text: `${by} confirmed an email from ${rec.sender.address} to ${rec.user} as phishing and moved it to Spam.` });
             }
         }
-        return { record: out, moved };
+        return { record: out, moved, released };
     }
 
     // (0.5.60) An admin's "Ignore, treat as suspicious": neither clearly phishing nor clearly safe (an outside request
@@ -1938,16 +1944,18 @@ class Service {
     async bulk(keys, action, by) {
         const out = { done: 0, skipped: 0, failed: 0 };
         if (action === 'phishing') out.moved = 0;
+        if (action === 'false-alarm') out.released = 0;
         await pool(keys, 10, async (key) => {
             try {
                 const r = action === 'release' ? await this.release(key, by, { quiet: true }) : action === 'unclear' ? await this.setAside(key, by, { quiet: true })
                     : await this.mark(key, action === 'false-alarm', by, { move: action === 'phishing', quiet: true });
                 if (r && r.record) out.done++; else out.skipped++;
                 if (r && r.moved === 'moved') out.moved++;
+                if (r && r.released) out.released++;
             } catch (e) { out.failed++; this.log.error(`bulk ${action} ${key}:`, e); }
         });
         const what = { release: 'moved back to the Inbox', 'false-alarm': 'marked as false alarms', phishing: 'confirmed as phishing', unclear: 'set aside as unclear (left as they are, not used for retraining)' }[action];
-        if (out.done) await this.store.addEvent({ kind: action === 'release' ? 'release' : 'mark', text: `${by} ${what} ${out.done} email${out.done === 1 ? '' : 's'} at once${out.moved ? ` (${out.moved} moved to Spam)` : ''}.` });
+        if (out.done) await this.store.addEvent({ kind: action === 'release' ? 'release' : 'mark', text: `${by} ${what} ${out.done} email${out.done === 1 ? '' : 's'} at once${out.moved ? ` (${out.moved} moved to Spam)` : ''}${out.released ? ` (${out.released} moved back to the Inbox)` : ''}.` });
         return out;
     }
 
