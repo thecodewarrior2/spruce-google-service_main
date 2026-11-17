@@ -220,7 +220,8 @@ when it last updated, and **Pause updates** stops it. Since 0.6.7:
 - Large answers are sent compressed.
 
 Anything you start that takes more than a second (an action, opening a page, the retraining download) shows a
-loading bar across the top with what is happening (0.6.5). Every email address shown has a copy button beside
+loading bar across the top (0.6.5), and in the bottom corner what it is doing ("Saving your answer…", "Reading the
+email from Gmail…"; 0.6.12), until it is done. Every email address shown has a copy button beside
 it (0.5.72).
 
 The dashboard (0.6.0) has a menu on the left: **Today**, **Review**, **Threats**, **Mail**, **Health** and

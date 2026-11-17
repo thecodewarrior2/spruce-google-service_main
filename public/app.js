@@ -26,9 +26,9 @@
     const isModerator = () => role === 'moderator';
     const api = async (path, opts) => {
         const sends = !!(opts && opts.method && opts.method !== 'GET');
-        if (sends) busyStart();
+        const ticket = sends ? busyStart(busyWordsFor(path)) : null;
         let data;
-        try { data = await (window.SPRUCE_API || realApi)(path, opts); } finally { if (sends) busyEnd(); }
+        try { data = await (window.SPRUCE_API || realApi)(path, opts); } finally { if (ticket) busyEnd(ticket); }
         if (data && typeof data.aiThreshold === 'number') aiThreshold = data.aiThreshold;
         if (data && typeof data.aiSuspicious === 'number') aiSuspicious = data.aiSuspicious;
         if (data && typeof data.aiMovesInside === 'boolean') aiMovesInside = data.aiMovesInside;
@@ -103,33 +103,58 @@
     }
 
     // (0.6.5) The loading bar: anything the person started (an action, a page, a download) that takes more than
-    // BUSY_AFTER_MS shows a bar across the top with what is happening, until it is done. The live refresh in the
-    // background never shows it. busyStart(label) and busyEnd(); several at once: the newest label shows.
+    // BUSY_AFTER_MS shows a bar across the top, and in the bottom corner what is happening, until it is done. The
+    // live refresh in the background never shows it.
+    // (0.6.12) Each start is its own entry, and each end takes away exactly its own: busyStart(label) returns a
+    // ticket for busyEnd(ticket). busyEnd('the same words') takes away the newest entry with those words, and
+    // busyEnd() with nothing the newest entry started with nothing, never another's (before, an action that drew the
+    // page again took away the page's entry, and its own stayed: the bar never stopped). The words shown are the
+    // newest entry's that has some: every request to the service says what it does (BUSY_WORDS).
     const BUSY_AFTER_MS = 1000;
-    let busyLabels = [], busyTimer = null, busyEl = null;
+    let busyEntries = [], busyTimer = null, busyEl = null, busyNext = 0;
+    const BUSY_WORDS = {
+        '/api/mark': 'Saving your answer…', '/api/unclear': 'Saving your answer…', '/api/bulk': 'Saving your answers…',
+        '/api/release': 'Moving it back to the Inbox…', '/api/rescan': 'Re-scanning: reading the email from Gmail and checking it again…',
+        '/api/message/context': 'Reading the email from Gmail…', '/api/check': 'Checking the email…',
+        '/api/campaign/confirm': 'Confirming the campaign as phishing…', '/api/campaign/release': 'Moving the campaign\'s copies back…',
+        '/api/campaign/find': 'Searching the watched mailboxes for copies…', '/api/resume': 'Resuming moving…', '/api/rechecked/seen': 'Marking them as seen…',
+        '/api/policy': 'Saving the setting…', '/api/lookalikes/mark': 'Saving the mark…', '/api/digest': 'Saving the weekly summary setting…',
+        '/api/digest/send': 'Sending the weekly summary…', '/api/renew-watches': 'Reading the directory again…', '/api/lists/recheck': 'Downloading the phishing lists again…',
+        '/api/keys/save': 'Testing and saving the key…', '/api/keys/remove': 'Removing the key…', '/api/safe-browsing/key': 'Testing and saving the key…',
+        '/api/safe-browsing/remove': 'Removing the key…', '/api/clicks': 'Saving the link-clicks setting…', '/api/clicks/test': 'Testing with Google…',
+        '/api/training-export': 'Reading the emails for the retraining file (up to a minute)…', '/api/training-export/allow': 'Saving the setting…',
+        '/api/phish-training/rule': 'Saving the rule…', '/api/phish-training/rule/edit': 'Saving the rule…', '/api/phish-training/rule/remove': 'Removing the rule…',
+        '/api/phish-training/domains': 'Saving the domains…', '/api/update': 'Starting the update…', '/api/update/check': 'Asking GitHub for the newest version…'
+    };
+    const busyWordsFor = (path) => BUSY_WORDS[String(path || '').split('?')[0]] || 'Sending it to the service…';
+    function busyLabel() {
+        for (let i = busyEntries.length - 1; i >= 0; i--) if (busyEntries[i].label) return busyEntries[i].label;
+        return 'Working…';
+    }
     function busyShow() {
         busyTimer = null;
-        if (!busyLabels.length) return;
+        if (!busyEntries.length) return;
         if (!busyEl) {
-            busyEl = h('div', { class: 'busy', role: 'progressbar', 'aria-live': 'polite', 'aria-busy': 'true' }, h('div', { class: 'busy-track' }), h('div', { class: 'busy-label' }));
+            busyEl = h('div', { class: 'busy', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'busy-track', 'aria-hidden': 'true' }),
+                h('div', { class: 'busy-label' }, h('span', { class: 'busy-spin', 'aria-hidden': 'true' }), h('span', { class: 'busy-words' })));
             document.body.append(busyEl);
         }
-        busyEl.querySelector('.busy-label').textContent = busyLabels[busyLabels.length - 1];
-        busyEl.setAttribute('aria-label', busyLabels[busyLabels.length - 1]);
+        busyEl.querySelector('.busy-words').textContent = busyLabel();
         busyEl.hidden = false;
     }
     function busyStart(label) {
-        // (no words of its own: the action it is part of says what is happening)
-        label = label || busyLabels[busyLabels.length - 1] || 'Working on it…';
-        busyLabels.push(label);
+        const ticket = ++busyNext;
+        busyEntries.push({ ticket, label: label || null });
         if (busyEl && !busyEl.hidden) busyShow();
         else if (!busyTimer) busyTimer = setTimeout(busyShow, BUSY_AFTER_MS);
-        return label;
+        return ticket;
     }
-    function busyEnd(label) {
-        const i = label ? busyLabels.lastIndexOf(label) : busyLabels.length - 1;
-        if (i >= 0) busyLabels.splice(i, 1);
-        if (busyLabels.length) { if (busyEl && !busyEl.hidden) busyShow(); return; }
+    function busyEnd(which) {
+        let i = -1;
+        if (typeof which === 'number') i = busyEntries.findIndex(e => e.ticket === which);
+        else for (let j = busyEntries.length - 1; j >= 0 && i < 0; j--) if (which ? busyEntries[j].label === which : !busyEntries[j].label) i = j;
+        if (i >= 0) busyEntries.splice(i, 1);
+        if (busyEntries.length) { if (busyEl && !busyEl.hidden) busyShow(); return; }
         if (busyTimer) { clearTimeout(busyTimer); busyTimer = null; }
         if (busyEl) busyEl.hidden = true;
     }

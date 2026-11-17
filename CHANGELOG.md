@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.12: the loading bar stops when it is done, says what it is doing, and moves away from Pause updates
+
+- **It never stopped:** an action that drew the page again (most of them) took away the page's entry in the
+  loading bar's list instead of its own, and its own stayed: "Working on it…" for good, from the first click on.
+  Each start is now its own entry with a ticket, and each end takes away exactly its own (`busyStart`/`busyEnd`
+  in `public/app.js`).
+- **It says what it is doing:** every request to the service has its words ("Saving your answer…", "Moving it back
+  to the Inbox…", "Reading the email from Gmail…", "Testing and saving the key…"); "Working on it…" is gone.
+- **The words are in the bottom corner,** as plain text with a turning ring, no longer a green pill beside Pause
+  updates that looked like a button. Clicks go through them. The bar across the top stays.
+- Dashboard only: no install or checks change (Settings → Update installs it).
+
 ## 0.6.11: light, dark, or the system's setting; the menu's heading without the domains
 
 - **Theme:** a switcher at the foot of the menu: **System** (the default: follows the computer's light or dark
