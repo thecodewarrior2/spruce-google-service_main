@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.8: the repositories are spruce-google-service_testing and spruce-google-service_main
+
+- **New repositories:** `google_service_testing` and `google_service_main` were deleted and made again as
+  `spruce-google-service_testing` (private: where the service is developed) and `spruce-google-service_main` (public:
+  the approved versions, which installations download without a password), with their history rewritten so that no
+  district data is left in any version or commit message (examples are made up). Every commit has a new id.
+- **Where the approved versions come from:** `RELEASES_REPO` and the download address of `deploy/update.sh`,
+  `deploy/install.sh` and the update job default to `thecodewarrior2/spruce-google-service_main` (were
+  `Google_service_main`); every page, doc and comment names the new repositories.
+- **An installation before 0.6.8** still reads the old address, which no longer exists: Settings → Update says it
+  can't reach the approved versions. Once this version is approved, upgrade once from Cloud Shell from a fresh copy
+  (docs/INSTALL.md, "Upgrading to 0.6.8"); after that, Settings → Update works as before. Then delete the old
+  folders (they hold the old history).
+- **CLAUDE.md:** the rule against district data now names everything it covers (code, comments, tests, docs, the
+  changelog, commit messages; names, domains, businesses, numbers, addresses) and asks for a search of each change
+  before a push.
+
 ## 0.6.7: a code review: less load, faster emails, five bugs fixed, comments and docs brought up to date
 
 A review of the whole service for speed and unneeded load, its comments and its documentation. Only one change

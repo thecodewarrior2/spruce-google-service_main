@@ -1,11 +1,11 @@
 'use strict';
-// Settings → Update: from the dashboard, the newest approved version (google_service_main), as
+// Settings → Update: from the dashboard, the newest approved version (spruce-google-service_main), as
 // deploy/update.sh does from Cloud Shell, for versions that change only the service, not the installation.
 //
 // The dashboard can't deploy anything itself. It records the request (the version and its exact commit,
 // state/updateRequest) and runs the spruce-update job (UPDATE_JOB), which deploy/install.sh made and only
 // it can change. That job starts a Cloud Build as spruce-updater, whose steps (deploy/cloud-update.sh,
-// taken from google_service_main) check the request, check that the commit is on google_service_main's main
+// taken from spruce-google-service_main) check the request, check that the commit is on spruce-google-service_main's main
 // branch and newer than what runs, build it, and redeploy both services with their settings as they are.
 //
 // To start one an admin ticks the agreement and types the Google Cloud project ID and their own email

@@ -215,7 +215,7 @@ Their data is never exported for retraining: their terms don't allow it to train
   ID (and enforce mode, or letting the AI alone move inside mail, a ticked agreement). Each wrong answer is
   noted (never what was typed); five lock the admin out for 10 minutes and are an alert.
 - **The dashboard can't deploy.** Settings → Update only starts the fixed `spruce-update` job, which builds
-  an approved commit of `google_service_main` and checks it again.
+  an approved commit of `spruce-google-service_main` and checks it again.
 - **The page itself:** a strict Content Security Policy (no inline scripts, nothing from elsewhere), no
   framing, `no-store`; every change is a POST with a custom header, which a page on another site can't send.
 - **Little kept.** No email bodies or attachments; subjects and the AI's quotes can be turned off; senders as
@@ -233,7 +233,7 @@ Their data is never exported for retraining: their terms don't allow it to train
   the worker as every day.
 - **Updates from the dashboard, without giving it the right to deploy.** Settings → Update only records
   the request (a version and its exact commit) and runs the `spruce-update` job, whose build install.sh
-  fixed. The build runs as `spruce-updater`, takes its steps from `google_service_main`, and checks
+  fixed. The build runs as `spruce-updater`, takes its steps from `spruce-google-service_main`, and checks
   everything again before building: a recent request, a commit on the release repository's main branch
   with that version, newer than what runs, and no higher `installLevel` than the one installed. So a
   dashboard admin, or someone who took over a dashboard session, can at most install an approved

@@ -1726,18 +1726,18 @@
             preview);
     }
 
-    // --- Settings → Update: the approved versions (google_service_main), their changes, and the button ----
+    // --- Settings → Update: the approved versions (spruce-google-service_main), their changes, and the button ----
     // The button needs the agreement, the project ID and the admin's own email address; it asks the
     // spruce-update job to rebuild and redeploy both services (src/update.js, deploy/cloud-update.sh).
     async function updatePage(q) {
         const demoManual = !!(q && q.get && q.get('manual'));
         const d = await api(`/api/update${demoManual ? '?manual=1' : ''}`);
         const n = d.newest;
-        const out = [h('h1', { text: 'Update' }), h('p', { class: 'sub', text: 'The approved versions, from google_service_main, and what changed in them. A version that changes only the service is installed from here; one that changes the installation itself (permissions, jobs, settings) from Cloud Shell, with bash deploy/update.sh. Each version names its AI model: the update downloads that model from TinyPhishLLM, the model\'s own repository, and uses it only if every file matches.' })];
+        const out = [h('h1', { text: 'Update' }), h('p', { class: 'sub', text: 'The approved versions, from spruce-google-service_main, and what changed in them. A version that changes only the service is installed from here; one that changes the installation itself (permissions, jobs, settings) from Cloud Shell, with bash deploy/update.sh. Each version names its AI model: the update downloads that model from TinyPhishLLM, the model\'s own repository, and uses it only if every file matches.' })];
         // The AI model: each version pins one commit of TinyPhishLLM (its own public repository), which the
         // image build downloads and checks (SHA-256).
         // The repositories are links (a new tab): the model's to TinyPhishLLM (its commit to that commit), the
-        // approved versions' to google_service_main. Only GitHub addresses of the expected shape are linked.
+        // approved versions' to spruce-google-service_main. Only GitHub addresses of the expected shape are linked.
         const ghLink = (url, text) => (/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\/commit\/[0-9a-f]{40})?$/.test(String(url || ''))
             ? h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', text }) : text);
         const modelText = (v) => {

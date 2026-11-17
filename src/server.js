@@ -144,7 +144,7 @@ function demoReleases({ manual = false } = {}) {
     let model = null, modelSource = null;
     try { const v = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'vendor', 'spruce', 'VENDOR.json'), 'utf8')); model = v.model; modelSource = modelSourceOf(v); } catch (e) { /* none */ }
     return { CACHE_MS: 10 * 60 * 1000, newest: async () => ({ repo: 'demo (GitHub not read)', commit: '0'.repeat(40), date: new Date().toISOString(), checkedAt: Date.now(), version: '9.9.9', installLevel: (Number(PKG.installLevel) || 0) + (manual ? 1 : 0), model, modelSource,
-        changelog: [{ version: '9.9.9', title: manual ? 'A made-up newer version that changes the installation (demo mode)' : 'A made-up newer version (demo mode)', body: '- Demo mode doesn\'t read GitHub: this entry is made up, so you can try the page.\n- The real page shows google_service_main\'s changelog: everything newer than the version installed, then the rest.' }, ...own] }) };
+        changelog: [{ version: '9.9.9', title: manual ? 'A made-up newer version that changes the installation (demo mode)' : 'A made-up newer version (demo mode)', body: '- Demo mode doesn\'t read GitHub: this entry is made up, so you can try the page.\n- The real page shows spruce-google-service_main\'s changelog: everything newer than the version installed, then the rest.' }, ...own] }) };
 }
 
 // The Help tab (0.5.46): the installed version's own docs, from files in the image, only these, and only these
@@ -871,7 +871,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             }
             catch (e) { if (e.status) return { error: `${e.message} Nothing was changed.`, status: e.status }; throw e; }
         },
-        // Settings → Update: the approved versions (google_service_main) and their changes; the button.
+        // Settings → Update: the approved versions (spruce-google-service_main) and their changes; the button.
         // (demo mode: ?manual=1 shows a made-up approved version that needs a manual install)
         'GET /api/update': async (q) => updateInfo({ cfg, store, releases: cfg.demo && q && q.get && q.get('manual') ? demoReleases({ manual: true }) : releases, cloudrun,
             alert: (t) => service.alert('update-manual', t) }),

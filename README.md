@@ -1,7 +1,7 @@
 # S.P.R.U.C.E Mail Protection Service for Google Workspace
 
-**Two repositories.** `google_service_testing` is where it's developed and tested.
-`google_service_main` holds only the versions the maintainer has tried and approved, each copied there
+**Two repositories.** `spruce-google-service_testing` is where it's developed and tested.
+`spruce-google-service_main` holds only the versions the maintainer has tried and approved, each copied there
 unchanged. Which one you're reading: the repository's name on GitHub, or `git remote get-url origin`.
 The version is in `package.json` and `CHANGELOG.md`.
 
@@ -404,7 +404,7 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     `admin.reports.audit.readonly` scope on the domain-wide delegation, and an admin with the Reports
     privilege (docs/INSTALL.md, "Link clicks"). **Test** says what Google answers; turning it on or off
     needs the project ID.
-  - **Update:** the version installed, the newest approved one (from `google_service_main`), what's new
+  - **Update:** the version installed, the newest approved one (from `spruce-google-service_main`), what's new
     since yours (its changelog), and the whole changelog. **Last checked** says when GitHub was asked (the answer
     is kept 10 minutes); **Check again** asks it now, at most once a minute for everyone and 10 times an hour per
     admin (0.5.38). **Update to …** works like
@@ -443,14 +443,14 @@ The dashboard's numbers come from `src/dashboard/aggregate.js`. The clickable mo
 ## Dependency updates
 
 Dependabot proposes **security fixes** for the npm packages as pull requests on
-`google_service_testing`. GitHub runs the tests and `npm audit` on each one (`.github/workflows/test.yml`).
-A fix reaches the product like any change: merged in `google_service_testing`, installed, tried, then
-approved for `google_service_main`.
+`spruce-google-service_testing`. GitHub runs the tests and `npm audit` on each one (`.github/workflows/test.yml`).
+A fix reaches the product like any change: merged in `spruce-google-service_testing`, installed, tried, then
+approved for `spruce-google-service_main`.
 
-- **Turn on** Settings → Code security → **Dependabot security updates** in `google_service_testing`.
-- **Leave it off** in `google_service_main`. Nothing changes there except approved releases.
+- **Turn on** Settings → Code security → **Dependabot security updates** in `spruce-google-service_testing`.
+- **Leave it off** in `spruce-google-service_main`. Nothing changes there except approved releases.
 - **Routine version updates are off** (`.github/dependabot.yml`). The file is copied unchanged into
-  `google_service_main` with each release, so they would open pull requests there too.
+  `spruce-google-service_main` with each release, so they would open pull requests there too.
 
 ## Try it
 
@@ -497,11 +497,11 @@ The last command writes `build/mockup.html`, a single file to share the look and
 
 **To test in your own Workspace, limited to one security group:** `docs/INSTALL.md`. A script,
 `deploy/install.sh`, sets everything up from Cloud Shell, and the others look after it:
-- **`deploy/update.sh`** upgrades to the newest approved version (from `google_service_main`), with no
+- **`deploy/update.sh`** upgrades to the newest approved version (from `spruce-google-service_main`), with no
   zip to upload. Each version brings its own AI model; the upgrade says when the model changes. Most
   versions can also be installed from the dashboard (Settings → Update), which runs
   `deploy/cloud-update.sh` in Cloud Build. The page links each AI model to its TinyPhishLLM repository
-  (and the pinned commit) and the approved versions to `google_service_main`.
+  (and the pinned commit) and the approved versions to `spruce-google-service_main`.
 - **`deploy/upgrade.sh`** installs a version you unzipped over the installed one.
 - **`deploy/rollback.sh`** goes back to the previous build.
 - **`deploy/stop.sh`** stops it (0.6.7): every mailbox stops counting as watched at once (their notifications,

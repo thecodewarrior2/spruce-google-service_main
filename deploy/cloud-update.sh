@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # S.P.R.U.C.E Mail Protection Service: an update started on the dashboard (Settings → Update; src/update.js).
 # Not run by hand: the spruce-update job (deploy/install.sh) starts a Cloud Build as spruce-updater, whose
-# steps clone google_service_main into /workspace/release and run this file's phases in order:
+# steps clone spruce-google-service_main into /workspace/release and run this file's phases in order:
 #
 #   check   (gcloud image)  an update was asked for in the last 30 minutes (state/updateRequest), for a
 #                           version newer than the one running, and no other build is on it; noted as
 #                           "building" (state/update)
-#   pick    (git image)     the commit asked for is on google_service_main's main branch, has that version,
+#   pick    (git image)     the commit asked for is on spruce-google-service_main's main branch, has that version,
 #                           and doesn't change the installation itself (installLevel); its files are put
 #                           in /workspace/build (release stays as downloaded, so every phase runs this
 #                           file from main's newest commit)
@@ -86,7 +86,7 @@ pick)
     . "$W/request.env"
     cd "$R" || failed "the release wasn't downloaded"
     git fetch -q origin main 2>/dev/null || true
-    git merge-base --is-ancestor "$COMMIT" origin/main 2>/dev/null || failed "commit $COMMIT isn't on google_service_main's main branch"
+    git merge-base --is-ancestor "$COMMIT" origin/main 2>/dev/null || failed "commit $COMMIT isn't on spruce-google-service_main's main branch"
     rm -rf "$B"; mkdir -p "$B"
     git archive "$COMMIT" | tar -x -C "$B" || failed "commit $COMMIT couldn't be unpacked"
     cd "$B" || failed "commit $COMMIT couldn't be unpacked"

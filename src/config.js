@@ -176,7 +176,7 @@ function loadConfig(env = process.env) {
         // The job Settings → Update runs (projects/PROJECT/locations/REGION/jobs/spruce-update; install.sh
         // makes it), and where the approved versions are (src/releases.js).
         updateJob: env.UPDATE_JOB || '',
-        releasesRepo: env.RELEASES_REPO || 'thecodewarrior2/Google_service_main'
+        releasesRepo: env.RELEASES_REPO || 'thecodewarrior2/spruce-google-service_main'
     });
 }
 

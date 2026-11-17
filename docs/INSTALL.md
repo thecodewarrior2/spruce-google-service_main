@@ -341,6 +341,23 @@ When it finishes, it prints the **dashboard address**.
 
 Your settings, records and the Admin console steps carry over.
 
+### Upgrading to 0.6.8 (the repositories' new names)
+
+Installations before 0.6.8 download from `google_service_main`, which no longer exists, so Settings → Update
+and `bash deploy/update.sh` can't find new versions. Once, in Cloud Shell, take a fresh copy of the approved
+versions and upgrade from it, giving it the folder you installed or last upgraded from (it copies your settings):
+
+```bash
+git clone https://github.com/thecodewarrior2/spruce-google-service_main.git ~/spruce-mail-protection-release
+```
+
+```bash
+cd ~/spruce-mail-protection-release && bash deploy/upgrade.sh ~/YOUR-OLD-FOLDER
+```
+
+From then on, Settings → Update and `bash deploy/update.sh` read `spruce-google-service_main`. Delete the old
+folders afterwards: they hold the repositories' old history.
+
 **The quick way: from the approved releases.** In Cloud Shell, from the folder you installed or last
 upgraded from:
 
@@ -348,7 +365,7 @@ upgraded from:
 bash deploy/update.sh
 ```
 
-It downloads the newest approved version from `google_service_main`, unpacks it next to your folder, and
+It downloads the newest approved version from `spruce-google-service_main`, unpacks it next to your folder, and
 runs its `upgrade.sh` (below). That shows what changes, including the AI model's version, and asks first.
 The AI model (phish-tiny) is pinned by each version (one commit of TinyPhishLLM, the model's public
 repository, and every file's SHA-256): building the image downloads it from there and checks it, so a new
@@ -388,7 +405,7 @@ and **Update to …** installs it like `update.sh` does, without Cloud Shell:
 - **What it uses:** a Cloud Scheduler job, `spruce-update`, which starts a Cloud Build as the
   `spruce-updater` service account. The dashboard can only record the request and run that job; it
   can't build or deploy anything itself. The build checks the request again: asked for in the last
-  30 minutes, a commit on `google_service_main`'s main branch with that version, newer than the one
+  30 minutes, a commit on `spruce-google-service_main`'s main branch with that version, newer than the one
   running, and not changing the installation. The job also runs by itself once a year, and then does
   nothing.
 - **If it fails,** nothing changed, unless the deploy stopped half-way: then `bash deploy/rollback.sh`

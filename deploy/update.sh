@@ -2,7 +2,7 @@
 # S.P.R.U.C.E Mail Protection Service: upgrade to the newest approved version, without uploading a zip.
 # In Cloud Shell, from the folder you installed or last upgraded from:
 #     bash deploy/update.sh
-# It downloads the repository of approved releases (google_service_main: only versions the maintainer
+# It downloads the repository of approved releases (spruce-google-service_main: only versions the maintainer
 # tried and approved), unpacks the newest next to this folder, and runs its deploy/upgrade.sh. That
 # copies your settings, shows what changes (the version, the AI model's version, what's new) and asks
 # before changing anything. Each version pins its AI model (phish-tiny): one commit of TinyPhishLLM, the
@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 HERE="$(pwd -P)"
-RELEASES="${SPRUCE_RELEASES:-https://github.com/thecodewarrior2/Google_service_main.git}"
+RELEASES="${SPRUCE_RELEASES:-https://github.com/thecodewarrior2/spruce-google-service_main.git}"
 fail() { printf '\n\033[31mStopped:\033[0m %s\n' "$*" >&2; exit 1; }
 version() { sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$1/package.json" | head -1; }
 

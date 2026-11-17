@@ -1,5 +1,5 @@
 'use strict';
-// The approved versions, for the dashboard's Settings → Update: what google_service_main (RELEASES_REPO,
+// The approved versions, for the dashboard's Settings → Update: what spruce-google-service_main (RELEASES_REPO,
 // public on GitHub) holds now. Its newest commit on main, and from that commit the version and its
 // installLevel (package.json), the AI model (vendor/spruce/VENDOR.json) and the changelog. Read anonymously
 // and kept 10 minutes; nothing about this installation is sent (a plain User-Agent, no token). Since 0.5.38 the
@@ -36,7 +36,7 @@ function modelSourceOf(vendor) {
     return { repository: s.repository, commit: s.commit };
 }
 
-function createReleases({ repo = 'thecodewarrior2/Google_service_main', fetch: f = fetch, now = () => Date.now() } = {}) {
+function createReleases({ repo = 'thecodewarrior2/spruce-google-service_main', fetch: f = fetch, now = () => Date.now() } = {}) {
     let cached = null, cachedAt = 0;
     const get = async (url, json) => {
         const res = await f(url, { headers: { 'user-agent': 'spruce-mail-protection', accept: json ? 'application/vnd.github+json' : 'text/plain' }, signal: AbortSignal.timeout(10000) });

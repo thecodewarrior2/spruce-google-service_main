@@ -1,10 +1,10 @@
-# Dependabot: security fixes for the npm packages, as pull requests on google_service_testing.
-# This file is in both repositories (each release copies google_service_testing unchanged to
-# google_service_main), so routine version updates are off here: they would open pull requests in the
+# Dependabot: security fixes for the npm packages, as pull requests on spruce-google-service_testing.
+# This file is in both repositories (each release copies spruce-google-service_testing unchanged to
+# spruce-google-service_main), so routine version updates are off here: they would open pull requests in the
 # release repository too, where nothing is ever changed. Security updates are switched on per repository
-# instead: on in google_service_testing, off in google_service_main (Settings > Code security >
+# instead: on in spruce-google-service_testing, off in spruce-google-service_main (Settings > Code security >
 # Dependabot security updates). Each fix is tested (.github/workflows/test.yml), then tried and approved
-# like any other change before it goes to google_service_main (CLAUDE.md).
+# like any other change before it goes to spruce-google-service_main (CLAUDE.md).
 version: 2
 updates:
   - package-ecosystem: npm

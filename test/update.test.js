@@ -39,7 +39,7 @@ function fakeGitHub({ version = '9.9.9', installLevel = PKG.installLevel, fail =
     return { f, calls };
 }
 
-test('the approved versions: read from google_service_main\'s newest commit, kept 10 minutes; versions compared by number; the changelog in sections', async () => {
+test('the approved versions: read from spruce-google-service_main\'s newest commit, kept 10 minutes; versions compared by number; the changelog in sections', async () => {
     assert.equal(compareVersions('0.3.10', '0.3.9'), 1); assert.equal(compareVersions('0.3.9', '0.3.9'), 0); assert.equal(compareVersions('0.2.14', '0.3.0'), -1);
     assert.deepEqual(parseChangelog(CHANGELOG).map(c => [c.version, c.title]), [['9.9.9', 'Newer'], [PKG.version, 'This one'], ['0.1.0', 'Old']]);
     let t = 0;
@@ -202,10 +202,10 @@ test('install.sh makes the spruce-update job: a Cloud Build as spruce-updater wi
         const build = JSON.parse(fs.readFileSync(path.join(sb.fake, 'update-build.json'), 'utf8'));
         assert.equal(build.serviceAccount, 'projects/test-proj/serviceAccounts/spruce-updater@test-proj.iam.gserviceaccount.com');
         assert.deepEqual(build.steps.map(s => s.id), ['download', 'check', 'pick', 'image', 'deploy', 'finish']);
-        assert.deepEqual(build.steps[0].args, ['clone', '-q', 'https://github.com/thecodewarrior2/Google_service_main.git', '/workspace/release']);
+        assert.deepEqual(build.steps[0].args, ['clone', '-q', 'https://github.com/thecodewarrior2/spruce-google-service_main.git', '/workspace/release']);
         assert.ok(build.steps[1].env.includes('BUILD=$BUILD_ID'), 'Cloud Build fills in its own id');
         assert.match(fs.readFileSync(path.join(sb.fake, 'env-spruce-admin.yaml'), 'utf8'), /^UPDATE_JOB: "projects\/test-proj\/locations\/us-east1\/jobs\/spruce-update"$/m);
-        assert.match(fs.readFileSync(path.join(sb.fake, 'env-spruce-admin.yaml'), 'utf8'), /^RELEASES_REPO: "thecodewarrior2\/Google_service_main"$/m);
+        assert.match(fs.readFileSync(path.join(sb.fake, 'env-spruce-admin.yaml'), 'utf8'), /^RELEASES_REPO: "thecodewarrior2\/spruce-google-service_main"$/m);
         assert.match(calls, new RegExp(`run deploy spruce-worker .*--update-labels=spruce-version=[\\d-]+,spruce-model=[\\d-]+,spruce-install-level=${PKG.installLevel}`));
     } finally { sb.cleanup(); }
 });
@@ -213,7 +213,7 @@ test('install.sh makes the spruce-update job: a Cloud Build as spruce-updater wi
 test('cloud-update.sh: nothing asked, nothing done; asked, the exact approved commit built and deployed; not on main, too old or a new installation: refused and reported', { skip: !hasBash }, () => {
     const sb = sandbox();
     const git = (cwd, ...a) => { const x = spawnSync('git', a, { cwd, encoding: 'utf8', env: sb.env() }); assert.equal(x.status, 0, x.stderr); return x.stdout.trim(); };
-    // A stand-in for google_service_main: an approved 9.9.9 on main, and a commit that isn't on it.
+    // A stand-in for spruce-google-service_main: an approved 9.9.9 on main, and a commit that isn't on it.
     const origin = path.join(sb.home, 'origin');
     fs.mkdirSync(path.join(origin, 'deploy'), { recursive: true }); fs.mkdirSync(path.join(origin, 'vendor', 'spruce'), { recursive: true });
     fs.copyFileSync(path.join(ROOT, 'deploy', 'cloud-update.sh'), path.join(origin, 'deploy', 'cloud-update.sh'));
@@ -293,7 +293,7 @@ test('cloud-update.sh: nothing asked, nothing done; asked, the exact approved co
         r = run({ FAKE_REQUEST: reqDoc('9.9.10', stranger), FAKE_RUNNING: '0-3-8' });
         assert.doesNotMatch(r.calls, /docker build|run deploy/);
         assert.notEqual(r.codes.finish, 0, 'the build shows as failed');
-        assert.equal(r.states.at(-1).phase, 'failed'); assert.match(r.states.at(-1).message, /isn't on google_service_main's main branch/);
+        assert.equal(r.states.at(-1).phase, 'failed'); assert.match(r.states.at(-1).message, /isn't on spruce-google-service_main's main branch/);
         assert.equal(r.event.alert.booleanValue, true);
         // Too old a request, or not newer than what runs: refused at check.
         r = run({ FAKE_REQUEST: reqDoc('9.9.9', approved, 31 * 60 * 1000) });

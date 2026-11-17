@@ -266,7 +266,7 @@ Creator** on `spruce-invoker`. Check Google's push-authentication docs.)
 
 `deploy/install.sh` sets this up; doing it by hand is possible but not needed. The pieces:
 
-- **The dashboard** reads the newest commit on `google_service_main`'s main branch from GitHub,
+- **The dashboard** reads the newest commit on `spruce-google-service_main`'s main branch from GitHub,
   anonymously (`RELEASES_REPO`), with that commit's `package.json`, `CHANGELOG.md` and
   `vendor/spruce/VENDOR.json`. When an admin clicks **Update to …** (with I agree, the project ID and
   their own email address), it writes `state/updateRequest` (the version, the exact commit, who, when)
@@ -275,7 +275,7 @@ Creator** on `spruce-invoker`. Check Google's push-authentication docs.)
 - **The `spruce-update` job** (Cloud Scheduler, HTTP) calls the Cloud Build API with a fixed build,
   signed as `spruce-updater`. Its schedule is once a year (it then does nothing): it is there to be run.
 - **The build** runs as `spruce-updater` and logs to Cloud Logging (tag `spruce-update`). Its steps
-  download `google_service_main` and run `deploy/cloud-update.sh` from it:
+  download `spruce-google-service_main` and run `deploy/cloud-update.sh` from it:
   1. **check:** there is a request from the last 30 minutes, for a version newer than the worker's
      `spruce-version` label; the commit is 40 hex characters; no other build is on it (the job run
      twice: a build that finds another one "building" in the last 45 minutes changes nothing);
@@ -351,7 +351,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `IAP_AUDIENCE` | none | the dashboard's Identity-Aware Proxy audience |
 | `RENEW_JOB` (dashboard) | none | the job "Read the directory again now" runs: `projects/PROJECT/locations/REGION/jobs/spruce-renew-watches`. Without it the button isn't shown |
 | `UPDATE_JOB` (dashboard) | none | the job Settings → Update runs: `projects/PROJECT/locations/REGION/jobs/spruce-update`. Without it the page says to run `deploy/update.sh` once |
-| `RELEASES_REPO` (dashboard) | `thecodewarrior2/Google_service_main` | where Settings → Update reads the approved versions and their changelog (GitHub, anonymously). install.sh takes it from `SPRUCE_RELEASES` |
+| `RELEASES_REPO` (dashboard) | `thecodewarrior2/spruce-google-service_main` | where Settings → Update reads the approved versions and their changelog (GitHub, anonymously). install.sh takes it from `SPRUCE_RELEASES` |
 | `ADMIN_EMAILS`, `ADMIN_GROUP` | none | who may use the dashboard: addresses, and/or the members of a group (needs `DIRECTORY_ADMIN` on the dashboard too); at least one |
 | `MODERATOR_GROUP` | none (install.sh: `spruce-moderators@` the first of `ORG_DOMAINS`) | 0.6.1: a group whose members may review emails on the dashboard, never Settings or Health (needs `DIRECTORY_ADMIN`); `off` for none |
 | `AI_MOVE_THRESHOLD` | `0.9` | AI score that moves (outside senders); from `AI_SUSPICIOUS_THRESHOLD` to `1` |

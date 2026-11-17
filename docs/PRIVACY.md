@@ -202,7 +202,7 @@ can be turned off):
   leaves out what they found (Spamhaus's data likewise).
 
 **Settings → Update** reads the approved versions from GitHub (`api.github.com` and
-`raw.githubusercontent.com`, the public `google_service_main` repository): the newest commit on main, and
+`raw.githubusercontent.com`, the public `spruce-google-service_main` repository): the newest commit on main, and
 that commit's `package.json`, `CHANGELOG.md` and `VENDOR.json`. The dashboard does, when the page is
 opened (kept 10 minutes), and from 0.5.24 the worker once an hour (its hourly job), to alert the admins when an
 approved version needs a manual install. It is read anonymously: no token, a plain User-Agent

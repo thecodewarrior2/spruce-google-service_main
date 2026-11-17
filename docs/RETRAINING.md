@@ -34,7 +34,7 @@ model, without any person's details reaching a repository or an outside service.
   step 3 by hand.
 - **Two people are better than one.** One prepares the file, the other reads it before it goes anywhere.
 - **What it takes:** a computer or Cloud Shell with Node 20 or later and this version's folder (the zip
-  you installed from, or a copy of `google_service_main`). Training also needs Python 3 with `torch` (the
+  you installed from, or a copy of `spruce-google-service_main`). Training also needs Python 3 with `torch` (the
   CPU build is enough) and `transformers`, a copy of TinyPhishLLM_Private_Training (private: ask the
   maintainer for access) and a copy of TinyPhishLLM (public) next to it (step 6).
 - **Only admins' and moderators' marks count.** The export takes the emails an admin or a moderator (0.6.1)
@@ -339,7 +339,7 @@ from `AI_MOVE_THRESHOLD` (0.9 by default). That's why step 7 scores at the servi
 
 ## 7. Is the new model better?
 
-In this repository (`google_service_testing`), sync the new model from your TinyPhishLLM folder (the
+In this repository (`spruce-google-service_testing`), sync the new model from your TinyPhishLLM folder (the
 commit must be pushed to TinyPhishLLM's main branch: the service downloads it from there). It runs
 TinyPhishLLM's check, checks that the service builds the model's input exactly as the model was trained,
 pins TinyPhishLLM's commit and each file's SHA-256 in `vendor/spruce/VENDOR.json`, copies the reference

@@ -72,7 +72,7 @@ SA_INVOKER="spruce-invoker@$PROJECT.iam.gserviceaccount.com"
 SA_BUILD="spruce-build@$PROJECT.iam.gserviceaccount.com"
 SA_UPDATER="spruce-updater@$PROJECT.iam.gserviceaccount.com"
 # Where the approved versions are: Settings → Update reads them, and its job installs from there.
-RELEASES="${SPRUCE_RELEASES:-https://github.com/thecodewarrior2/Google_service_main.git}"
+RELEASES="${SPRUCE_RELEASES:-https://github.com/thecodewarrior2/spruce-google-service_main.git}"
 INSTALL_LEVEL="$(sed -n 's/^ *"installLevel": *\([0-9]*\).*/\1/p' package.json | head -1)"; INSTALL_LEVEL="${INSTALL_LEVEL:-0}"
 TOPIC=gmail-spruce
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
@@ -362,7 +362,7 @@ gcloud scheduler jobs delete spruce-purge --location="$REGION" --quiet >/dev/nul
 # cleanup of what Firestore's TTL policies don't delete.
 job spruce-sync-feeds "23 * * * *" /tasks/sync-feeds --attempt-deadline=300s
 # Settings → Update runs this job; it starts a Cloud Build as spruce-updater with these steps, fixed
-# here: download google_service_main, then deploy/cloud-update.sh from it. It also runs by itself once a
+# here: download spruce-google-service_main, then deploy/cloud-update.sh from it. It also runs by itself once a
 # year, and then does nothing unless an admin asked for an update in the last 30 minutes.
 cat > "$TMP/update-build.json" <<EOF
 {
