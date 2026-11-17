@@ -65,6 +65,7 @@ test('tools/fetch-model.js downloads the pinned files, checks each SHA-256, and 
     await new Promise(r => server.listen(0, '127.0.0.1', r));
     const base = `http://127.0.0.1:${server.address().port}`;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spruce-fetch-'));
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'spruce-fetch-'));   // (0.6.14: removed below too)
     const v = { modelSource: { repository: 'https://github.com/thecodewarrior2/TinyPhishLLM', commit, files: {
         'vendor/spruce/models/phish-tiny/model.json': { from: 'model/phish-tiny/model.json', sha256: sha256(good['model/phish-tiny/model.json']) },
         'vendor/spruce/models/phish-tiny/vocab.txt': { from: 'model/phish-tiny/vocab.txt', sha256: sha256(good['model/phish-tiny/vocab.txt']) },
@@ -89,10 +90,10 @@ test('tools/fetch-model.js downloads the pinned files, checks each SHA-256, and 
         assert.throws(() => plan({ modelSource: { ...v.modelSource, commit: 'main' } }), /no modelSource/);
         assert.throws(() => plan({ modelSource: { ...v.modelSource, repository: 'http://example.com/x/y' } }), /isn't an https address/);
         // (0.6.9) MODEL_REPO says where the same pinned files download from; any other bytes are still refused.
-        await assert.rejects(fetchModel({ repo: 'https://user:pw@example.com/x', vendor: v, root: fs.mkdtempSync(path.join(os.tmpdir(), 'spruce-fetch-')), quiet: true }), /MODEL_REPO isn't usable: It has a name or password/);
+        await assert.rejects(fetchModel({ repo: 'https://user:pw@example.com/x', vendor: v, root: dir2, quiet: true }), /MODEL_REPO isn't usable: It has a name or password/);
     } finally {
         server.close();
-        fs.rmSync(dir, { recursive: true, force: true });
+        for (const d of [dir, dir2]) fs.rmSync(d, { recursive: true, force: true });
     }
 });
 

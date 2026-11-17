@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.14: update.sh and the tests leave nothing behind in /tmp
+
+- **`deploy/update.sh` left a copy of the release it downloaded in `/tmp`** on every update: it hands over to
+  `upgrade.sh` with `exec`, which replaces the script, so its clean-up on exit never ran. It now removes the download
+  first. (In Cloud Shell, `/tmp` is cleared when the session restarts; any `/tmp/tmp.*/release` folders left by an
+  earlier update can be deleted.)
+- **A model-download test left an empty folder** in `/tmp` each run (a second one it made for one check): removed.
+- The `update.sh` test now gives the script a temporary folder of its own and checks it is empty afterwards
+  (`test/install.test.js`). A whole `npm test` run leaves nothing in `/tmp`.
+- No install or checks change: `update.sh` is run from Cloud Shell as before.
+
 ## 0.6.13: personal information is checked before every commit and every push
 
 - **The rule** (CLAUDE.md, "Personal information"): before every commit and every push, the change, its files and its

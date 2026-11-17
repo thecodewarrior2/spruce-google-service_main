@@ -265,7 +265,9 @@ test('update.sh: fetches the newest approved version, unpacks it next to this fo
         assert.equal(spawnSync('git', ['clone', '-q', '--bare', rel, bare]).status, 0);
         // (the installed services carry the vendored model's label: the same model)
         const model = JSON.parse(fs.readFileSync(path.join(ROOT, 'vendor', 'spruce', 'VENDOR.json'), 'utf8')).model;
-        const r = w.run('update.sh', { SPRUCE_RELEASES: `file://${bare}`, FAKE_MODEL: model.replace(/\./g, '-') });
+        // (0.6.14) Its temporary files in a folder of the test's own: empty afterwards, though it ends by exec'ing upgrade.sh.
+        const tmp = path.join(w.home, 'tmp'); fs.mkdirSync(tmp);
+        const r = w.run('update.sh', { SPRUCE_RELEASES: `file://${bare}`, FAKE_MODEL: model.replace(/\./g, '-'), TMPDIR: tmp });
         assert.equal(r.code, 0, r.out);
         const dest = path.join(w.home, 'spruce-mail-protection-9.9.0');
         assert.match(r.out, /Unpacked 9\.9\.0 in .*spruce-mail-protection-9\.9\.0/);
@@ -273,9 +275,11 @@ test('update.sh: fetches the newest approved version, unpacks it next to this fo
         assert.match(r.out, /Upgrade S\.P\.R\.U\.C\.E Mail Protection Service in test-proj \(us-east1\): 0\.2\.14 -> 9\.9\.0/);
         assert.match(r.out, new RegExp(`AI model \\(phish-tiny\\): ${model.replace(/\./g, '\\.')} -> ${model.replace(/\./g, '\\.')} \\(the same\\)`));
         assert.ok(has(r.calls, /run deploy spruce-worker/));
+        assert.deepEqual(fs.readdirSync(tmp), [], 'the downloaded release is removed before upgrade.sh takes over');
         // From the new folder: already the newest.
-        const again = spawnSync('bash', [path.join(dest, 'deploy', 'update.sh')], { cwd: dest, encoding: 'utf8', env: Object.assign({}, process.env, { SPRUCE_RELEASES: `file://${bare}` }) });
+        const again = spawnSync('bash', [path.join(dest, 'deploy', 'update.sh')], { cwd: dest, encoding: 'utf8', env: Object.assign({}, process.env, { SPRUCE_RELEASES: `file://${bare}`, TMPDIR: tmp }) });
         assert.equal(again.status, 0); assert.match(again.stdout, /already 9\.9\.0, the newest approved version/);
+        assert.deepEqual(fs.readdirSync(tmp), [], 'nothing left when already newest either');
     } finally { w.cleanup(); }
 });
 

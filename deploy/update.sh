@@ -37,4 +37,6 @@ mkdir -p "$DEST"
 git -C "$TMP/release" archive HEAD | tar -x -C "$DEST"
 echo "Unpacked $NEW in $DEST (commit $(git -C "$TMP/release" rev-parse --short HEAD))."
 cd "$DEST"
+# (0.6.14) exec replaces this script, so its EXIT trap would never run: the download is removed first.
+rm -rf "$TMP"; trap - EXIT
 exec bash deploy/upgrade.sh "$HERE"
