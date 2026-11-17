@@ -259,6 +259,21 @@ test('Status (0.5.3): the AI model in the dashboard and in the worker: its versi
             assert.match(here.text, new RegExp(`The AI model phish-tiny ${PKG_MODEL.version.replace(/\./g, '\\.')} is loaded in the dashboard, in the native engine \\(ONNX Runtime [\\d.]+, basic optimization, 1 thread\\), in \\d+ ms; self-check: a made-up phishing email [\\d.]+%, a made-up genuine one [\\d.]+%\\.`));
             assert.equal(worker.ok, true);
             assert.match(worker.text, /^The worker loaded phish-tiny [\d.]+ in the native engine \(ONNX Runtime [\d.]+\) 1 minute ago \(version [\d.]+\), in \d+ ms; self-check: .* The newest email it scored \(\d+ (minutes?|hours|days) ago\) was scored by phish-tiny [\d.]+\.$/);
+            // (0.6.2) The worker's own domains, against the dashboard's.
+            assert.deepEqual(w.orgDomains, cfg.orgDomains);
+            assert.equal(s.find(c => c.id === 'org-domains').ok, true);
+            await store.setState('engine-worker', Object.assign({}, w, { orgDomains: ['maple-old.example'] }));
+            const appD = await serve(createApp({ cfg, store, service: new Service({ cfg, store, gmail }) }));
+            try {
+                const c = (await (await fetch(`${appD.base}/api/status`)).json()).checks.find(x => x.id === 'org-domains');
+                assert.equal(c.ok, false); assert.match(c.text, /^The worker counts only maple-old\.example as the organization's; the dashboard has maple-schools\.example\. Mail from maple-schools\.example is judged as mail from outside, and read by the AI\.$/); assert.match(c.fix, /deploy\/install\.sh/);
+            } finally { await appD.close(); }
+            await store.setState('engine-worker', Object.assign({}, w, { orgDomains: undefined }));
+            const appO = await serve(createApp({ cfg, store, service: new Service({ cfg, store, gmail }) }));
+            try {
+                const c = (await (await fetch(`${appO.base}/api/status`)).json()).checks.find(x => x.id === 'org-domains');
+                assert.equal(c.ok, null); assert.match(c.text, /versions before 0\.6\.2 don't/);
+            } finally { await appO.close(); }
             // A worker on another model, or one whose model didn't load: problems, with what to do.
             await store.setState('engine-worker', Object.assign({}, w, { model: 'phish-tiny 0.9.0' }));
             const app3 = await serve(createApp({ cfg, store, service: new Service({ cfg, store, gmail }) }));

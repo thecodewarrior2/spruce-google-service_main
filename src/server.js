@@ -262,6 +262,18 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         else if (!we.ok) add('model-worker', false, `The worker couldn't load the AI model ${we.model} (${new Date(we.at).toISOString().slice(0, 16).replace('T', ' ')} UTC): ${we.error || (we.check && we.check.error) || checkWords(we.check)}.${scored}`, loadFix);
         else if (we.model !== ms.model) add('model-worker', false, `The worker runs the AI model ${we.model}, the dashboard ${ms.model}.${scored}`, 'Run bash deploy/install.sh (or upgrade.sh), so both run the same build.');
         else add('model-worker', true, `The worker loaded ${we.model} in the native engine (${we.runtime}) ${ago(now - we.at)} (version ${we.version}${we.revision ? `, ${we.revision}` : ''}), in ${we.loadMs} ms; ${checkWords(we.check)}.${scored}`);
+        // (0.6.2) The domains the worker counts as the organization's, against the dashboard's: mail from a domain
+        // only the dashboard has is "outside" to the worker, and read by the AI (a second domain added to
+        // settings.env, but the worker not updated since).
+        const mine = [...(cfg.orgDomains || [])].map(d => String(d).toLowerCase()).sort();
+        if (we && Array.isArray(we.orgDomains)) {
+            const theirs = we.orgDomains.map(d => String(d).toLowerCase()).sort();
+            const missing = mine.filter(d => !theirs.includes(d)), extra = theirs.filter(d => !mine.includes(d));
+            add('org-domains', !missing.length && !extra.length, !missing.length && !extra.length ? `The worker counts mail from ${mine.join(', ') || 'no domain'} as the organization's (when Gmail's DMARC check passes for it), as the dashboard does.`
+                : `The worker counts only ${theirs.join(', ') || 'no domain'} as the organization's; the dashboard has ${mine.join(', ')}.${missing.length ? ` Mail from ${missing.join(', ')} is judged as mail from outside, and read by the AI.` : ''}`,
+                'Run bash deploy/install.sh from Cloud Shell, so both services have ORG_DOMAINS from deploy/settings.env; then Re-scan the emails judged meanwhile.');
+        } else if (we) add('org-domains', null, `The worker (version ${we.version || 'unknown'}) doesn't say which domains it counts as the organization's: versions before 0.6.2 don't. The dashboard has ${mine.join(', ')}.`,
+            'Update both services (Settings → Update, or bash deploy/install.sh); the worker says so at its next start.');
         const project = cfg.project || (cfg.demo ? 'demo' : ''), region = cfg.region || (cfg.demo ? 'demo' : '');
         if (cloudrun && project && region) {
             try {
@@ -965,7 +977,8 @@ async function reportEngine({ cfg, store }) {
     const st = m.status();
     if (cfg.role === 'admin') return st;
     const ok = st.state === 'ready' && !!(st.check && st.check.ok);
-    await store.setState('engine-worker', Object.assign({}, st, { ok, at: Date.now(), version: VERSION, revision: process.env.K_REVISION || '' }));
+    // (0.6.2) With the domains it counts as the organization's (ORG_DOMAINS as the worker has it), for Status.
+    await store.setState('engine-worker', Object.assign({}, st, { ok, at: Date.now(), version: VERSION, revision: process.env.K_REVISION || '', orgDomains: [...(cfg.orgDomains || [])] }));
     // The AI model not working is an alert (0.5.28), once a day whichever instance starts.
     if (!ok && await store.setStateIfUnset(`alert-ai-model-${new Date().toISOString().slice(0, 10)}`, { at: Date.now() })) {
         const text = `The AI model doesn't work in the worker (${st.state}${st.error ? `: ${String(st.error).slice(0, 160)}` : st.check && !st.check.ok ? ': its self-check failed' : ''}): emails are judged by the rule checks alone meanwhile. Health → Service status shows it; installing the version again (bash deploy/update.sh) usually fixes it.`;

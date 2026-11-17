@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.2: Status says which domains the worker counts as the organization's
+
+- **Why:** mail from the district's second domain (DMARC passing for it, as Gmail wrote) was judged "outside" and read
+  by the AI, while the dashboard showed both domains. The checks count it as inside (0.5.59; the email was checked
+  again here with both domains: inside, not read by the AI), so the worker that judged it had other domains than the
+  dashboard (ORG_DOMAINS not updated in it) or a build before 0.5.59, and nothing on the dashboard showed that.
+- **Status → "org-domains":** each worker instance now notes, with its AI engine, the domains it counts as the
+  organization's (`state/engine-worker`, `orgDomains`; `src/server.js` reportEngine), and Status compares them with the
+  dashboard's: the same, a check mark; different, a problem naming the domains judged as outside and what to do
+  (`bash deploy/install.sh`, then Re-scan the emails judged meanwhile); a worker before 0.6.2, unknown until it is
+  updated. Test: `test/server.test.js`.
+- No checks change.
+
 ## 0.6.1: moderators (spruce-moderators) review emails without being admins; Retraining examples on its own page
 
 - **Moderators:** the members of a new group, `MODERATOR_GROUP` (`spruce-moderators@` the first of `ORG_DOMAINS`
