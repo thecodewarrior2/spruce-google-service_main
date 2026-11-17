@@ -216,7 +216,7 @@ groups: Protection, Threat feeds, Organization, System). On a phone the menu is 
 bottom has Today, Review, Threats, Health and More. **Help** (0.5.46) shows this version's own docs (how it works,
 the dashboard, alerts, privacy, Google Workspace settings, install and troubleshooting, the settings reference,
 costs, the architecture deep dive) and **About & credits**, with a Donate button (`DONATE_BUTTON=off` hides it).
-The classic tabs (before 0.6.0) can be put back: `docs/DASHBOARD-ROLLBACK.md`.
+The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `docs/DASHBOARD-ROLLBACK.md`.
 
 - **Today:** first **Needs attention**, one list of what needs an admin, each with its button: moving paused by
   the brake (resume, moving the held emails or not), campaigns paused for your decision, a phishing list that
@@ -498,4 +498,5 @@ training examples, and a better AI model.
 | `deploy/` | `install.sh`, `update.sh`, `upgrade.sh`, `rollback.sh`, `stop.sh`, `doctor.sh` and `clear-data.sh` (Cloud Shell), `dashboard-policy.sh` (theirs), `cloud-update.sh` (Settings → Update's Cloud Build), `settings.example.env` |
 | `.github/` | Dependabot (`dependabot.yml`: security fixes as pull requests) and the tests on every pull request (`workflows/test.yml`) |
 | `tools/` | `build-mockup.js`, `release.js` (the install zip); `sync-model.js` (pins a model of TinyPhishLLM), `fetch-model.js` (downloads it: the image build and `npm test` run it); for retraining: `check-training-file.js`, `split-examples.js`, `score-examples.js` |
+| `ui-classic/` | the classic dashboard (0.5.74, before the 0.6.0 redesign), kept to put back: not served (`docs/DASHBOARD-ROLLBACK.md`) |
 | `vendor/spruce/` | The checks and the code that runs the model (this project's own since 0.4.0; they began as the extension's); `VENDOR.json` says from which commits, and pins the model (`modelSource`); `models/phish-tiny/` is where `fetch-model.js` puts the model (not committed) |

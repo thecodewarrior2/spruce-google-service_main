@@ -1,0 +1,421 @@
+/* S.P.R.U.C.E Mail Protection Service, the admin dashboard. Tokens on :root; dark mode is its own set of steps (not an automatic flip). */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f3f2ee; --raised: #ffffff;
+  --text: #0b0b0b; --text-2: #52514e; --muted: #6f6d68;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6; --accent-ink: #ffffff; --accent-soft: #e6f0fc;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --total: #d9d7cf;   /* 0.5.45: the emails checked, behind the moved ones (recessive, neutral) */
+  --good: #0ca30c; --good-text: #006300; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --critical-text: #b42727;
+  --critical-soft: #fbeaea; --warning-soft: #fff5de; --good-soft: #e7f6e7;
+  --shadow: 0 1px 2px rgba(11,11,11,0.06), 0 2px 8px rgba(11,11,11,0.04);
+  --radius: 10px;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --raised: #202020;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #9a988f;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --accent: #3987e5; --accent-ink: #ffffff; --accent-soft: #1b2b40;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --total: #3b3a37;   /* 0.5.45: the emails checked, behind the moved ones (recessive, neutral) */
+    --good-text: #0ca30c; --critical-text: #e66767; --critical-soft: #3a1d1d; --warning-soft: #3a2f14; --good-soft: #15301a;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --raised: #202020;
+  --text: #f0efec; --text-2: #c3c2b7; --muted: #9a988f;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --accent: #3987e5; --accent-ink: #ffffff; --accent-soft: #1b2b40;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --total: #3b3a37;   /* 0.5.45: the emails checked, behind the moved ones (recessive, neutral) */
+  --good-text: #0ca30c; --critical-text: #e66767; --critical-soft: #3a1d1d; --warning-soft: #3a2f14; --good-soft: #15301a;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--text); font: 14px/1.45 var(--font); }
+a { color: var(--accent); }
+button { font: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.logo { width: 38px; height: 38px; margin: -3px 0; flex: none; display: block; }
+.brand-name { font-weight: 650; font-size: 15px; }
+.brand-sub { color: var(--text-2); font-size: 12px; }
+.top-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.who { color: var(--text-2); font-size: 12px; }
+.mode { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); display: inline-flex; gap: 6px; align-items: center; }
+.mode::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.mode.enforce::before { background: var(--good); }
+.mode.monitor::before { background: var(--warning); }
+.demo-flag { background: var(--warning-soft); color: var(--text); font-size: 12px; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+
+.tabs { display: flex; gap: 2px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tabs a { padding: 11px 14px; color: var(--text-2); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; font-weight: 500; }
+.tabs a:hover { color: var(--text); }
+.tabs a[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
+/* How many emails wait for review, on the Email tab. */
+.tabs .count { display: inline-block; min-width: 20px; margin-left: 4px; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; text-align: center; }
+
+/* Email and Status: a menu on the left, the page beside it (above it on narrow screens). */
+.with-side { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 24px; align-items: start; }
+.side { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; padding-top: 6px; }
+.side a { padding: 8px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; white-space: nowrap; }
+.side a:hover { background: var(--surface-2); color: var(--text); }
+.side a[aria-current="page"] { background: var(--accent-soft); color: var(--text); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+.side-page { min-width: 0; }
+@media (max-width: 760px) {
+  .with-side { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .side { flex-direction: row; position: static; overflow-x: auto; padding-top: 0; gap: 6px; }
+  .side a { border: 1px solid var(--border); padding: 6px 12px; }
+  .side a[aria-current="page"] { border-color: var(--accent); box-shadow: none; }
+}
+
+.filters { display: flex; align-items: center; gap: 6px; padding: 14px 24px 0; flex-wrap: wrap; }
+.filter-label { color: var(--text-2); font-size: 12px; margin-right: 4px; }
+.range { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.range:hover { background: var(--surface-2); }
+.range[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+/* Live updates: a dot (green: live; grey: paused; amber: the last update failed), the time, and a toggle. */
+.live { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
+.live[hidden] { display: none; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
+.live.paused .live-dot { background: var(--axis); }
+.live.stale .live-dot { background: var(--warning); }
+/* Settings: "Read the directory again now" and when the group was last read. */
+.renew { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 10px; }
+.renew-bad { color: var(--critical-text); font-size: 12.5px; }
+
+main { padding: 16px 24px 32px; max-width: 1280px; margin: 0 auto; outline: none; }
+main.loading { opacity: 0.55; transition: opacity 120ms; }
+h1 { font-size: 20px; margin: 4px 0 4px; font-weight: 650; }
+h2 { font-size: 15px; margin: 0 0 2px; font-weight: 650; }
+.sub { color: var(--text-2); margin: 0 0 12px; font-size: 13px; }
+.grid { display: grid; gap: 14px; }
+.kpis { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); margin-bottom: 14px; }
+.two { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+@media (max-width: 900px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); min-width: 0; }
+.card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.kpi .label { color: var(--text-2); font-size: 12.5px; }
+.kpi .value { font-size: 26px; font-weight: 650; margin-top: 2px; }
+.kpi .note { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.kpi.hero .value { font-size: 48px; line-height: 1.05; }
+
+.alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius); margin-bottom: 14px; border: 1px solid var(--border); }
+.alert.critical { background: var(--critical-soft); }
+.alert.warning { background: var(--warning-soft); }
+.alert.good { background: var(--good-soft); }
+.alert .actions { margin-top: 0; }
+.held-list { margin: 6px 0 0; padding-left: 18px; }
+/* Messages for one campaign: its state and the admin's decisions. */
+.campaign-bar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.campaign-bar.held { border-color: var(--warning); }
+.campaign-bar label { display: inline-flex; gap: 6px; align-items: center; color: var(--text-2); }
+/* Readiness checks. */
+.checks { list-style: none; margin: 0; padding: 0; }
+.checks li { display: flex; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13.5px; overflow-wrap: anywhere; }
+.checks li > :not(.mark) { min-width: 0; }
+.checks li:first-child { border-top: 0; }
+.checks .mark { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; }
+.checks .ok .mark { background: var(--good-soft); color: var(--good-text); }
+.checks .todo .mark { background: var(--warning-soft); color: var(--text); }
+.events li.alerted time { color: var(--critical-text); }
+/* Identifiers with a Copy button; Check an email. */
+code.mid { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.copy { margin-left: 4px; }
+/* (0.5.72) An email address and its copy button. */
+.addr { white-space: normal; overflow-wrap: anywhere; }
+.copy-addr { display: inline-flex; align-items: center; justify-content: center; vertical-align: -2px; margin-left: 3px; padding: 2px; border: 0; border-radius: 4px; background: none; color: var(--text-2); cursor: pointer; }
+.copy-addr:hover, .copy-addr:focus-visible { color: var(--accent); background: var(--accent-soft); }
+.copy-addr svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
+textarea.paste { width: 100%; box-sizing: border-box; min-height: 180px; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.check-result { margin-top: 16px; }
+.pasted-title { font-size: 20px; margin: 8px 0 2px; }
+/* Messages: several at once. */
+.bulk-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; position: sticky; top: 0; z-index: 5; }
+.bulk-bar[hidden] { display: none; }
+.select-all { display: inline-flex; gap: 6px; align-items: center; color: var(--text-2); }
+/* Review. */
+.review-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; position: sticky; top: 0; z-index: 5; }
+.queue-switch { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+.queue-switch .btn { text-decoration: none; }
+kbd { font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface-2); color: var(--text); }
+/* Status: a check that couldn't be made. */
+.checks .unknown .mark { background: var(--surface-2); color: var(--text-2); }
+/* Settings: the weekly summary. */
+.switch { display: inline-flex; gap: 8px; align-items: center; font-weight: 600; margin: 8px 0 4px; }
+.switch input { width: 18px; height: 18px; }
+.digest-preview { white-space: pre-wrap; background: var(--surface-2); border-radius: 8px; padding: 12px; font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin-top: 10px; }
+.digest-preview[hidden] { display: none; }
+.alert .icon { font-size: 16px; line-height: 1.3; }
+.alert .grow { flex: 1; min-width: 0; }
+.events { list-style: none; margin: 0; padding: 0; }
+.events li { padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.events li:first-child { border-top: 0; }
+.events time { color: var(--muted); font-size: 12px; display: block; }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--muted); font: 11px var(--font); font-variant-numeric: tabular-nums; }
+.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+.chart .baseline { stroke: var(--axis); stroke-width: 1; }
+.chart .bar { cursor: default; }
+.chart .bar:hover, .chart .bar:focus { opacity: 0.8; outline: none; }
+.chart .hit { fill: transparent; }
+.chart .thresh { stroke: var(--text-2); stroke-width: 1.5; }
+.chart .thresh-label { fill: var(--text-2); font-weight: 600; }
+.linkbtn { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; font-size: 12.5px; }
+.linkbtn:hover { text-decoration: underline; }
+
+.hbars { display: grid; gap: 8px; }
+.hbar { display: grid; grid-template-columns: minmax(120px, 210px) 1fr 44px; gap: 10px; align-items: center; font-size: 13px; }
+.hbar .name { color: var(--text); overflow-wrap: anywhere; }
+.hbar .track { height: 12px; }
+.hbar .fill { height: 12px; background: var(--s1); border-radius: 0 4px 4px 0; min-width: 2px; }
+.hbar .num { text-align: right; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--text-2); font-weight: 600; font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover, tbody tr.clickable:focus { background: var(--surface-2); outline: none; }
+.table-wrap { overflow-x: auto; }
+.trunc { max-width: 360px; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .table-wrap table { min-width: 600px; } .trunc { min-width: 200px; } }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.pill.moved::before { background: var(--critical); }
+.pill.would::before { background: var(--warning); }
+.pill.flag::before { background: var(--serious); }
+.pill.released::before { background: var(--good); }
+.pill.inbox::before { background: var(--muted); }
+
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+input[type="search"], select { font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--text); }
+input[type="search"] { min-width: 240px; flex: 1; max-width: 420px; }
+.btn { border: 1px solid var(--border); background: var(--raised); color: var(--text); padding: 7px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.back { margin-bottom: 8px; display: inline-block; }
+
+/* Text from emails (subjects, addresses, tracking links, the model's quotes) can have no place to
+   break: it wraps inside its card instead of running out of it. */
+.detail, .alert, .decision, h1, .pasted-title, .sub, .events li { overflow-wrap: anywhere; }
+.detail { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+@media (max-width: 900px) { .detail { grid-template-columns: minmax(0, 1fr); } }
+dl.kv { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 6px 12px; margin: 0; font-size: 13px; }
+dl.kv dt { color: var(--text-2); }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+.signals { list-style: none; margin: 0; padding: 0; }
+.signals li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; overflow-wrap: anywhere; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.signals li:first-child { border-top: 0; }
+.weight { align-self: start; font-weight: 650; text-align: center; border-radius: 6px; background: var(--surface-2); padding: 1px 0; font-variant-numeric: tabular-nums; }
+.weight.high { background: var(--critical-soft); color: var(--critical-text); }
+.decision { padding: 12px 14px; border-radius: 8px; margin: 10px 0; font-size: 13px; }
+.rescan { padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13px; overflow-wrap: anywhere; }
+.rescan div { margin-top: 3px; }
+.decision.move { background: var(--critical-soft); }
+.decision.would { background: var(--warning-soft); }
+.decision.flag { background: var(--surface-2); }
+.decision.released { background: var(--good-soft); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.meter { height: 8px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; margin: 6px 0 4px; }
+.meter > div { height: 100%; background: var(--accent); border-radius: 999px; }
+.meter.hot > div { background: var(--critical); }
+.quote { border-left: 3px solid var(--grid); padding: 4px 10px; margin: 6px 0; color: var(--text-2); font-size: 13px; overflow-wrap: anywhere; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--page); padding: 10px 16px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow); z-index: 20; }
+
+.tooltip { position: fixed; z-index: 30; pointer-events: none; background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 140px; }
+.tooltip .t-title { color: var(--text-2); margin-bottom: 4px; }
+.tooltip .t-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.tooltip .t-row b { font-variant-numeric: tabular-nums; }
+.tooltip .key { width: 12px; height: 2px; display: inline-block; margin-right: 6px; vertical-align: middle; }
+.foot { color: var(--muted); font-size: 12px; padding: 8px 24px 24px; max-width: 1280px; margin: 0 auto; }
+.empty { color: var(--muted); padding: 20px 0; text-align: center; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (max-width: 600px) {
+  .top, .tabs, .filters { padding-left: 16px; padding-right: 16px; }
+  main { padding: 12px 16px 24px; }
+  .kpi.hero .value { font-size: 40px; }
+  .hbar { grid-template-columns: minmax(90px, 140px) 1fr 36px; }
+  dl.kv { grid-template-columns: 100px minmax(0, 1fr); }
+}
+
+.spaced { margin-top: 14px; }
+
+/* Settings → Policy: each setting, its source, and the form to change it (with the project ID). */
+.policy-row { border-top: 1px solid var(--border); padding: 12px 0; }
+.policy-row:first-of-type { border-top: 0; }
+.policy-head { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.policy-label { font-weight: 600; }
+.policy-form { margin: 12px 0 0 192px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); display: grid; gap: 10px; max-width: 640px; }
+.policy-form input[type="text"], .policy-form input[type="email"], .policy-form input[type="password"], .policy-form input[type="number"], .policy-form select { font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--text); }
+.policy-form .num-input { width: 110px; }
+.policy-form textarea { font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--text); width: 100%; box-sizing: border-box; resize: vertical; }
+.entries { margin: 0; padding-left: 18px; columns: 2; column-gap: 24px; }
+.entries li { break-inside: avoid; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .entries { columns: 1; } }
+.policy-form .alert { margin-bottom: 0; }
+.policy-form .actions { margin-top: 0; }
+.choices { display: grid; gap: 6px; }
+.choice { display: flex; gap: 8px; align-items: flex-start; }
+.choice > span { flex: 1 1 auto; min-width: 0; }
+.choice.inline-choice { align-items: center; flex-wrap: wrap; }
+.choice.inline-choice > span { flex: 0 0 auto; }
+.choice input[type="radio"], .choice input[type="checkbox"] { width: 18px; height: 18px; margin: 1px 0 0; flex: 0 0 auto; }
+.agree { display: grid; gap: 8px; }
+.agree[hidden], .policy-form [hidden], .policy-form[hidden] { display: none; }
+.project { display: grid; gap: 4px; max-width: 320px; font-weight: 600; }
+.inline { display: inline-flex; gap: 6px; align-items: center; }
+.policy-error { color: var(--critical-text); font-weight: 600; }
+.policy-error:empty { display: none; }
+@media (max-width: 700px) {
+  .policy-head { grid-template-columns: minmax(0, 1fr) auto; }
+  .policy-value { grid-column: 1 / -1; grid-row: 2; }
+  .policy-form { margin-left: 0; }
+}
+
+/* Settings → Update: the changelog, from Markdown (as text). */
+.release { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.release:first-of-type { border-top: 0; margin-top: 0; }
+.release h3 { margin: 0 0 6px; font-size: 15px; }
+.md p { margin: 6px 0; }
+.md ul { margin: 4px 0; padding-left: 20px; }
+.md li { margin: 2px 0; }
+.md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--surface-2); padding: 0 4px; border-radius: 4px; overflow-wrap: anywhere; }
+.md pre { background: var(--surface-2); padding: 8px 10px; border-radius: 8px; overflow-x: auto; font-size: 12.5px; }
+.md-table { border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+.md-table th, .md-table td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+details.changelog { margin-top: 14px; }
+details.changelog > summary { cursor: pointer; font-weight: 600; }
+.policy-form.update-form { margin-left: 0; max-width: 720px; }
+
+/* In-page popups (review recipients, what the AI reads) */
+dialog.popup { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--raised); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,0.25); }
+dialog.popup::backdrop { background: rgba(0,0,0,0.35); }
+.popup-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.popup-head h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.popup-body { padding: 14px 18px 18px; overflow: auto; max-height: calc(100vh - 140px); }
+.popup-body h3 { font-size: 14px; margin: 16px 0 6px; }
+ul.plain-list { margin: 6px 0 0; padding-left: 18px; columns: 2; column-gap: 24px; }
+ul.plain-list li { break-inside: avoid; overflow-wrap: anywhere; padding: 1px 0; }
+@media (max-width: 600px) { ul.plain-list { columns: 1; } }
+
+/* Review: who received the email (copies decided together) */
+.review-people { display: grid; gap: 4px; padding: 12px 16px; margin: 10px 0; }
+.review-people > div { overflow-wrap: anywhere; }
+
+/* AI opinion: where the score stands; no score (a language the model doesn't read); the reading */
+.ai-where { margin: 8px 0; color: var(--text-2); }
+.ai-none { display: grid; gap: 6px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); }
+.lean { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; padding: 1px 8px; border-radius: 10px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+.lean.hot { background: var(--critical-soft); color: var(--critical-text); }
+.reading-line { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+ol.reading { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+ol.reading li > span:first-child { margin-right: 8px; }
+ol.reading li { overflow-wrap: anywhere; }
+ol.reading li.weighed > span:first-child { background: var(--warning-soft); border-radius: 4px; padding: 0 3px; font-weight: 600; }
+/* (0.5.66) Past the model's input (its first 60 sentences): shown, dimmed. */
+ol.reading li.unread > span:first-child { color: var(--muted); }
+/* "…show more": what weighed most, each between the sentence before and after it. */
+.in-context { border: 1px solid var(--border); border-left: 3px solid var(--warning); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 8px; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.in-context .ctx.muted { color: var(--muted); font-size: 13px; }
+.in-context .ctx.weighed > span:first-child { background: var(--warning-soft); border-radius: 4px; padding: 0 3px; font-weight: 600; margin-right: 8px; }
+
+/* 0.5.22: a phishing list that missed its download: the red alert icon, and its row highlighted. */
+.alert-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--critical); color: #fff; font-weight: 700; font-size: 12px; line-height: 1; vertical-align: -3px; margin-right: 6px; }
+.alert > .alert-icon { margin-top: 1px; }
+tr.row-alert > td { background: var(--critical-soft); }
+tr.row-alert > td:first-child { box-shadow: inset 3px 0 0 var(--critical); }
+.list-name { display: flex; align-items: center; }
+.list-problem { color: var(--critical-text); margin-top: 2px; max-width: 46ch; }
+.card.has-alert { border-color: var(--critical); }
+
+/* 0.5.23: Settings → Safe Browsing. */
+ol.steps { margin: 8px 0 0; padding-left: 22px; }
+ol.steps li { margin: 4px 0; }
+.spaced-top { margin-top: 18px; }
+.spaced-top h3 { margin: 0 0 4px; font-size: 14px; }
+ul.benefits { margin: 8px 0; padding-left: 20px; }
+ul.benefits li { margin: 6px 0; }
+/* Settings → Safe Browsing: its forms sit under their card's text, not indented like the policy rows'. */
+.sb-form { margin-left: 0; }
+/* 0.5.24: Settings → Update, a manual install waiting. */
+.manual-install { border-color: var(--critical); }
+.manual-install .manual-head { display: flex; align-items: center; gap: 2px; }
+.manual-install .manual-head h2 { margin: 0; }
+.manual-install p { margin: 8px 0; }
+.card.locked .policy-form { opacity: 0.6; }
+ul.plain-list { margin: 0; padding-left: 14px; }
+ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal; }
+
+/* 0.5.35: Email → Re-checked (mail found to be phishing after it was delivered), its banners and marks. */
+.recheck-group.bad { border-color: var(--critical); }
+.recheck-group h2 { display: flex; align-items: center; gap: 2px; overflow-wrap: anywhere; }
+.recheck-kpis { margin: 10px 0 12px; }
+.recheck-kpis .card.kpi { box-shadow: none; }
+.found-later { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px; }
+.recheck-box.bad { border-left-color: var(--critical); background: var(--critical-soft); }
+.recheck-box b { display: inline-flex; align-items: center; }
+.bad-text { color: var(--critical-text); }
+
+/* 0.5.36: Status → Look-alikes. */
+.mark-lookalike { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.mark-lookalike select { max-width: 100%; }
+
+/* 0.5.38: Settings → Update, Last checked and Check again. */
+.check-again { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.check-again .btn.small-btn { padding: 4px 10px; font-size: 13px; }
+
+/* 0.5.40: a service's state beside its page's title (Safe Browsing, Spamhaus, abuse.ch, Link clicks, Look-alikes). */
+.title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 4px; }
+.title-row h1 { margin: 0; }
+.svc-badge { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px 4px 5px; border-radius: 999px; font-size: 13.5px; font-weight: 600; line-height: 1.2; }
+.svc-badge .svc-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 5px; font-size: 13px; font-weight: 800; color: #fff; flex: none; }
+.svc-badge.on { background: var(--good-soft); color: var(--good-text); }
+.svc-badge.on .svc-icon { background: var(--good); }
+.svc-badge.bad { background: var(--critical-soft); color: var(--critical-text); }
+.svc-badge.bad .svc-icon { background: var(--critical); }
+.svc-badge.off { background: var(--border); color: var(--muted); }
+.svc-badge.off .svc-icon { background: var(--muted); }
+
+/* 0.5.45: the overview's daily chart: the emails checked behind, its actions. */
+.chart-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: flex-end; }
+.trigger-note { margin: 10px 0 0; }
+
+/* 0.5.46: Help (the docs as pages) and About & credits. */
+.help-doc { overflow-wrap: anywhere; }
+.help-doc .md-h { margin: 22px 0 8px; line-height: 1.3; }
+.help-doc h2.md-h { font-size: 19px; padding-top: 6px; border-top: 1px solid var(--border); }
+.help-doc h2.md-h:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.help-doc h3.md-h { font-size: 16px; }
+.help-doc h4.md-h, .help-doc h5.md-h { font-size: 14px; }
+.help-doc pre { overflow-x: auto; white-space: pre; }
+.help-doc ol, .help-doc ul { padding-left: 22px; }
+.help-doc li { margin: 3px 0; }
+.credits { line-height: 1.7; }
+.donate-row a { display: inline-block; padding: 5px 14px; border-radius: 14px; background: #0070ba; color: #fff; font-weight: 600; text-decoration: none; margin-right: 8px; }
+.donate-row a:hover, .donate-row a:focus-visible { background: #005ea6; }
+
+/* 0.5.53: Settings → Mailboxes */
+.mailbox-search { font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--text); width: min(420px, 100%); margin: 8px 0; }
+.pager { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }

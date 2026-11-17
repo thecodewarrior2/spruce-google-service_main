@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S.P.R.U.C.E Mail Protection Service</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <img class="logo" src="icon.svg" alt="" width="38" height="38">
+    <div><div class="brand-name">S.P.R.U.C.E Mail Protection Service</div><div class="brand-sub" id="orgLine">Google Workspace</div></div>
+  </div>
+  <div class="top-right">
+    <span class="mode" id="modeBadge" hidden></span>
+    <span class="who" id="who"></span>
+  </div>
+</header>
+<nav class="tabs" aria-label="Sections">
+  <a href="#/overview" data-tab="overview">Overview</a>
+  <a href="#/review" data-tab="email">Email <span class="count" id="reviewCount" hidden></span></a>
+  <a href="#/status" data-tab="status">Status</a>
+  <a href="#/settings" data-tab="settings">Settings</a>
+  <a href="#/help" data-tab="help">Help</a>
+</nav>
+<div class="filters" role="group" aria-label="Period">
+  <span class="filter-label">Period</span>
+  <button type="button" class="range" data-days="7">Last 7 days</button>
+  <button type="button" class="range" data-days="30">Last 30 days</button>
+  <button type="button" class="range" data-days="90">Last 90 days</button>
+  <span class="live" id="live" hidden>
+    <span class="live-dot" aria-hidden="true"></span>
+    <span id="liveState" aria-live="off">Live</span>
+    <button type="button" class="linkbtn" id="liveToggle" aria-pressed="true">Pause updates</button>
+  </span>
+</div>
+<main id="view" tabindex="-1"></main>
+<div class="tooltip" id="tip" role="tooltip" hidden></div>
+<footer class="foot" id="foot"></footer>
+</body>
+</html>

@@ -2,8 +2,9 @@
 
 ## 0.6.0: a redesigned dashboard: a menu on the left, Today, a review list with the evidence, a campaign timeline
 
-- **Roll back:** the classic design is 0.5.74 (commit `3d5b1b1`); `docs/DASHBOARD-ROLLBACK.md` says how to put back
-  only its look (three files in `public/`), or the whole change.
+- **Roll back:** the classic design's three files are kept, unchanged from 0.5.74, in the new **`ui-classic/`**
+  folder (not served); copying them into `public/` puts back its look. `docs/DASHBOARD-ROLLBACK.md` says more, and
+  how to undo the whole change.
 - **The menu** is on the left: **Today**, **Review** (with how many emails wait), **Threats** (Campaigns,
   Re-checked, Look-alikes), **Mail** (Messages, Check an email, Users), **Health** (Service status, Readiness, Model
   health, Activity) and **Settings**, in four groups: Protection (Policy, Allowlist), Threat feeds (Safe Browsing,
