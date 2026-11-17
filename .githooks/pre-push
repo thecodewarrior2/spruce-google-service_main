@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuses a push whose commits add personal information, in their files or messages (CLAUDE.md, "Personal
+# information"; tools/pii-check.js). git gives the refs being pushed on stdin.
+exec node tools/pii-check.js --pre-push

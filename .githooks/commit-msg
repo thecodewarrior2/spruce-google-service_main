@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses a commit message with personal information (CLAUDE.md, "Personal information"; tools/pii-check.js).
+exec node tools/pii-check.js --message "$1"

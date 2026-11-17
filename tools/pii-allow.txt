@@ -1,0 +1,52 @@
+# tools/pii-allow.txt — what tools/pii-check.js lets through though it looks like personal information. Only what is
+# no person's: an organization's or a service's own address, a placeholder, a documented example. Never a real
+# person's detail: write it again with made-up data instead (maple-schools.example). One per line:
+#   name@domain      that exact address
+#   @domain          that organization's addresses, and its subdomains' (never a personal mailbox provider's)
+#   other text       that exact text (a documented example number)
+# Reserved names (.example, .test, .invalid, example.com/org/net) never need a line here.
+
+# Google Cloud service accounts (machines, not people)
+@gserviceaccount.com
+
+# The no-reply address in the Co-Authored-By line of commits made with an AI assistant (no one's mailbox)
+noreply@anthropic.com
+
+# Brands and services whose own sending addresses the checks and tests are about
+@google.com
+@mail.gmail.com         # Gmail's Message-ID host (<…@mail.gmail.com> names an email, not a mailbox)
+@paypal.com
+@paypal.cm             # a look-alike of PayPal in a test of brand impersonation
+@paypa1.com            # a look-alike of PayPal in the engine's examples
+@docusign.net
+@govdelivery.com
+@xoom.com
+@github.com
+@beehiiv.com
+@maple-schools-k12.org        # a made-up look-alike of the made-up district, in the look-alike tests
+@maple-schools.org            # the same
+@greenpath-example.my.id      # a made-up phishing sender in a test email
+@masterpiece.example-tv.org   # a made-up newsletter sender
+
+# Placeholders in docs and examples
+@x.org
+@y.org
+@your-district.org
+@district.org
+
+# The standard test payment card number (Visa's documented test number: no real card)
+4111 1111 1111 1111
+
+# REVIEW: personal mailbox addresses already in the tests at 0.6.12, before this check existed. Made up for the tests
+# (the personal-mailbox checks need a real provider's name), but realistic enough that a real person could own one:
+# replace each with an obviously made-up name before the @ (made-up.person.01, say) and remove its line here.
+someone@gmail.com
+1jo.doe@gmail.com
+misty.samplefield.1975@gmail.com
+jordan.exampleton.office@gmail.com
+coach.pat.sample@gmail.com
+coach.pat.sample@outlook.com
+coach.pat.sample@yahoo.com
+dana.madeup.1985@gmail.com
+dana.madeup.payroll@gmail.com
+jr.lab.help@gmail.com

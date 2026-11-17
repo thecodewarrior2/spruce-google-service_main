@@ -1,6 +1,6 @@
 {
   "name": "spruce-gmail-service",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "installLevel": 7,
   "checksLevel": 16,
   "private": true,
@@ -12,6 +12,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
+    "pii": "node tools/pii-check.js --all",
     "demo": "DEMO=1 PORT=8080 node src/server.js",
     "pretest": "node tools/fetch-model.js --quiet",
     "test": "node --test test/*.test.js",

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.13: personal information is checked before every commit and every push
+
+- **The rule** (CLAUDE.md, "Personal information"): before every commit and every push, the change, its files and its
+  commit messages, is checked for personal information, and read for anything taken from a reported email, a
+  screenshot or an export. Never skipped, never turned off.
+- **`tools/pii-check.js`** looks for email addresses outside the reserved example names (a personal mailbox
+  provider's always), phone, Social Security and payment card numbers (Luhn), street addresses, and your own private
+  words in `.pii-terms` (your district's name and domains: in `.gitignore`, so they are checked without ever being
+  committed). `--staged`, `--message FILE`, `--range A..B`, `--pre-push`, `--all`.
+- **Git hooks** in `.githooks/` run it on every commit (`pre-commit`, `commit-msg`) and push (`pre-push`); `npm install`
+  turns them on (`core.hooksPath`; it does nothing where there is no git, as in the image build).
+- **`npm test` scans every tracked file** (`test/pii-check.test.js`); `npm run pii` does it alone.
+- **`tools/pii-allow.txt`** lists what looks like personal information but is no person's: service accounts, the
+  brands and services the checks are about, placeholders, the documented test card number. Its REVIEW section
+  holds ten realistic personal-mailbox addresses that were already in the tests (made up, but a real person could
+  own one): to be replaced with obviously made-up names.
+- Nothing in the service changes: no install or checks change.
+
 ## 0.6.12: the loading bar stops when it is done, says what it is doing, and moves away from Pause updates
 
 - **It never stopped:** an action that drew the page again (most of them) took away the page's entry in the

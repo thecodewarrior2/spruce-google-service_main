@@ -33,7 +33,23 @@ Then follow its section below.
   every kind of detail: people's names, the district's domains, businesses named in its mail, ID, card and
   reference numbers, street addresses. Never copy a real example even to show what a check catches (the
   retraining export's name rules once quoted names from a district's file): write a new one from scratch.
-  Before each push, search the change for anything taken from a reported email, screenshot or export.
+- **Personal information (PII): check before every commit and before every push.** No exceptions, however small
+  the change, and for the commit message as well as the files.
+  - Before each commit and each push, run `node tools/pii-check.js --staged` (and `--range A..B` for what a push
+    sends), and read the change yourself for anything taken from a reported email, screenshot, export or a
+    conversation: people's names, real domains, addresses, phone, ID, card or reference numbers. The script finds
+    patterns; only reading finds a real name.
+  - The git hooks in `.githooks/` run the check on every commit (the files and the message) and every push. Turn them
+    on once per clone: `git config core.hooksPath .githooks` (`npm install` does it). Never skip them
+    (`--no-verify`), never turn them off, never weaken `tools/pii-check.js` to get a change through.
+  - A finding: write it again with made-up data. Only what is no person's (an organization's or a service's own
+    address, a documented example) may go in `tools/pii-allow.txt`, with a comment saying why. Never allow a real
+    person's detail there.
+  - Your district's own name and domains go in `.pii-terms` (one per line, never committed: `.gitignore`), so the
+    check refuses them without them ever being written into the repository.
+  - `npm test` scans every tracked file too (`test/pii-check.test.js`): the tests fail on any finding.
+  - Something found already pushed: stop, tell the maintainer, and don't push anything else until they decide (the
+    history may need cleaning, as in 0.6.8).
 - The engine in `vendor/spruce/` (the checks and the code that runs the AI model) began as a copy of the
   S.P.R.U.C.E+ browser extension's files. Since 0.4.0 it is this project's own code: change it here, with
   tests. It holds only what the service uses (the extension's own parts were removed in 0.5.20): don't

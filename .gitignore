@@ -8,3 +8,6 @@ deploy/settings.env
 # The AI model: downloaded from TinyPhishLLM at the commit vendor/spruce/VENDOR.json pins (tools/fetch-model.js),
 # never committed here.
 vendor/spruce/models/
+
+# Your own private words for tools/pii-check.js (your district's name and domains): checked, never committed.
+.pii-terms
