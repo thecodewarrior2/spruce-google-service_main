@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.3: no DMARC result from Gmail is worked out from its SPF and DKIM results; your own sent copy isn't judged
+
+- **False alarm:** mail between two staff accounts of the district's second domain (cedarvaleschools.com) was judged
+  "outside" and read by the AI (98%, "would move"): "the address is the organization's, but DMARC didn't pass".
+  Gmail's verification line on that copy had no DMARC result at all ("dkim=pass header.i=@…; spf=pass
+  smtp.mailfrom=…", no "dmarc="), while another email between the same two accounts had "dmarc=pass": Gmail leaves it
+  out on some mail between accounts of one Workspace.
+- **What changes** (`deriveDmarc` in `src/engine/mime.js`): with no DMARC result written, it is worked out from the
+  results Gmail did verify, as DMARC defines it (RFC 7489): it passes when DKIM or SPF passed for the From address's
+  own domain (the same registrable domain). Then the address counts for "inside" and the allowlist as with Gmail's own
+  pass. Another domain's signature (a mailing service's) proves nothing; a result Gmail wrote is never changed
+  ("dmarc=fail" stays a failure). The record notes it: Details → Sender check, "DMARC pass (worked out from DKIM:
+  Gmail wrote no DMARC result)". Test: `test/ownership.test.js`.
+- **A mailbox owner's own sent copy is never judged** (`ownSentCopy` in `src/pipeline.js`): a copy with Gmail's SENT
+  label, or from the mailbox owner's own address with nothing showing it was ever delivered (no receiving server's
+  verification, no Received line; mail from anyone else always has both). The first check skipped SENT already; now
+  the re-checks skip it too, and Re-scan says so (mark it Not phishing to clear it from the review). Test:
+  `test/ownership.test.js`.
+- **Checks level 14:** after this update, recent delivered mail is checked again (only to raise a verdict: Re-scan
+  the emails from inside judged "outside" meanwhile).
+
 ## 0.6.2: Status says which domains the worker counts as the organization's
 
 - **Why:** mail from the district's second domain (DMARC passing for it, as Gmail wrote) was judged "outside" and read

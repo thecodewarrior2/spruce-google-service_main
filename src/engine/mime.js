@@ -21,9 +21,27 @@ function receiverAuth(rawHead, receiverHost = 'mx.google.com') {
         // Every domain whose DKIM signature the receiver verified (header.i=@mail.beehiiv.com or header.d=…):
         // a third party among them is the service that sent the email (0.5.19).
         const dkimDomains = [...new Set([...v.matchAll(/dkim=pass\b[^;]*?\bheader\.[id]=@?([A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi)].map(m => m[1].toLowerCase()))];
-        return { dmarc: get('dmarc'), spf: get('spf'), dkim: get('dkim'), arc: get('arc'), headerFrom: from ? from[1].toLowerCase() : null, dkimDomains };
+        const mailFrom = /smtp\.mailfrom=(?:[^\s;@]*@)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})/i.exec(v);
+        return { dmarc: get('dmarc'), spf: get('spf'), dkim: get('dkim'), arc: get('arc'), headerFrom: from ? from[1].toLowerCase() : null, dkimDomains,
+            spfDomain: mailFrom ? mailFrom[1].toLowerCase() : null };
     }
     return null;
+}
+
+// (0.6.3) Gmail sometimes writes no DMARC result at all (seen on mail between two accounts of the same Google
+// Workspace: "dkim=pass header.i=@…; spf=pass smtp.mailfrom=…", no "dmarc="). DMARC passes when SPF or DKIM passed
+// for the From address's own domain (the same registrable domain: "aligned", RFC 7489); so, with no result written,
+// it is worked out from the results Gmail did verify, and marked as worked out (derived). A result Gmail wrote is
+// never changed: "dmarc=fail" stays a failure.
+function deriveDmarc(auth, senderAddress) {
+    if (!auth || auth.dmarc) return auth;
+    const domain = String(senderAddress || '').toLowerCase().split('@')[1] || '';
+    if (!domain) return auth;
+    const E = require('./spruce').load();
+    const org = (d) => E.registrableDomain(d) || d;
+    const aligned = (d) => !!d && org(d) === org(domain);
+    const by = (auth.dkim === 'pass' && (auth.dkimDomains || []).some(aligned)) ? 'DKIM' : auth.spf === 'pass' && aligned(auth.spfDomain) ? 'SPF' : '';
+    return by ? Object.assign({}, auth, { dmarc: 'pass', headerFrom: domain, derived: by }) : auth;
 }
 
 function textToHtmlish(text) {
@@ -62,7 +80,7 @@ async function readMessage(raw) {
         references: [].concat(mail.references || []).map(String).slice(0, 50),
         to,
         people,
-        auth: receiverAuth(rawHead),
+        auth: deriveDmarc(receiverAuth(rawHead), from.address),
         visibleText: read.visibleText,
         hiddenText: read.hiddenText,
         quotedText: read.quotedText,
@@ -80,4 +98,4 @@ async function readMessage(raw) {
     };
 }
 
-module.exports = { readMessage, receiverAuth };
+module.exports = { readMessage, receiverAuth, deriveDmarc };

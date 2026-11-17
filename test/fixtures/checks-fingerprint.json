@@ -1,5 +1,5 @@
 {
-  "checksLevel": 13,
-  "fingerprint": "fafa2e32610b63925078a8907bec0f353e5af63c1fb2c83098eeda770ce368e4",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.1: where the retraining export is named in a comment and in Activity's wording (Health → Retraining examples)"
+  "checksLevel": 14,
+  "fingerprint": "1c79606b94c3d66c36ab4446a40680b9fc50a8e2920d0b2ed0cc34f2396113ec",
+  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
 }

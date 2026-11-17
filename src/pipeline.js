@@ -261,6 +261,15 @@ function policyWords(key, v) {
     return String(v);
 }
 
+// (0.6.3) A copy its mailbox's own owner sent: Gmail's SENT label, or the owner's own address with nothing showing it
+// was ever delivered (no receiving server's verification, no Received line: mail from anyone else always has both).
+// Their own mail, never judged: the AI read a student's sent replies as "outside" mail.
+function ownSentCopy(user, msg, facts) {
+    if (((msg && msg.labelIds) || []).includes('SENT')) return true;
+    const me = String(user || '').toLowerCase();
+    return !!me && String((facts && facts.senderAddress) || '').toLowerCase() === me && !(facts && facts.auth) && !/^received:/im.test(String((facts && facts.rawHead) || ''));
+}
+
 class Service {
     // statFlushMs: the day's counters of checked emails are added up here and written at most this often
     // (one write for all of them; 0, as in the tests: each at once). The worker uses STAT_FLUSH_MS.
@@ -550,7 +559,7 @@ class Service {
             sender: { name: facts.senderName.slice(0, 200), address: facts.senderAddress.slice(0, 320), domain }, subject: facts.subject.slice(0, 300),
             status: result.status, score: result.score, signals: result.signals.slice(0, 30), links: result.links.slice(0, 20), checks: result.checks || null,
             ai: result.ai ? { probability: result.ai.probability, model: result.ai.model, reasons: (result.ai.reasons || []).map(r => ({ sentence: String(r.sentence).slice(0, 160), facts: !!r.facts })) } : null,
-            auth: facts.auth ? { dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim } : null,
+            auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
             action: decision.action, trigger: decision.trigger, why: decision.why, mode: this.cfg.mode,
@@ -635,6 +644,7 @@ class Service {
         catch (e) { if (e && e.status === 404) fail(404, 'The email is no longer in the mailbox (deleted for good): it can\'t be re-scanned.'); throw e; }
         if (!msg || !msg.raw || !msg.raw.length) fail(404, 'The email is no longer in the mailbox: it can\'t be re-scanned.');
         const facts = await readMessage(msg.raw);
+        if (ownSentCopy(rec.user, msg, facts)) fail(409, `This copy is ${rec.user}'s own sent message (it was never delivered to them), so it isn't judged. Mark it Not phishing to clear it from the review.`);
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         // The sender counts as new if it was on arrival (by now it isn't, and that would change the rules'
         // score, not the model or the checks): from the arrival's signs, kept with them after a re-scan.
@@ -720,6 +730,7 @@ class Service {
     // alreadyMoved: an earlier try moved it (and was counted); only the record is written.
     // userPlaced: the user moved it into the Inbox themselves (checkUnseenInbox): never moved.
     async judge(user, msg, facts, { alreadyMoved = false, userPlaced = false } = {}) {
+        if (!alreadyMoved && ownSentCopy(user, msg, facts)) return { user, messageId: msg.id, action: 'none', own: true };
         const now = this.now();
         const day = this.dayOf(now);
         if (!alreadyMoved) await this.count(day, 'scanned');
@@ -813,7 +824,7 @@ class Service {
             campaign: campaign.key, campaignLabel,
             status: result.status, score: result.score, signals: result.signals.slice(0, 20), links: result.links.slice(0, 10), checks: result.checks || null,
             ai: aiRecord(result.ai, this.cfg),
-            auth: facts.auth ? { dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim } : null,
+            auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
             action: decision.action, trigger: decision.trigger, why: decision.why, braked: held === 'brake', held, mode: this.cfg.mode,
@@ -1511,6 +1522,7 @@ class Service {
         // Opened: Gmail's UNREAD label is gone (its reader opened it, or marked it read).
         const opened = !labels.includes('UNREAD');
         const facts = await readMessage(msg.raw);
+        if (ownSentCopy(user, msg, facts)) return { item, outcome: 'skipped' };   // (its owner's own sent mail: 0.6.3)
         if (await this.trainingOf(facts)) return { item, outcome: 'skipped' };   // (a phishing-training email: 0.5.44)
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         // A new sender on arrival stays one (as for an admin's re-scan); unknown for mail not recorded then.
@@ -1992,4 +2004,4 @@ class Service {
     }
 }
 
-module.exports = { Service, campaignOf, senderHash, recordKey, dayOf, POLICY_KEYS, policyValue, STAT_FLUSH_MS, Slots, EMAIL_SLOTS, LARGE_SLOTS };
+module.exports = { Service, ownSentCopy, campaignOf, senderHash, recordKey, dayOf, POLICY_KEYS, policyValue, STAT_FLUSH_MS, Slots, EMAIL_SLOTS, LARGE_SLOTS };

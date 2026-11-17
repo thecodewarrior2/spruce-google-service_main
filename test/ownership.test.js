@@ -132,3 +132,33 @@ test('"Business via QuickBooks" from its own verified address is no sign; forged
     assert.deepEqual(sign(await judge('Intuit via QuickBooks', 'sales@lakeside-ink.example')), [5]);
     assert.deepEqual(sign(await judge('Billing via QuickBooks', 'billing@quickbooks-billing.example')), [5]);
 });
+
+// (0.6.3) Gmail sometimes writes no DMARC result (mail between two accounts of one Google Workspace): it is worked out
+// from the SPF and DKIM results Gmail verified, as DMARC defines it (either one passing for the From address's own
+// domain). A result Gmail wrote is kept: "dmarc=fail" stays a failure. Made-up addresses.
+test('no DMARC result from Gmail: worked out from aligned DKIM or SPF; never from another domain\'s, never over a written one', async () => {
+    const raw = (from, auth) => Buffer.from([`From: "Jo Madeupson" <${from}>`, 'To: pat@maple-academy.example', 'Subject: Re:', 'Message-ID: <d1@mail.gmail.com>',
+        `Authentication-Results: mx.google.com; ${auth}`, 'Content-Type: text/plain; charset=utf-8', '', 'See you Thursday.'].join('\r\n'));
+    const judge = async (from, auth) => { const f = await readMessage(raw(from, auth)); return { f, r: await analyze(f, { mailbox: 'pat@maple-academy.example', orgDomains: ['maple-schools.example', 'maple-academy.example'], readAttachments: false }) }; };
+    let { f, r } = await judge('jo@maple-academy.example', 'dkim=pass header.i=@maple-academy.example header.s=google; arc=pass (i=1); spf=pass (google.com: domain of jo@maple-academy.example designates 209.85.220.41 as permitted sender) smtp.mailfrom=jo@maple-academy.example');
+    assert.deepEqual([f.auth.dmarc, f.auth.derived, f.auth.headerFrom, r.inside], ['pass', 'DKIM', 'maple-academy.example', true]);
+    ({ f, r } = await judge('jo@maple-academy.example', 'dkim=none; spf=pass smtp.mailfrom=bounce@mail.maple-academy.example'));
+    assert.deepEqual([f.auth.dmarc, f.auth.derived, r.inside], ['pass', 'SPF', true], 'SPF for a subdomain of the same domain is aligned');
+    ({ f, r } = await judge('jo@maple-academy.example', 'dkim=pass header.i=@bulk-mailer.example; spf=pass smtp.mailfrom=bounce@bulk-mailer.example'));
+    assert.deepEqual([f.auth.dmarc, r.inside], [null, false], 'another domain\'s signature proves nothing about the From address');
+    ({ f, r } = await judge('jo@maple-academy.example', 'dkim=pass header.i=@maple-academy.example; spf=pass smtp.mailfrom=jo@maple-academy.example; dmarc=fail header.from=maple-academy.example'));
+    assert.deepEqual([f.auth.dmarc, f.auth.derived, r.inside], ['fail', undefined, false], 'a result Gmail wrote is kept');
+});
+
+// (0.6.3) A copy its mailbox's owner sent (SENT, or their own address never delivered: no verification, no Received
+// line) is their own mail, never judged; mail delivered to them always has both. Made-up addresses.
+test('a mailbox owner\'s own sent copy is never judged; a delivered copy from the same address is', async () => {
+    const { ownSentCopy } = require('../src/pipeline');
+    const bare = await readMessage(Buffer.from(['From: Jo Madeupson <jo@maple-academy.example>', 'To: Pat Mockwell <pat@maple-academy.example>', 'Subject: Re:', 'Message-ID: <s1@mail.gmail.com>', 'Content-Type: text/plain', '', 'ok see you then'].join('\r\n')));
+    assert.equal(ownSentCopy('jo@maple-academy.example', { labelIds: [] }, bare), true, 'in the sender\'s own mailbox, never delivered');
+    assert.equal(ownSentCopy('pat@maple-academy.example', { labelIds: ['INBOX'] }, bare), false, 'in someone else\'s mailbox: judged (as unverified)');
+    assert.equal(ownSentCopy('pat@maple-academy.example', { labelIds: ['SENT', 'INBOX'] }, bare), true, 'Gmail\'s SENT label');
+    const delivered = await readMessage(Buffer.from(['Received: from mail-sor-f41.google.com by mx.google.com', 'Authentication-Results: mx.google.com; dkim=pass header.i=@maple-academy.example; spf=pass smtp.mailfrom=jo@maple-academy.example',
+        'From: Jo Madeupson <jo@maple-academy.example>', 'To: jo@maple-academy.example', 'Subject: note to self', 'Message-ID: <s2@mail.gmail.com>', 'Content-Type: text/plain', '', 'reminder'].join('\r\n')));
+    assert.equal(ownSentCopy('jo@maple-academy.example', { labelIds: ['INBOX'] }, delivered), false, 'delivered through the receiving server: judged as any mail');
+});
