@@ -96,6 +96,10 @@ class Slots {
 // notifications with nothing new), and of those, how many over LARGE_BYTES (attachments): 12 downloads
 // of the largest Gmail sends plus 2 being read fit in the worker's 1 GiB.
 const EMAIL_SLOTS = 12, LARGE_SLOTS = 2, LARGE_BYTES = 4 * 1024 * 1024;
+// (0.6.6) Re-scans (an admin's button: each reads the email from Gmail and runs every check and the AI again):
+// RESCAN_SLOTS at once per instance, at most RESCAN_QUEUE_MAX more waiting, and one email again only
+// RESCAN_COOLDOWN_MS after its last re-scan (kept on its record, so every instance knows).
+const RESCAN_SLOTS = 2, RESCAN_QUEUE_MAX = 8, RESCAN_COOLDOWN_MS = 30 * 1000;
 // Runs fn over items, n at a time, until stop() says so.
 async function pool(items, n, fn, stop = () => false) {
     let i = 0;
@@ -289,7 +293,7 @@ class Service {
         // Kept per instance, as they never change once known: when each sender was first seen (a hash, as
         // in Firestore), and the campaigns whose alert has been sent.
         this.installedAt = null; this.senderSeen = new Map(); this.alerted = new Set();
-        this.emailSlots = new Slots(EMAIL_SLOTS); this.largeSlots = new Slots(LARGE_SLOTS);
+        this.emailSlots = new Slots(EMAIL_SLOTS); this.largeSlots = new Slots(LARGE_SLOTS); this.rescanSlots = new Slots(RESCAN_SLOTS);
     }
     // The day an instant falls on in the organization's time zone (TIME_ZONE, Settings → Policy).
     dayOf(ms) { return A.dayIn(ms, this.cfg.timeZone); }
@@ -632,10 +636,32 @@ class Service {
         const reading = !skipped && result.language.english ? await aiReading(Object.assign({}, result.aiFacts, { bodyText: String(facts.visibleText || '') })) : null;
         await this.store.addEvent({ kind: 'check', user: rec.user,
             text: `${by} opened what the AI reads of an email to ${rec.user} from ${(rec.sender && rec.sender.domain) || 'an unknown sender'} (read from Gmail just now; nothing stored).` });
-        return { language: result.language, reading, skipped: skipped || null };
+        // (0.6.6) The email itself, whatever the AI did with it (it skips mail from inside and other languages, and a
+        // picture or an attachment has no text for it): as received, read from Gmail now, never stored. Text only:
+        // the page never renders its HTML, loads its pictures or makes its links clickable.
+        const cut = (t, n) => { t = String(t || ''); return t.length > n ? `${t.slice(0, n)}…` : t; };
+        const ppl = (l) => (l || []).slice(0, 50).map(p => ({ name: cut(p.name, 200), address: cut(p.address, 320) }));
+        const email = {
+            subject: cut(facts.subject, 1000), date: facts.date || null,
+            from: { name: cut(facts.senderName, 200), address: facts.senderAddress }, to: ppl(facts.people && facts.people.to), cc: ppl(facts.people && facts.people.cc),
+            replyTo: ppl(facts.people && facts.people.replyTo),
+            text: cut(facts.visibleText, 20000), quoted: cut(facts.quotedText, 20000), hidden: cut(facts.hiddenText, 5000),
+            links: (facts.links || []).slice(0, 200).map(l => ({ text: cut(l.text, 300), href: cut(l.href, 2000), hidden: !!l.hidden })),
+            attachments: (facts.attachments || []).slice(0, 50).map(a => ({ name: cut(a.name, 300), type: cut(a.type, 100), size: a.size || 0 })),
+            pictures: facts.pictures || 0
+        };
+        return { language: result.language, reading, skipped: skipped || null, email };
     }
 
     async rescan(key, by) {
+        const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
+        const before = await this.store.getRecord(key);
+        const ago = before && before.rescan && before.rescan.at ? this.now() - before.rescan.at : Infinity;
+        if (ago < RESCAN_COOLDOWN_MS) fail(429, `This email was re-scanned ${Math.max(1, Math.round(ago / 1000))} seconds ago${before.rescan.by ? ` by ${before.rescan.by}` : ''}: it can be re-scanned again in ${Math.ceil((RESCAN_COOLDOWN_MS - ago) / 1000)} seconds.`);
+        if (this.rescanSlots.waiting.length >= RESCAN_QUEUE_MAX) fail(429, 'Many emails are being re-scanned right now: try again in a moment.');
+        return this.rescanSlots.run(() => this.rescanNow(key, by));
+    }
+    async rescanNow(key, by) {
         const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
         const rec = await this.store.getRecord(key);
         if (!rec || !rec.user || !rec.messageId) fail(404, 'That email isn\'t recorded.');

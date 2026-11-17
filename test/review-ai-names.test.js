@@ -146,6 +146,10 @@ test('dashboard: the review queue in groups; one decision marks every copy; "…
         const ce = await (await post('/api/message/context', { key: es.key })).json();
         assert.equal(ce.reading, null);
         assert.equal(ce.language.english, false);
+        // (0.6.6) The email itself, whatever the AI did with it: its sender, subject and text, as received.
+        assert.equal(ce.email.from.address, es.sender.address);
+        assert.ok(ce.email.text.length > 0 && typeof ce.email.subject === 'string' && Array.isArray(ce.email.links) && Array.isArray(ce.email.attachments), JSON.stringify(ce.email).slice(0, 300));
+        assert.ok(c.email && c.email.text.length > 0, 'and for an email the AI read');
         // Deleted for good: said so.
         raws.delete(es.messageId);
         const gone = (await store.listRecords({ sinceMs: 0 })).find(r => r.key !== es.key && /correo-seguro/.test(r.sender.domain));

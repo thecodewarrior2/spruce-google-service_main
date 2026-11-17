@@ -337,7 +337,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         add('brake', !brake, brake ? 'The domain-wide brake is on: nothing is moved.' : 'The domain-wide brake is off.', 'Today → Resume.');
         return out;
     }
-    const ACTIONS_GAP_MS = 5000;   // a campaign action at most every 5 s per campaign (no double clicks)
+    const ACTIONS_GAP_MS = 5000;
+    const RESCAN_GAP_MS = 30 * 1000, rescanning = new Set();   // (0.6.6) re-scans: see POST /api/rescan   // a campaign action at most every 5 s per campaign (no double clicks)
     const lastAction = new Map();
     let exporting = false;   // one retraining export at a time (it reads up to 100 emails from Gmail)
     // Wrong project IDs (and email addresses) typed per admin, on the policy and Update: five in 10 minutes lock both.
@@ -643,9 +644,14 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'POST /api/rescan': async (q, body, admin) => {
             const key = String(body.key || '');
             if (!key) return { error: 'Choose an email.', status: 400 };
-            if (!once(`rescan:${key}`)) return { error: 'Re-scanned a moment ago.', status: 429 };
+            // (0.6.6) One re-scan of an email at a time here, and not again within 30 s of the last one asked
+            // (pipeline.js also refuses within 30 s of the last one done, on every instance, and runs 2 at once).
+            if (rescanning.has(key)) return { error: 'This email is being re-scanned now: wait for it to finish.', status: 409 };
+            if (!once(`rescan:${key}`, RESCAN_GAP_MS)) return { error: 'This email was re-scanned a moment ago: try again in 30 seconds.', status: 429 };
+            rescanning.add(key);
             try { return await service.rescan(key, admin.email); }
             catch (e) { if (e.status) return { error: e.message, status: e.status }; throw e; }
+            finally { rescanning.delete(key); }
         },
         // "Show more" on the AI opinion: what the model reads of the email, sentence by sentence (read from
         // Gmail now; nothing stored; Activity notes it). At most every 5 s per email and admin.

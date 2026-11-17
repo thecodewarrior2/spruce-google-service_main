@@ -695,3 +695,15 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 @keyframes busy-slide { from { left: -40%; } to { left: 100%; } }
 @keyframes busy-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .busy-track::before { left: 0; width: 100%; animation: busy-pulse 1.6s ease-in-out infinite; } }
+
+/* (0.6.6) "Show the email": the email as received, as text. */
+.email-received { display: grid; gap: 10px; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.email-received h4 { margin: 6px 0 0; font-size: 13.5px; }
+.email-head { margin: 0; }
+.email-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); max-height: 50vh; overflow: auto; }
+.email-fold summary { cursor: pointer; font-size: 13.5px; }
+.email-fold .email-text { margin-top: 6px; }
+.email-links { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13.5px; overflow-wrap: anywhere; }
+.email-links li.flagged code { color: var(--critical-text, #e5534b); }
+.email-links .flag-note { color: var(--critical-text, #e5534b); font-weight: 600; }
+.ai-part { margin-top: 4px; }

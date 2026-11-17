@@ -666,18 +666,26 @@
     // Re-scan (Review, Messages): the email read again from its mailbox and judged now, with today's checks
     // and model; nothing is moved, and the record keeps what happened on arrival beside it.
     const pctOr = (x) => (typeof x === 'number' ? pct(x) : 'none');
+    // (0.6.6) An email being re-scanned isn't asked again until it is done (its button is greyed out meanwhile).
+    const rescanning = new Set();
     async function rescanEmail(key) {
+        if (rescanning.has(key)) { toast('This email is being re-scanned now: wait for it to finish.'); return; }
+        rescanning.add(key);
+        for (const b of document.querySelectorAll('[data-rescan-key]')) if (b.dataset.rescanKey === key) b.disabled = true;
         acting++; busyStart('Re-scanning: reading the email from Gmail and checking it again…');
         try {
             const out = await api('/api/rescan', { method: 'POST', body: { key } });
             const r = out.rescan;
             toast(`Re-scanned with ${r.model || 'no AI model'}: AI ${pctOr(r.ai)}, rules score ${r.score}. ${PASTED[r.action] || r.action}.`);
             render();
-        } catch (e) { toast(`Couldn't re-scan it: ${e.message}`); } finally { acting--; busyEnd('Re-scanning: reading the email from Gmail and checking it again…'); }
+        } catch (e) { toast(`Couldn't re-scan it: ${e.message}`); } finally {
+            rescanning.delete(key); acting--; busyEnd('Re-scanning: reading the email from Gmail and checking it again…');
+            for (const b of document.querySelectorAll('[data-rescan-key]')) if (b.dataset.rescanKey === key) b.disabled = false;
+        }
     }
     function rescanButton(m, cls) {
         if (m.pasted || !m.key || MEMORY) return null;
-        return h('button', { class: cls, type: 'button', title: 'Read it again from the mailbox and judge it with today\'s checks and AI model. Nothing is moved.', onclick: () => rescanEmail(m.key) },
+        return h('button', { class: cls, type: 'button', 'data-rescan-key': m.key, disabled: rescanning.has(m.key), title: 'Read it again from the mailbox and judge it with today\'s checks and AI model. Nothing is moved. Once every 30 seconds per email.', onclick: () => rescanEmail(m.key) },
             cls.includes('review') ? [h('kbd', { text: 'R' }), ' Re-scan'] : 'Re-scan');
     }
     function rescanBox(m) {
@@ -747,12 +755,38 @@
                 more ? [more, ' to see the whole email as the model reads it, sentence by sentence, with what weighed most.'] : null)];
     }
     // "…show more": what the model reads of the email, read from Gmail now (nothing is kept), in a popup.
+    // (0.6.6) The email itself, as received: who, the subject, all its text (the quoted earlier messages and any text
+    // hidden from the reader folded away), every link with where it really goes (not clickable), the attachments.
+    function emailAsReceived(e, m) {
+        const who = (p) => (p.name ? `${p.name} <${p.address}>` : p.address);
+        const row = (k, v) => (v ? [h('dt', { text: k }), h('dd', {}, v)] : null);
+        const people = (l) => (l && l.length ? l.map((p, i) => [i ? ', ' : '', addr(p.address, who(p))]) : null);
+        const flagged = new Set((m.links || []).map(l => l.url));
+        const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`);
+        const fold = (title, text, note) => (text ? h('details', { class: 'email-fold' }, h('summary', { text: title }), note ? h('div', { class: 'small muted', text: note }) : null, h('div', { class: 'email-text', text })) : null);
+        return h('section', { class: 'email-received' },
+            h('h3', { text: 'The email' }),
+            h('dl', { class: 'kv email-head' },
+                row('From', e.from.address ? addr(e.from.address, who(e.from)) : e.from.name || 'unknown'), row('To', people(e.to)), row('Cc', people(e.cc)), row('Reply-To', people(e.replyTo)),
+                row('Date', e.date ? when(e.date) : ''), row('Subject', e.subject || '(no subject)')),
+            e.text ? h('div', { class: 'email-text', text: e.text }) : h('div', { class: 'empty', text: e.pictures || e.attachments.length ? `No text in the email itself: its content is ${[e.pictures ? `${num(e.pictures)} picture${e.pictures === 1 ? '' : 's'}` : '', e.attachments.length ? `${num(e.attachments.length)} attachment${e.attachments.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ')} (below).` : 'No text in the email.' }),
+            fold('Earlier messages quoted below it', e.quoted),
+            fold('Text hidden from the reader', e.hidden, 'In the email but not shown to its reader (white on white, tiny, or hidden): often filler to fool filters.'),
+            e.links.length ? [h('h4', { text: `Links (${num(e.links.length)})` }), h('ul', { class: 'email-links' }, e.links.map(l => h('li', { class: flagged.has(l.href) ? 'flagged' : null },
+                h('span', { text: l.text && l.text !== l.href ? `“${l.text}”` : '' }), l.text && l.text !== l.href ? ' → ' : '', h('code', { class: 'mid', text: l.href }),
+                l.hidden ? h('span', { class: 'small muted', text: ' (hidden)' }) : null, flagged.has(l.href) ? h('span', { class: 'small flag-note', text: ' flagged' }) : null)))] : null,
+            e.attachments.length ? [h('h4', { text: `Attachments (${num(e.attachments.length)})` }), h('ul', { class: 'plain-list' }, e.attachments.map(a => h('li', { text: `${a.name || '(no name)'} · ${a.type || 'unknown type'} · ${size(a.size)}` })))] : null,
+            e.pictures ? h('div', { class: 'small muted', text: `${num(e.pictures)} picture${e.pictures === 1 ? '' : 's'} in the email (not loaded here).` }) : null,
+            h('div', { class: 'small muted', text: 'Shown as text: nothing in it is opened, loaded or clickable here. Read from Gmail just now; nothing is kept.' }));
+    }
     async function showAiReading(m) {
         const body = h('div', { class: 'ai-reading' }, h('div', { class: 'empty', text: 'Reading the email from Gmail…' }));
-        popup(`What the AI reads: ${m.subject || 'this email'}`, body);
+        popup(`The email: ${m.subject || '(no subject)'}`, body);
         try {
-            const { language, reading: r, skipped } = await api('/api/message/context', { method: 'POST', body: { key: m.key } });
+            const { language, reading: r, skipped, email } = await api('/api/message/context', { method: 'POST', body: { key: m.key } });
             body.textContent = '';
+            if (email) body.append(emailAsReceived(email, m));
+            body.append(h('h3', { class: 'ai-part', text: 'What the AI reads' }));
             if (skipped === 'inside') { body.append(h('div', { class: 'ai-none' }, h('b', { text: 'Not scored: the sender is inside your organization.' }), h('div', { text: 'The AI doesn\'t read mail from inside (Settings → Policy, "AI on inside mail").' }))); return; }
             body.append(h('p', { class: 'sub', text: 'Read from Gmail just now; nothing is kept, and Activity notes that you looked. Addresses keep only their domain, and phone numbers and long numbers are replaced, as the model sees them. Each part is also scored on its own: how much that part alone reads like phishing.' }));
             if (!r) { body.append(h('div', { class: 'ai-none' }, h('b', { text: 'Not scored: the AI model reads English only.' }), h('div', { text: `This email looks like it is in ${language && language.name || 'another language'}.` }))); return; }
@@ -1600,10 +1634,10 @@
                 h('button', { class: 'btn big ghost', type: 'button', onclick: skip, title: 'Go to the next one; this one stays in the queue, undecided' }, 'Skip for now', h('kbd', { text: 'N' })),
                 h('span', { class: 'grow' }),
                 h('a', { class: 'rv-link', href: `#/message?${q({ key: m.key })}` }, 'More details'),
-                canRead ? h('button', { class: 'rv-link', type: 'button', onclick: () => showAiReading(m), title: 'Read from Gmail now, as the AI reads it (nothing is kept)' }, 'Show the email') : null,
+                canRead ? h('button', { class: 'rv-link', type: 'button', onclick: () => showAiReading(m), title: 'Read from Gmail now: the whole email as received, and what the AI reads of it (nothing is kept)' }, 'Show the email') : null,
                 rescanButton(m, 'rv-link review-rescan'),
                 g.campaign ? h('a', { class: 'rv-link', href: `#/messages?${q({ campaign: g.campaign })}` }, 'Every copy') : null),
-            h('p', { class: 'small muted rv-help', text: `${g.keys.length > 1 ? `One answer covers all ${num(g.keys.length)} copies. ` : ''}Ignore takes it out of the queue and keeps it out of retraining; Skip leaves it here, undecided.${canRead ? ' Show the email reads it from Gmail now, as the AI reads it: nothing is kept.' : ''}${st.mode === 'enforce' ? '' : ' Monitor mode: nothing is moved.'}` }));
+            h('p', { class: 'small muted rv-help', text: `${g.keys.length > 1 ? `One answer covers all ${num(g.keys.length)} copies. ` : ''}Ignore takes it out of the queue and keeps it out of retraining; Skip leaves it here, undecided.${canRead ? ' Show the email reads it from Gmail now, the whole email and what the AI reads of it: nothing is kept.' : ''}${st.mode === 'enforce' ? '' : ' Monitor mode: nothing is moved.'}` }));
     }
 
     // --- Health → Service status (0.6.0, as a status page): one line on how it is, each check with what to do,

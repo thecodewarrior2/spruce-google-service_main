@@ -324,6 +324,27 @@ test('re-scan (0.5.3, 0.5.4): one email read again and judged now; its scores an
         const ev = (await store.listEvents(0)).find(e => /re-scanned an email/.test(e.text));
         assert.match(ev.text, /^demo-admin@example\.org re-scanned an email to .+ from .+: AI \d+% with phish-tiny [\d.]+ \(42% on arrival with phish-tiny 0\.11\.0\), rules score [\d.]+ \(9\.5 on arrival\); now .+\. Nothing was moved\.$/);
         assert.equal((await post('/api/rescan', { key })).status, 429, 'not twice within 5 seconds');
+        // (0.6.6) Another instance (none of this one's memory) also refuses it for 30 s after the last re-scan, by its record.
+        const app2 = await serve(createApp({ cfg, store, service: new Service({ cfg, store, gmail: gm }) }));
+        try {
+            const again = await fetch(app2.base + '/api/rescan', { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'spruce-dashboard' }, body: JSON.stringify({ key }) });
+            assert.equal(again.status, 429); assert.match((await again.json()).error, /^This email was re-scanned \d+ seconds ago by demo-admin.*: it can be re-scanned again in \d+ seconds\.$/);
+        } finally { await app2.close(); }
+        // While one runs, the same email again: refused at once (409); re-scans run 2 at a time, at most 8 more waiting.
+        let release; const slow = new Promise(r => { release = r; });
+        const third = (await get('/api/review?days=30')).keys[2];
+        const slowService = new Service({ cfg, store, gmail: Object.assign({}, gm, { raw: async (u, id) => { await slow; return gm.raw(u, id); } }) });
+        const app3 = await serve(createApp({ cfg, store, service: slowService }));
+        try {
+            const p3 = (b) => fetch(app3.base + '/api/rescan', { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'spruce-dashboard' }, body: JSON.stringify(b) });
+            const first = p3({ key: third });
+            await new Promise(r => setTimeout(r, 100));
+            const dup = await p3({ key: third });
+            assert.equal(dup.status, 409); assert.match((await dup.json()).error, /being re-scanned now/);
+            assert.equal(slowService.rescanSlots.free, 1, 'one of the 2 slots in use');
+            release();
+            assert.equal((await first).status, 200);
+        } finally { await app3.close(); }
         // Deleted from the mailbox since: says so; an unknown key too.
         const other = (await get('/api/review?days=30')).keys[1];
         raws.delete((await get(`/api/message?key=${encodeURIComponent(other)}`)).message.messageId);
@@ -339,12 +360,13 @@ test('re-scan (0.5.4): a second re-scan keeps the first arrival values; a record
     const { store, raws } = await buildDemo({ cfg, now: Date.now() });
     const gm = Object.assign({}, gmail, { raw: async (u, id) => ({ id, raw: raws.get(id) }) });
     const service = new Service({ cfg, store, gmail: gm });
+    // (re-scans one after another, as if 30 s apart: rescanNow skips the 0.6.6 limits, tested above)
     // (not the re-checked campaign's: clean on arrival, it has its own arrival, 0.5.35)
     const key = (await store.listRecords({ sinceMs: 0, limit: 1000 })).find(r => r.ai && raws.has(r.messageId) && !r.recheck).key;
     // As 0.5.3 left it: a rescan, the scores still the arrival's.
     await store.updateRecord(key, { ai: { probability: 0.3, model: 'phish-tiny 0.11.0', reasons: [] }, score: 4, rescan: { at: 1, model: 'phish-tiny 0.13.0', ai: 0.01, score: 4 } });
-    await service.rescan(key, 'a@maple-schools.example');
-    await service.rescan(key, 'b@maple-schools.example');
+    await service.rescanNow(key, 'a@maple-schools.example');
+    await service.rescanNow(key, 'b@maple-schools.example');
     const r = await store.getRecord(key);
     assert.deepEqual(r.arrival.ai, { probability: 0.3, model: 'phish-tiny 0.11.0' }); assert.equal(r.arrival.score, 4);
     assert.equal(r.rescan.by, 'b@maple-schools.example');
@@ -355,11 +377,11 @@ test('re-scan (0.5.4): a second re-scan keeps the first arrival values; a record
     const svc = new Service({ cfg, store, gmail: gm, intel });
     const fresh = (await store.listRecords({ sinceMs: 0, limit: 1000 })).find(x => !x.rescan && raws.has(x.messageId) && (x.signals || []).some(sg => sg.kind === 'first-time') && (x.signals || []).some(sg => sg.kind === 'young-link-domain'));
     assert.ok(fresh, 'a demo email from a new sender, with a young link site');
-    await svc.rescan(fresh.key, 'a@maple-schools.example');
+    await svc.rescanNow(fresh.key, 'a@maple-schools.example');
     let f = await store.getRecord(fresh.key);
     assert.equal(f.arrival.firstTime, true); assert.equal(f.score, fresh.score);
     assert.ok(f.signals.some(sg => sg.kind === 'first-time') && f.signals.some(sg => sg.kind === 'young-link-domain'));
-    await svc.rescan(fresh.key, 'b@maple-schools.example');
+    await svc.rescanNow(fresh.key, 'b@maple-schools.example');
     f = await store.getRecord(fresh.key);
     assert.equal(f.score, fresh.score, 'and on a second re-scan, from the arrival values');
 });

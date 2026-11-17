@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.6: Re-scan can't be repeated on one email; "Show the email" shows the whole email
+
+- **Re-scan limits** (each re-scan reads the email from Gmail and runs every check and the AI again): one email is
+  re-scanned again only 30 seconds after its last re-scan, said with how long to wait (kept on its record, so every
+  dashboard instance knows; before: 5 seconds, per instance); while one runs, the same email again is refused at once
+  ("being re-scanned now"); re-scans run 2 at a time per instance, at most 8 more waiting, then "try again in a
+  moment" (`rescan`/`rescanNow` in `src/pipeline.js`, `POST /api/rescan` in `src/server.js`). On the page, its
+  button is greyed out while it runs, and R or a click again only says so. Tests: `test/server.test.js`.
+- **"Show the email"** shows the email itself first, whatever the AI did with it (it skips mail from inside and other
+  languages, and an email of only a picture or an attachment has no text for it): who sent it to whom, the date and
+  subject, all its text, the earlier messages quoted below it and any text hidden from the reader (folded away),
+  every link with where it really goes, the attachments (name, type, size) and how many pictures. Then what the AI
+  reads, as before. Read from Gmail when opened, never stored; shown as text only (its HTML is never rendered, its
+  pictures never loaded, its links not clickable). Test: `test/review-ai-names.test.js`.
+- No checks change.
+
 ## 0.6.5: a loading bar for anything that takes more than a second
 
 - **The dashboard** shows a bar across the top, with what is happening ("Re-scanning: reading the email from Gmail and
