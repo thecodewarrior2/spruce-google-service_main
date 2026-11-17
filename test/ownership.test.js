@@ -165,3 +165,17 @@ test('a mailbox owner\'s own sent copy is never judged; a delivered copy from th
         'From: Jo Madeupson <jo@maple-academy.example>', 'To: jo@maple-academy.example', 'Subject: note to self', 'Message-ID: <s2@mail.gmail.com>', 'Content-Type: text/plain', '', 'reminder'].join('\r\n')));
     assert.equal(ownSentCopy('jo@maple-academy.example', { labelIds: ['INBOX'] }, delivered), false, 'delivered through the receiving server: judged as any mail');
 });
+
+test('0.6.17: any company by the name its domain carries: the same proof as for a brand; cached; a short or odd name is not looked up', async () => {
+    let { own, http } = make({ rdap: { 'email-lakeviewhotels.example': { registrar: 'CSC Corporate Domains, Inc.', registrant: 'Lakeviewhotels International, Inc.' } } });
+    assert.deepEqual(await own.ofCompany('click.email-lakeviewhotels.example', 'lakeviewhotels', ['lakeviewhotels.example']),
+        { state: 'owned', how: 'registered to Lakeviewhotels International, Inc. through CSC Corporate Domains, Inc.' });
+    const n = http.asked.length;
+    await own.ofCompany('email-lakeviewhotels.example', 'lakeviewhotels', ['lakeviewhotels.example']);
+    assert.equal(http.asked.length, n, 'kept');
+    ({ own } = make({ rdap: { 'email-lakeviewhotels.example': { registrar: 'Cheap Names LLC', registrant: 'Lakeviewhotels International, Inc.' } } }));
+    assert.notEqual((await own.ofCompany('email-lakeviewhotels.example', 'lakeviewhotels', [])).state, 'owned', 'a registrant anyone can type, at any registrar');
+    ({ own, http } = make({}));
+    assert.deepEqual(await own.ofCompany('email-abc.example', 'abc', []), { state: 'unknown', how: '' });
+    assert.equal(http.asked.length, 0, 'a name under 4 letters isn\'t looked up');
+});

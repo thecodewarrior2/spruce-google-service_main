@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.17: a company's own click tracker is not a dangerous link; Re-checked listings can be marked seen one by one
+
+- **A company's own link domain:** a hotel chain's marketing mail sends every link through its own email domain
+  (email-lakeviewhotels.example, say), also the links whose text shows its main site or a partner's (a co-branded
+  card's brand). Each was a "dangerous link" (text shows one site, link goes to another). Now, when the link goes to
+  the sender's own domain, Gmail's DMARC check passed for that domain, Cloudflare finds nothing against it, and the
+  domain is named after one company (its marketing words taken off: email-, -news, mail…), the service asks public
+  records whether the domain is that company's: registered to it through a corporate registrar, its name servers or
+  its DMARC reports (`src/intel/ownership.js`, `ofCompany`, the same proof and cache as brand ownership; at most 6
+  seconds). Proven, the link is a note of no weight ("2 links show another site but go to the sender's own
+  domain…"); unproven (a look-alike registered by anyone), DMARC not passing, a link anywhere else or Cloudflare
+  blocking it: judged as before (`src/engine/network.js`, `src/engine/mailers.js` `companyWordOf`). A domain whose
+  name is more than one word, or only marketing words, isn't looked up. Tests: `test/own-brand-links.test.js`,
+  `test/ownership.test.js`.
+- **Threats → Re-checked:** "Mark all as seen" cleared only the banners on Today and Messages; the listings stayed.
+  Now it takes them off the page too, and each listing has its own **Mark as seen** (not for moderators). A link
+  shows the ones marked; something new found in one brings it back (`src/dashboard/aggregate.js`,
+  `POST /api/rechecked/seen` with or without a campaign, `public/app.js`). Tests: `test/rechecked-seen.test.js`.
+- **Checks level 17:** delivered mail of the last hours is checked again after this update.
+
 ## 0.6.16: the personal-information check can't hang on a long line
 
 - **The check could hang:** the pattern for a name in an address (firstname.lastname@) backtracked without end on a

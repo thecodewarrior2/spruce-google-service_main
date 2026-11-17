@@ -496,7 +496,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                      // The phishing lists that missed their download (0.5.22): the overview's banner.
                      missedLists: await missedLists(),
                      // Phishing found after delivery, not yet marked seen (0.5.35): the overview's banner.
-                     rechecked: A.recheckAlert(records, now, await store.getState('recheckSeenAt')),
+                     rechecked: A.recheckAlert(records, now, await store.getState('recheckSeenAt'), (await store.getState('recheckSeenCampaigns')) || {}),
                      // New look-alikes of your domain an admin hasn't marked (0.5.36): the overview's banner.
                      lookalikes: Object.values(((await store.getState('lookalikeWatch')) || {}).found || {}).filter(e => e.status === 'new' && !e.gone).map(e => e.domain) };
         },
@@ -551,17 +551,28 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'GET /api/rechecked': async (q) => {
             const { records } = await load(q);
             const cl = await service.clickLogs();
-            return { groups: A.rechecked(records, Date.now(), nDays(q)), recheck: !!cfg.recheck, recheckDays: cfg.recheckDays, mode: cfg.mode,
+            const seen = { at: await store.getState('recheckSeenAt'), campaigns: (await store.getState('recheckSeenCampaigns')) || {} };
+            return { groups: A.rechecked(records, Date.now(), nDays(q), seen), recheck: !!cfg.recheck, recheckDays: cfg.recheckDays, mode: cfg.mode,
                      clickLogs: { on: !!cl.on, admin: cl.admin || '' }, seenAt: await store.getState('recheckSeenAt'), queued: ((await store.getState('recheckQueue')) || []).length,
                      // (0.5.51) Re-checks after an update that changed the checks, and the last such update.
                      afterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, afterUpdateMax: cfg.recheckAfterUpdateMax,
                      updateSweep: (({ version, queued, max, startedAt, doneAt } = {}) => version ? { version, queued, max, startedAt, doneAt: doneAt || null } : null)((await store.getState('updateRecheck')) || {}) };
         },
-        // "Mark as seen": the banners on Today and Messages go until something new is found.
+        // "Mark as seen": the listings leave Re-checked and the banners on Today and Messages go, until something new
+        // is found. All of them, or (0.6.17) one listing: body.campaign. Entries over 30 days old are dropped.
         'POST /api/rechecked/seen': async (q, body, admin) => {
-            await store.setState('recheckSeenAt', Date.now());
-            await service.adminNotice('rechecked', `${admin.email} marked the re-checked mail as seen.`);
-            return { seenAt: await store.getState('recheckSeenAt') };
+            const now = Date.now(), campaign = typeof body.campaign === 'string' ? body.campaign.slice(0, 200) : '';
+            if (!campaign) {
+                await store.setState('recheckSeenAt', now);
+                await store.setState('recheckSeenCampaigns', {});
+                await service.adminNotice('rechecked', `${admin.email} marked the re-checked mail as seen.`);
+                return { seenAt: now };
+            }
+            const kept = Object.fromEntries(Object.entries((await store.getState('recheckSeenCampaigns')) || {}).filter(([, at]) => now - at < 30 * 86400000).slice(-500));
+            kept[campaign] = now;
+            await store.setState('recheckSeenCampaigns', kept);
+            await service.adminNotice('rechecked', `${admin.email} marked one re-checked email as seen.`);
+            return { campaign, seenAt: now };
         },
         // Settings → Link clicks (0.5.35; off by default): Gmail's logs for the re-checked mail.
         'GET /api/clicks': async () => ({ clickLogs: await service.clickLogs(), health: await store.getState('clickLogsHealth'), test: await store.getState('clickLogsTest'),
@@ -582,7 +593,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'GET /api/messages': async (q) => {
             const { records } = await load(q);
             const list = A.filterRecords(records, { user: q.get('user') || '', campaign: q.get('campaign') || '', action: q.get('action') || '', state: q.get('state') || '', q: q.get('q') || '', since: since(q) });
-            return { total: list.length, messages: list.slice(0, 500).map(brief), rechecked: A.recheckAlert(records, Date.now(), await store.getState('recheckSeenAt')) };
+            return { total: list.length, messages: list.slice(0, 500).map(brief), rechecked: A.recheckAlert(records, Date.now(), await store.getState('recheckSeenAt'), (await store.getState('recheckSeenCampaigns')) || {}) };
         },
         // An email's record, with the mode now (whether confirming it as phishing also moves it).
         'GET /api/message': async (q) => { const r = await store.getRecord(String(q.get('key') || '')); return r ? { message: withPlainWhy(r, cfg), mode: cfg.mode } : { error: 'not found', status: 404 }; },

@@ -1,5 +1,5 @@
 {
-  "checksLevel": 16,
-  "fingerprint": "22f2055035ab79063cfe2cb1a324234e20e121ed12469b75cfd1dc375b4ec3eb",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.15: made-up example names in comments replaced with plainly made-up ones; the self-check's made-up genuine email's sender name (its score is unchanged, 0.06%)"
+  "checksLevel": 17,
+  "fingerprint": "88e2d6d72ab5ce2ea3c8603d8d57cf1396055212722716b3ee1eb0e4d4b88d4c",
+  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
 }

@@ -178,7 +178,29 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
         }
         return flights.get(key);
     }
-    return { of };
+    // (0.6.17) The same proof for a company that isn't in the brand table: a link's own domain, named after the
+    // company (email-lakeviewhotels.example: "lakeviewhotels"), against that company's name and main site(s). { state, how }.
+    async function ofCompany(domain, name, homes = []) {
+        const reg = E.registrableDomain(String(domain || '').toLowerCase());
+        const token = String(name || '').toLowerCase();
+        if (!reg || !/^[a-z0-9]{4,}$/.test(token) || !E.SENDER_DOMAIN_RE.test(reg) || E.isPersonalMailDomain(reg)) return { state: 'unknown', how: '' };
+        const brand = { name: token, tokens: [token], home: [...new Set(homes.map(h => E.registrableDomain(String(h).toLowerCase())).filter(Boolean))].slice(0, 3) };
+        const key = `${reg}|company:${token}`;
+        const mem = memo.get(key);
+        if (mem) return mem;
+        const stored = await store.getCached('own', key).catch(() => null);
+        if (stored && stored.state) { memo.set(key, stored, MEMO_MS); return stored; }
+        if (!flights.has(key)) {
+            flights.set(key, (async () => {
+                const v = await lookup(reg, brand).catch(() => ({ state: 'unknown', how: '' }));
+                await store.setCached('own', key, v, v.state === 'unknown' ? UNKNOWN_KEEP_MS : KEEP_MS).catch(() => {});
+                memo.set(key, v, v.state === 'unknown' ? Math.min(MEMO_MS, UNKNOWN_KEEP_MS) : MEMO_MS);
+                return v;
+            })().finally(() => flights.delete(key)));
+        }
+        return flights.get(key);
+    }
+    return { of, ofCompany };
 }
 
 module.exports = { createOwnership, sameOperatorNs, registrantNamesBrand, CORPORATE_REGISTRARS };

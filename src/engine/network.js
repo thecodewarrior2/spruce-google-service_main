@@ -22,10 +22,12 @@
 // nothing (nor did Safe Browsing, when on), and its registry date isn't recent. A lookup that didn't
 // answer leaves it dangerous, as before.
 const LINK_AGE_LOOKUPS = 3;
+// (0.6.17) How long the proof that a link's domain is the sender's own company may take (cached 30 days after).
+const OWN_LINK_WAIT_MS = 6000;
 const YOUNG_SENDER_DAYS = 30, LOOKALIKE_YOUNG_DAYS = 90;
 
 const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } };
-const { sendingService, mismatchHost, MAILER_MIN_AGE_DAYS } = require('./mailers');
+const { sendingService, mismatchHost, companyWordOf, MAILER_MIN_AGE_DAYS } = require('./mailers');
 
 // judged: the links as analyze.judgeLinks made them (mutated: severity, reason and network of flagged links,
 // mailer of softened ones). Returns { signals: [...], checks: { … } } for the record (checks null without intel).
@@ -122,10 +124,46 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         j.mailer = mailer;
         softened.push({ mailer, host, text: (/^link text shows (\S+)/.exec(j.reason) || [])[1] || '' });
     }
+    // (0.6.17) A link whose text shows another site but which goes to the sender's own domain, when that domain is
+    // proven to be the company it is named after (email-lakeviewhotels.example, registered to Lakeview Hotels Group through a
+    // corporate registrar; src/intel/ownership.js ofCompany) and Gmail's DMARC check passed for it, and nothing is found
+    // against it: the company's own tracker, also behind a partner's text (a co-branded card), not a disguise. Not
+    // dangerous; one note, no weight. A look-alike (email-paypa1.example) can't have that proof: it stays dangerous.
+    const signals = [];
+    const owned = [];
+    const fromVerified = !!(facts.auth && facts.auth.dmarc === 'pass') && !!senderReg && E.registrableDomain(String(facts.auth.headerFrom || senderDomain).toLowerCase()) === senderReg;
+    const ownCandidates = fromVerified && intel.ownership && intel.ownership.ofCompany ? web.filter(j => (j.severity === 'danger' || j.severity === 'caution') && !j.network && !j.mailer) : [];
+    const proofs = new Map();
+    for (const j of ownCandidates) {
+        const host = mismatchHost(j.reason);
+        const reg = host && E.registrableDomain(host);
+        if (!reg || reg !== senderReg) continue;
+        const cf = hostResults.get(host);
+        if (!cf || cf.verdict !== 'clean') continue;
+        const company = companyWordOf(reg);
+        if (!company) continue;
+        if (!proofs.has(reg)) {
+            const text = (/^link text shows (\S+)/.exec(j.reason) || [])[1] || '';
+            const textReg = E.registrableDomain(text.toLowerCase());
+            const homes = [textReg && textReg.split('.')[0] === company ? textReg : '', `${company}.com`].filter(Boolean);
+            let timer;
+            const late = new Promise(r => { timer = setTimeout(() => r(null), OWN_LINK_WAIT_MS); });
+            proofs.set(reg, Promise.race([intel.ownership.ofCompany(reg, company, homes), late]).catch(() => null).finally(() => clearTimeout(timer)));
+        }
+        const proof = await proofs.get(reg);
+        if (!proof || proof.state !== 'owned') continue;
+        owned.push({ host, reg, how: proof.how, text: (/^link text shows (\S+)/.exec(j.reason) || [])[1] || '' });
+        j.severity = null;
+        j.reason = `${j.reason}: the sender's own domain, proven to be ${company[0].toUpperCase()}${company.slice(1)}'s (${proof.how}); not counted`;
+        j.ownBrand = reg;
+    }
+    if (owned.length) {
+        const o = owned[0], n = owned.length;
+        signals.push({ weight: 0, kind: 'own-brand-link', text: `${n === 1 ? `A link shows ${o.text} but goes` : `${n} links show another site but go`} to the sender's own domain, ${o.reg}, which public records prove is the company it is named after (${o.how}), and Gmail's DMARC check passed for it: ${n === 1 ? 'its' : 'their'} text doesn't disguise where ${n === 1 ? 'it goes' : 'they go'}. Not counted.` });
+    }
     for (const r of hostResults.values()) { if (r.verdict === 'unknown') checks.notChecked++; else if (r.by === 'Cloudflare Security' || r.by === 'Cloudflare') checks.cloudflare++; }
     for (const r of urlResults.values()) { if (r.verdict === 'unknown') checks.notChecked++; else checks.safeBrowsing++; }
 
-    const signals = [];
     if (softened.length) {
         const s = softened[0], n = softened.length;
         signals.push({ weight: 1, kind: 'mailer-link', text: `${n === 1 ? `A link shows ${s.text} but goes` : `${n} links show another site but go`} through the click tracker of ${s.mailer} (${s.host}), the mail service that sent this email, with a clean reputation: where ${n === 1 ? 'it leads' : 'they lead'} isn't known until clicked. A warning: it takes other signs to move the email.` });

@@ -28,4 +28,14 @@ function mismatchHost(reason) { const m = MISMATCH_RE.exec(String(reason || ''))
 // An age the registry didn't give doesn't stop it.
 const MAILER_MIN_AGE_DAYS = 180;
 
-module.exports = { sendingService, mismatchHost, MAILER_MIN_AGE_DAYS };
+// (0.6.17) The company a registrable domain is named after, its marketing words taken off: email-lakeviewhotels.example,
+// lakeviewhotels-email.example, e.lakeviewhotels-news.example → "lakeviewhotels"; null when no single word of at least 4 letters is left.
+const DOMAIN_WORDS = new Set(['email', 'emails', 'mail', 'mails', 'mailer', 'mailing', 'mailings', 'news', 'newsletter', 'info', 'go', 'e', 'my', 'the', 'official',
+    'service', 'services', 'marketing', 'offers', 'offer', 'promo', 'promos', 'deals', 'rewards', 'click', 'links', 'link', 'track', 'secure', 'online', 'inc', 'corp', 'co']);
+function companyWordOf(regDomain) {
+    const label = String(regDomain || '').toLowerCase().split('.')[0];
+    const words = label.split('-').filter(w => w && !DOMAIN_WORDS.has(w));
+    return words.length === 1 && /^[a-z0-9]{4,}$/.test(words[0]) && /[a-z]/.test(words[0]) ? words[0] : null;
+}
+
+module.exports = { sendingService, mismatchHost, companyWordOf, MAILER_MIN_AGE_DAYS };

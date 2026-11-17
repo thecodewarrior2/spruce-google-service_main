@@ -166,7 +166,10 @@
     // group per campaign (the same email to many people), newest re-check first. Each group lists every copy
     // the records have: the re-checked ones, and those moved or recorded on arrival.
     const RECHECK_BAD = ['moved', 'would-move', 'held', 'not-in-inbox'];
-    function rechecked(records, now, n) {
+    // (0.6.17) Marked as seen: all of them at once (seenAt) or one campaign (seen.campaigns[campaign]). A group
+    // is seen when none of its re-checks is newer than that; something new found brings it back.
+    const seenUntil = (seen, campaign) => Math.max(Number(seen && seen.at) || 0, Number(seen && seen.campaigns && seen.campaigns[campaign]) || 0);
+    function rechecked(records, now, n, seen = {}) {
         const since = now - n * DAY;
         const hit = records.filter(r => r.recheck && r.recheck.at >= since);
         const keys = new Set(hit.map(r => r.campaign));
@@ -191,16 +194,17 @@
             const re = g.copies.filter(c => c.rechecked);
             const count = (f) => g.copies.filter(f).length;
             return { campaign: g.campaign, label: g.label, subject: g.subject, sender: g.sender, reasons: [...g.reasons], lastRecheck: g.lastRecheck, firstReceived: g.firstReceived,
+                seen: g.lastRecheck <= seenUntil(seen, g.campaign),
                 phishing: re.some(c => RECHECK_BAD.includes(c.outcome)), people: new Set(g.copies.map(c => c.user)).size, rechecked: re.length,
                 moved: count(c => c.movedAt), opened: count(c => c.opened), clicked: count(c => c.clicked), clicksChecked: count(c => c.clicksCheckedAt),
                 copies: g.copies.sort((a, b) => (b.clicked === true) - (a.clicked === true) || (b.opened === true) - (a.opened === true) || String(a.user).localeCompare(String(b.user))) };
         }).sort((a, b) => b.lastRecheck - a.lastRecheck);
     }
     // Today's and Messages' banner: phishing found by a re-check since an admin last marked them seen
-    // (at most 7 days back).
-    function recheckAlert(records, now, seenAt = 0) {
+    // (at most 7 days back), all at once or (0.6.17) that campaign.
+    function recheckAlert(records, now, seenAt = 0, campaigns = {}) {
         const from = Math.max(now - 7 * DAY, Number(seenAt) || 0);
-        const rs = records.filter(r => r.recheck && r.recheck.at > from && RECHECK_BAD.includes(r.recheck.outcome));
+        const rs = records.filter(r => r.recheck && r.recheck.at > from && r.recheck.at > (Number(campaigns[r.campaign]) || 0) && RECHECK_BAD.includes(r.recheck.outcome));
         if (!rs.length) return null;
         return { emails: rs.length, campaigns: new Set(rs.map(r => r.campaign)).size, people: new Set(rs.map(r => r.user)).size,
             moved: rs.filter(r => r.recheck.outcome === 'moved').length, opened: rs.filter(r => r.recheck.opened || (r.recheck.clicks && r.recheck.clicks.opened)).length,

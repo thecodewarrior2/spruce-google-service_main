@@ -2311,7 +2311,10 @@
             h('div', { class: 'card-head' },
                 h('div', {}, h('h2', {}, g.phishing ? alertIcon('Phishing found after delivery') : null, ` ${g.subject || g.label || '(subject not stored)'}`),
                     h('div', { class: 'sub', text: `From ${g.sender && g.sender.name ? `${g.sender.name} <${g.sender.address}>` : (g.sender && g.sender.address) || 'an unknown sender'}` })),
-                h('a', { href: `#/messages?${q({ campaign: g.campaign })}`, text: 'Open the campaign' })),
+                h('div', { class: 'actions' },
+                    !g.seen && !isModerator() ? h('button', { class: 'btn small-btn', type: 'button', onclick: postButton('/api/rechecked/seen', () => ({ campaign: g.campaign }), () => 'Marked as seen: it is off this list until something new is found in it.') }, 'Mark as seen') : null,
+                    g.seen ? h('span', { class: 'pill', text: 'Seen' }) : null,
+                    h('a', { href: `#/messages?${q({ campaign: g.campaign })}`, text: 'Open the campaign' }))),
             h('p', { class: 'small' }, h('b', { text: `${g.reasons.join('; ')}. ` }), `First delivered ${when(g.firstReceived)}; re-checked ${when(g.lastRecheck)}.`),
             h('div', { class: 'grid kpis recheck-kpis' },
                 kpi('People', num(g.people), `${num(g.rechecked)} re-checked`),
@@ -2326,7 +2329,12 @@
                 { name: 'Re-checked', get: c => (c.recheckAt ? when(c.recheckAt) : '–') },
                 { name: 'What happened', get: c => pill(outcomeOf(c)) }
             ], g.copies, c => go(`#/message?${q({ key: c.key })}`), 'No copies.', c => (c.clicked ? 'row-alert' : '')));
-        const seen = d.groups.length && !isModerator() ? postButton('/api/rechecked/seen', () => ({}), () => 'Marked as seen: the banners on Today and Messages are gone until something new is found.') : null;
+        // (0.6.17) Listings marked as seen leave the page (a link shows them again) until something new is found in them.
+        const fresh = d.groups.filter(g => !g.seen), seenGroups = d.groups.filter(g => g.seen);
+        const seen = fresh.length && !isModerator() ? postButton('/api/rechecked/seen', () => ({}), () => 'Marked as seen: they are off this list, and the banners on Today and Messages are gone, until something new is found.') : null;
+        const shown = h('div', {}, fresh.map(group));
+        const more = seenGroups.length ? h('button', { class: 'linkbtn', type: 'button', text: `Show the ${num(seenGroups.length)} marked as seen` }) : null;
+        if (more) more.addEventListener('click', () => { more.remove(); seenGroups.forEach(g => shown.appendChild(group(g))); });
         return [h('h1', { text: 'Re-checked mail' }),
             h('p', { class: 'sub', text: 'Emails already delivered to an Inbox and found later to be phishing or suspicious: when a phishing list added one of their sites or senders, when the look-alike watch found a domain imitating yours that they came from, reply to or link to (or an admin marked one a threat), after an update that changed how email is checked, or on a second look an hour and a day after they arrived. Each is checked again in full, and moved as it would have been on arrival.' }),
             h('section', { class: 'card' }, h('dl', { class: 'kv' },
@@ -2337,7 +2345,8 @@
                 d.queued ? kvRow('Waiting', `${num(d.queued)} emails to be checked again at the next hourly run.`) : null,
                 d.seenAt ? kvRow('Last marked seen', when(d.seenAt)) : null),
                 seen ? h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: seen }, 'Mark all as seen')) : null),
-            d.groups.length ? d.groups.map(group) : h('section', { class: 'card' }, h('div', { class: 'empty', text: `Nothing was found after delivery in the last ${days} days.` }))];
+            fresh.length ? shown : h('section', { class: 'card' }, h('div', { class: 'empty', text: d.groups.length ? 'Nothing new: everything found after delivery has been marked as seen.' : `Nothing was found after delivery in the last ${days} days.` })),
+            fresh.length ? null : shown, more ? h('p', {}, more) : null];
     }
 
     // --- Threats → Look-alikes (0.5.36) -----------------------------------------------------------------

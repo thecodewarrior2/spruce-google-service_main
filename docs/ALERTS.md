@@ -202,8 +202,8 @@ Mail is still checked; one source of evidence is missing until it comes back.
   deleted is left where it is.
 - **What to do:** dashboard, **Threats → Re-checked**: every copy, who got it, when it was delivered,
   whether it had been opened, and (Settings → Link clicks on) whether a link in it was clicked. Warn the
-  people who opened it; for anyone who may have typed a password, see "A link was clicked" below. "Mark all
-  as seen" there clears the banner on Today and Messages.
+  people who opened it; for anyone who may have typed a password, see "A link was clicked" below. "Mark as
+  seen" on a card, or "Mark all as seen", takes it off that page and the banner on Today and Messages (0.6.17).
 
 ### A link was clicked (`recheck-click`)
 - **When:** Settings → Link clicks is on, and Gmail's logs show that someone clicked a link (in the email,
