@@ -82,7 +82,9 @@ For each new Inbox message:
 2. The checks add up their signs:
    - forged or spam headers;
    - a brand-name or look-alike sender, or one named after the recipient;
-   - dangerous links;
+   - dangerous links (0.6.25: one weight however many: 5 for a blocked or listed site, a look-alike of a brand's
+     domain, a name hidden before an "@" or code to run; 3 for a site registered in the last 90 days or on
+     Spamhaus's lists; 2 for links flagged only because their text shows another, well-known site);
    - claims to be safe, and requests for passwords, codes, money or remote access;
    - a new sender from outside the organization;
    - a fake reply chain ("RE:" answering nothing this mailbox has, 0.5.33): 2 when its headers name no earlier email,

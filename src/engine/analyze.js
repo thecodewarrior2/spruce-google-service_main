@@ -48,14 +48,27 @@ async function judgeLinks(E, links) {
 
 // The extension's emailContentSignals: links flagged dangerous (hidden links not counted). 5 when two or more,
 // or every link, are dangerous; else 3.
+// (0.6.25) The links sign has one weight however many links are flagged, set by the worst of them:
+//   5  a link's site is blocked or on a phishing list (j.network), or the link is evidence on its own: code to run
+//      (javascript:, data:), a look-alike of a brand's domain, or a name hidden before an "@" in its address;
+//   3  a link's site has a low reputation: registered in the last 90 days, or on Spamhaus's lists (j.lowRep, network.js);
+//   2  links flagged only by their own text (a well-known site's name on a link to another site), nothing known
+//      against their sites: newsletters and marketing mail link through other companies' domains.
+// Before 0.6.25: 3 for one dangerous link, 5 for two or more or when every link was.
+const OWN_EVIDENCE_RE = /^look-alike domain|username\/password|^link runs code/;
 function linkSignals(judged) {
     const web = judged.filter(j => !j.hidden);
     const danger = web.filter(j => j.severity === 'danger');
     if (!danger.length) return [];
-    const why = [...new Set(danger.map(d => String(d.reason || '').replace(/\.$/, '')))].slice(0, 2).join('; ');
-    const total = web.length;
-    return [{ weight: danger.length >= 2 || danger.length === total ? 5 : 3, kind: 'dangerous-links',
-              text: `${danger.length === total ? (danger.length === 1 ? 'Its only link is' : `All ${danger.length} of its links are`) : `${danger.length} of its ${total} links ${danger.length === 1 ? 'is' : 'are'}`} flagged as dangerous${why ? ` (${why})` : ''}.` }];
+    const bad = danger.filter(j => j.network || OWN_EVIDENCE_RE.test(String(j.reason || '')));
+    const low = danger.filter(j => j.lowRep);
+    const worst = bad.length ? bad : low.length ? low : danger;
+    const weight = bad.length ? 5 : low.length ? 3 : 2;
+    const why = [...new Set(worst.map(d => String(d.reason || '').replace(/\.$/, '')))].slice(0, 2).join('; ');
+    const n = danger.length, total = web.length;
+    const count = n === total ? (n === 1 ? 'Its only link is' : `All ${n} of its links are`) : `${n} of its ${total} links ${n === 1 ? 'is' : 'are'}`;
+    const tail = bad.length ? '' : low.length ? ' Its site is new or has a low reputation.' : ' Nothing is known against the site (not blocked, listed or new), so it counts 2.';
+    return [{ weight, kind: 'dangerous-links', text: `${count} flagged as dangerous${why ? ` (${why})` : ''}.${tail}` }];
 }
 
 // (0.5.64) Whose the sender's domain is (src/intel/ownership.js), only when the sender's name claims a brand

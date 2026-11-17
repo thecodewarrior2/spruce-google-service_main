@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.25: the links sign has one weight, set by what is known against the link
+
+- **Before:** a link whose text shows a well-known site but goes somewhere else was "dangerous", and the links sign
+  was 3 for one such link and 5 for two or more (or when every link was), enough to move the email alone, though
+  newsletters and marketing mail link through other companies' domains all the time.
+- **Now one weight, however many links are flagged, set by the worst of them** (`linkSignals` in
+  `src/engine/analyze.js`):
+  - **5:** a link's site is blocked or on a phishing list (Cloudflare, Safe Browsing, the lists, Spamhaus's DBL for
+    phishing), or the link is evidence on its own: a look-alike of a brand's domain, a name hidden before an "@" in
+    its address, or code to run (javascript:, data:);
+  - **3:** a link's site has a low reputation: registered in the last 90 days, or on Spamhaus's lists (DBL or ZRD)
+    (`src/engine/network.js` marks it);
+  - **2:** links flagged only by their own text, with nothing known against their sites.
+- Tests: `test/link-weight.test.js` (made-up mail).
+- **Checks level 25:** delivered mail of the last hours is checked again after this update.
+
 ## 0.6.24: Adobe Campaign's click tracker
 
 - **A cable company's marketing mail sent through Adobe Campaign** was moved: its links show the company's site

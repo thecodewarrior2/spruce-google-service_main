@@ -28,6 +28,8 @@ const YOUNG_SENDER_DAYS = 30, LOOKALIKE_YOUNG_DAYS = 90;
 
 const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } };
 const { sendingService, mismatchHost, companyWordOf, MAILER_MIN_AGE_DAYS } = require('./mailers');
+// (0.6.25) A link site registered in the last 90 days has a low reputation (the engine's LINK_RECENT_DAYS).
+const LOW_REPUTATION_DAYS = 90;
 const { isShareLink } = require('./notifications');
 
 // judged: the links as analyze.judgeLinks made them (mutated: severity, reason and network of flagged links,
@@ -268,6 +270,16 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         try { emailAsks = E.highRiskRequestKinds(facts.visibleText).length > 0 || E.SIGNIN_INTENT_RE.test(facts.subject || ''); } catch (e) { emailAsks = false; }
         const weakAuth = !!ctx.firstTime || !facts.auth || facts.auth.dmarc !== 'pass';
         try { signals.push(...E.linkAgeSigns(known, { emailAsks, weakAuth })); } catch (e) { /* no sign */ }
+    }
+    // (0.6.25) A link flagged only by its own text (a well-known site's name on a link to another site) counts fully
+    // when its site has a low reputation: registered in the last LOW_REPUTATION_DAYS days, or on Spamhaus's lists
+    // (DBL or ZRD). Marked here for analyze.js linkSignals; known bad links (blocked, listed) are j.network already.
+    for (const j of web) {
+        if (j.severity !== 'danger' || j.network) continue;
+        const host = mismatchHost(j.reason) || hostOf(j.finalUrl || j.url);
+        const days = host ? ageOf.get(E.registrableDomain(host)) : null;
+        const sh = shOf(j.finalUrl || j.url) || shOf(j.url);
+        if ((typeof days === 'number' && days >= 0 && days < LOW_REPUTATION_DAYS) || (sh && (sh.dbl || typeof sh.zrdHours === 'number'))) j.lowRep = true;
     }
     return { signals, checks };
 }
