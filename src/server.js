@@ -82,25 +82,9 @@ const unreviewed = (r) => (r.action === 'move' || r.action === 'would-move') && 
 // Review's other queue: suspicious emails (below what moves) still in the Inbox, nobody has reviewed.
 const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' && !r.markedBy;
 // A review queue as items: the copies of one campaign together (in the queue's order, where its first copy
-// is), each with its keys, recipients and senders (at most 2000 of each).
-const REVIEW_GROUP_MAX = 2000;
-function reviewGroups(list) {
-    const out = [], byCampaign = new Map();
-    for (const r of list) {
-        let g = r.campaign ? byCampaign.get(r.campaign) : null;
-        if (!g) {
-            g = { campaign: r.campaign || null, label: r.campaignLabel || '', keys: [], users: new Set(), senders: new Set() };
-            if (r.campaign) byCampaign.set(r.campaign, g);
-            out.push(g);
-        }
-        if (g.keys.length < REVIEW_GROUP_MAX) g.keys.push(r.key);
-        g.count = (g.count || 0) + 1;
-        if (r.user && g.users.size < REVIEW_GROUP_MAX) g.users.add(r.user);
-        const from = r.sender && r.sender.address;
-        if (from && g.senders.size < REVIEW_GROUP_MAX) g.senders.add(from);
-    }
-    return out.map(g => ({ campaign: g.campaign, label: g.label, count: g.count, keys: g.keys, users: [...g.users], senders: [...g.senders] }));
-}
+// is), each with its keys, recipients and senders (at most 2000 of each), and what the list shows of it
+// (src/dashboard/aggregate.js, shared with the clickable mockup).
+const reviewGroups = A.reviewGroups;
 // A user took back an email the checks flagged, and no admin has looked yet.
 const rescueToCheck = (r) => r.state === 'released' && r.releasedByUser && !r.markedBy && r.score >= 5 && r.trigger !== 'ai';
 
@@ -313,11 +297,11 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             else add('safe-browsing', true, 'Google Safe Browsing is on, and its key works.', null);
         }
         // (install.sh always sets it, to the admin group by default: empty means ALERT_EMAIL=off, a choice)
-        add('alerts', true, cfg.alertEmail ? `Alerts are emailed to ${cfg.alertEmail}.` : 'Alerts aren\'t emailed (ALERT_EMAIL=off): they show in Status → Activity.');
+        add('alerts', true, cfg.alertEmail ? `Alerts are emailed to ${cfg.alertEmail}.` : 'Alerts aren\'t emailed (ALERT_EMAIL=off): they show in Health → Activity.');
         const errors = (await store.listEvents(now - 24 * 3600 * 1000)).filter(e => e.kind === 'error').length;
-        add('errors', errors === 0, errors ? `${errors} errors in the last day.` : 'No errors in the last day.', 'Status → Activity → Errors and gaps.');
+        add('errors', errors === 0, errors ? `${errors} errors in the last day.` : 'No errors in the last day.', 'Health → Activity → Errors and gaps.');
         const brake = await store.getState('brake');
-        add('brake', !brake, brake ? 'The domain-wide brake is on: nothing is moved.' : 'The domain-wide brake is off.', 'Overview → Resume.');
+        add('brake', !brake, brake ? 'The domain-wide brake is on: nothing is moved.' : 'The domain-wide brake is off.', 'Today → Resume.');
         return out;
     }
     const ACTIONS_GAP_MS = 5000;   // a campaign action at most every 5 s per campaign (no double clicks)
@@ -337,7 +321,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             wrongIds.set(who, tries);
             const mins = Math.round(POLICY_LOCK_MS / 60000);
             await store.addEvent({ kind: 'denied', admin: true, by: who, text: `${who} typed a wrong ${mistake} to change ${what} (try ${tries.length} of ${POLICY_TRIES} within ${mins} minutes): nothing was changed.${tries.length === POLICY_TRIES ? ` Changes from this account are locked for ${mins} minutes.` : ''}` }).catch(() => {});
-            if (tries.length === POLICY_TRIES && service && service.alert) await service.alert('lockout', `${who} typed a wrong Google Cloud project ID or email address ${POLICY_TRIES} times within ${mins} minutes: changes from that account are locked for ${mins} minutes. If it wasn't them, someone may be using their signed-in session: ask them, and sign them out of Google (Admin console → Users → Sign out). Status → Activity → What admins did lists each try.`).catch(() => {});
+            if (tries.length === POLICY_TRIES && service && service.alert) await service.alert('lockout', `${who} typed a wrong Google Cloud project ID or email address ${POLICY_TRIES} times within ${mins} minutes: changes from that account are locked for ${mins} minutes. If it wasn't them, someone may be using their signed-in session: ask them, and sign them out of Google (Admin console → Users → Sign out). Health → Activity → What admins did lists each try.`).catch(() => {});
         },
         // A try while locked (0.5.30): noted once per lock, so repeated tries can't flood Activity.
         lockedTry: async (who, what = 'a setting') => {
@@ -444,7 +428,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         },
         // Help (0.5.46): one of the docs above, as Markdown (the page renders it as text, never HTML).
         'GET /api/help': async (q) => helpDoc(String(q.get('doc') || 'howitworks')) || { error: 'There is no such help page.', status: 404 },
-        // Status → Look-alikes (0.5.36): the watch's state and what it found; an admin's mark on one (with the
+        // Threats → Look-alikes (0.5.36): the watch's state and what it found; an admin's mark on one (with the
         // project ID: "ours" or "harmless" takes a sign away).
         'GET /api/lookalikes': async () => {
             const w = (await store.getState('lookalikeWatch')) || {};
@@ -457,7 +441,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (bad) return bad;
             return service.markLookalike(String(body.domain || ''), String(body.status || ''), admin.email);
         },
-        // Email → Re-checked (0.5.35): the emails found after delivery, by campaign, with every copy; whether
+        // Threats → Re-checked (0.5.35): the emails found after delivery, by campaign, with every copy; whether
         // re-checking is on, and Link clicks.
         'GET /api/rechecked': async (q) => {
             const { records } = await load(q);
@@ -468,7 +452,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                      afterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, afterUpdateMax: cfg.recheckAfterUpdateMax,
                      updateSweep: (({ version, queued, max, startedAt, doneAt } = {}) => version ? { version, queued, max, startedAt, doneAt: doneAt || null } : null)((await store.getState('updateRecheck')) || {}) };
         },
-        // "Mark as seen": the banners on the Overview and Messages go until something new is found.
+        // "Mark as seen": the banners on Today and Messages go until something new is found.
         'POST /api/rechecked/seen': async (q, body, admin) => {
             await store.setState('recheckSeenAt', Date.now());
             await service.adminNotice('rechecked', `${admin.email} marked the re-checked mail as seen.`);
@@ -664,7 +648,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const { records } = await load(q);
             const list = A.filterRecords(records, { user: q.get('user') || '', campaign: q.get('campaign') || '', action: q.get('action') || '', state: q.get('state') || '', q: q.get('q') || '', since: since(q) });
             // (recorded: it holds every listed email's sender, subject and mailbox, 0.5.29)
-            if (admin && service.adminNotice) await service.adminNotice('export', `${admin.email} downloaded ${list.length} email record${list.length === 1 ? '' : 's'} as CSV (Email → Messages, last ${nDays(q)} days${['user', 'campaign', 'action', 'state', 'q'].some(k => q.get(k)) ? ', filtered' : ''}).`);
+            if (admin && service.adminNotice) await service.adminNotice('export', `${admin.email} downloaded ${list.length} email record${list.length === 1 ? '' : 's'} as CSV (Mail → Messages, last ${nDays(q)} days${['user', 'campaign', 'action', 'state', 'q'].some(k => q.get(k)) ? ', filtered' : ''}).`);
             return { csv: A.toCsv(list), filename: `spruce-messages-${A.dayOf(Date.now())}.csv` };
         },
         // "Check an email": what the service would decide for a pasted email, and why. Nothing of it is
@@ -949,7 +933,7 @@ async function reportEngine({ cfg, store }) {
     await store.setState('engine-worker', Object.assign({}, st, { ok, at: Date.now(), version: VERSION, revision: process.env.K_REVISION || '' }));
     // The AI model not working is an alert (0.5.28), once a day whichever instance starts.
     if (!ok && await store.setStateIfUnset(`alert-ai-model-${new Date().toISOString().slice(0, 10)}`, { at: Date.now() })) {
-        const text = `The AI model doesn't work in the worker (${st.state}${st.error ? `: ${String(st.error).slice(0, 160)}` : st.check && !st.check.ok ? ': its self-check failed' : ''}): emails are judged by the rule checks alone meanwhile. Status → Service status shows it; installing the version again (bash deploy/update.sh) usually fixes it.`;
+        const text = `The AI model doesn't work in the worker (${st.state}${st.error ? `: ${String(st.error).slice(0, 160)}` : st.check && !st.check.ok ? ': its self-check failed' : ''}): emails are judged by the rule checks alone meanwhile. Health → Service status shows it; installing the version again (bash deploy/update.sh) usually fixes it.`;
         await store.addEvent({ kind: 'ai-model', text, alert: true });
         console.warn(JSON.stringify({ severity: 'WARNING', spruceAlert: 'ai-model', message: text }));
     }

@@ -79,7 +79,7 @@ function loadConfig(env = process.env) {
         // The district's time zone (an IANA name, e.g. America/New_York): the scheduled jobs and the weekly
         // summary (Monday from 7 AM) use it. UTC when unset.
         timeZone: env.TIME_ZONE || 'UTC',
-        // The dashboard's address (in the weekly summary), and where the services run (the Status page).
+        // The dashboard's address (in the weekly summary), and where the services run (the Service status page).
         dashboardUrl: env.DASHBOARD_URL || '',
         project: env.GOOGLE_CLOUD_PROJECT || '',
         region: env.CLOUD_RUN_REGION || '',
@@ -122,7 +122,7 @@ function loadConfig(env = process.env) {
         recheckAfterUpdateHours: Math.min(72, Math.max(0, Math.round(num(env.RECHECK_AFTER_UPDATE_HOURS, 24)))),
         recheckAfterUpdateMax: Math.min(50000, Math.max(0, Math.round(num(env.RECHECK_AFTER_UPDATE_MAX, 5000)))),
         suspiciousLabelName: env.SUSPICIOUS_LABEL_NAME || 'SPRUCE/Suspicious',
-        // Status → Activity (what admins did, alerts, errors) is kept this many days (0.5.29; the email records
+        // Health → Activity (what admins did, alerts, errors) is kept this many days (0.5.29; the email records
         // RETENTION_DAYS). 30 to 1,825. It holds no email text: mailbox addresses, sender domains, admins.
         auditDays: Math.min(1825, Math.max(30, Math.round(num(env.AUDIT_DAYS, 365)))),
         // A copy of Activity in Cloud Logging, kept a year in its own log bucket (0.5.29): OFF by default (Google

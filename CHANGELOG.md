@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.6.0: a redesigned dashboard: a menu on the left, Today, a review list with the evidence, a campaign timeline
+
+- **Roll back:** the classic design is 0.5.74 (commit `3d5b1b1`); `docs/DASHBOARD-ROLLBACK.md` says how to put back
+  only its look (three files in `public/`), or the whole change.
+- **The menu** is on the left: **Today**, **Review** (with how many emails wait), **Threats** (Campaigns,
+  Re-checked, Look-alikes), **Mail** (Messages, Check an email, Users), **Health** (Service status, Readiness, Model
+  health, Activity) and **Settings**, in four groups: Protection (Policy, Allowlist), Threat feeds (Safe Browsing,
+  Spamhaus, abuse.ch), Organization (Mailboxes, Weekly summary, Link clicks, Phishing training), System (Retraining,
+  Update, About). **Help** is at its foot. A card in the menu says the mode and where to go from it; the badge stays
+  in the top bar, beside the period and the live updates. Every page keeps its address (`#/review`, `#/health`…).
+  The menu paths in the alerts, Activity, the signs' wording and the docs follow ("Status → Activity" is
+  "Health → Activity", "Email → Re-checked" is "Threats → Re-checked").
+- **On a phone** the menu is a drawer (the menu button, or More), and a tab bar at the bottom has Today, Review,
+  Threats and Health.
+- **Today** (was Overview) opens with a greeting and **Needs attention**: one list, each with its button, instead of
+  a banner each (the brake, paused campaigns, a phishing list behind, phishing found after delivery, new
+  look-alikes, and the emails waiting for review). Then the numbers, the daily chart, top reasons, the largest
+  campaigns and recent activity, as before.
+- **Review** lists every item (the copies of one email) at once, with its AI score, sender, copies, date and
+  heaviest sign, and quick Phishing, False alarm (Not phishing) and Ignore buttons. Tick several to answer them
+  together. **Open one** to see who sent it to whom, where the AI and rules scores stand, the signs that point to
+  phishing and those that point to safe (weak, medium or strong), what the AI weighed most, and the five answers:
+  **P** phishing, **F** false alarm, **I** ignore (unclear), **N** skip for now (stays in the queue, undecided),
+  **R** re-scan; with **More details** (the email's page) and **Show the email** (read from Gmail now, as the AI
+  reads it; nothing is kept). The review queue's items now carry what the list shows of them (`reviewGroups`, moved
+  to `src/dashboard/aggregate.js` so the clickable mockup has them too).
+- **Threats → Campaigns** shows the newest 15 as a timeline across the period, one picked out with its numbers
+  and **Open every copy**; every campaign is in the table below.
+- **Health → Service status** is a status page: one line on how it is, each check with what to do, and beside them
+  the Readiness checks and the AI model's reviews and false alarms.
+- **Settings → Policy** shows **Monitor** and **Enforce** side by side (Monitor the safe default) and the AI's two
+  lines on one scale; each setting says On or Off and whether it is the default. Changing one works as before
+  (the project ID; I agree for enforce mode).
+- New colors (spruce green), with a dark mode of their own; what points to phishing is orange and what points to
+  safe blue, told apart by lightness too.
+- **Checks level unchanged:** only wording changed in the files that judge email (the menu paths).
+
 ## 0.5.74: "Business via QuickBooks" is no false alarm
 
 - **False alarm:** "LAKESIDE INK LLC via QuickBooks" <sales@…> was flagged (score 6: "isn't Intuit's address", 5).

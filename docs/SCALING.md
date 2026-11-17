@@ -31,7 +31,7 @@ Run's processor speed. A load test on a spare project is what settles them (belo
 | Firestore per email | 8.4 reads, 5.3 writes, 3 transactions | 4.6 reads, 4.3 writes in the simulation; about 3.5 and 3.3 on Firestore (estimated: claims and new senders are created without a read, the counters added up) |
 | Firestore per notification without new mail | 3 reads, 2 writes | 2 reads, 1 write |
 | A campaign to all 10,000 mailboxes | 5,000 writes to its one campaign document, 10,000 transactions on its sender's | 59 and 10; the day's counters written once per instance every 5 s |
-| Dashboard, 3,000 recorded emails a day (180,000 records) | 30-day Overview counted 20,000 of 90,000; ~300 MB for 50,000 records | every record counted; 169 MB for all 180,000; pages 30–350 ms |
+| Dashboard, 3,000 recorded emails a day (180,000 records) | 30-day Today counted 20,000 of 90,000; ~300 MB for 50,000 records | every record counted; 169 MB for all 180,000; pages 30–350 ms |
 | Old documents (~100,000 a day) | a daily job with 120 s to delete them, borderline | Firestore deletes them itself (TTL policies); the job only takes older ones, within 90 s |
 | Worker limit | 10 instances | 30 (`WORKER_MAX_INSTANCES`), gen2, startup CPU boost |
 

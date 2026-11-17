@@ -91,7 +91,7 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
       case '/api/review': { const moved = recs.filter(r => r.processedAt >= since && (r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin' && !r.markedBy).sort((a, b) => a.processedAt - b.processedAt);
         const sus = recs.filter(r => r.processedAt >= since && r.action === 'flag' && r.state === 'inbox' && !r.markedBy).sort((a, b) => b.processedAt - a.processedAt);
         const queue = q.get('queue') === 'suspicious' ? 'suspicious' : 'moved', l = queue === 'suspicious' ? sus : moved;
-        return Object.assign(base, { queue, total: l.length, keys: l.map(r => r.key), mode: D.settings.mode, counts: { moved: moved.length, suspicious: sus.length } }); }
+        return Object.assign(base, { queue, total: l.length, groups: A.reviewGroups(l), keys: l.map(r => r.key), mode: D.settings.mode, counts: { moved: moved.length, suspicious: sus.length } }); }
       case '/api/status': return Object.assign(base, { checks: [{ id: 'mockup', ok: null, text: 'The clickable mockup has no service to check: the real dashboard checks it here.', fix: null }] });
       case '/api/digest/preview': return Object.assign(base, { preview: { subject: 'S.P.R.U.C.E+ weekly summary (mockup)', text: 'The real dashboard shows the summary of the last 7 days here.' } });
       case '/api/digest': return Object.assign(base, { enabled: body.enabled === true });

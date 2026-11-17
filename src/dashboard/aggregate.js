@@ -187,7 +187,7 @@
                 copies: g.copies.sort((a, b) => (b.clicked === true) - (a.clicked === true) || (b.opened === true) - (a.opened === true) || String(a.user).localeCompare(String(b.user))) };
         }).sort((a, b) => b.lastRecheck - a.lastRecheck);
     }
-    // The Overview's and Messages' banner: phishing found by a re-check since an admin last marked them seen
+    // The Today's and Messages' banner: phishing found by a re-check since an admin last marked them seen
     // (at most 7 days back).
     function recheckAlert(records, now, seenAt = 0) {
         const from = Math.max(now - 7 * DAY, Number(seenAt) || 0);
@@ -260,7 +260,7 @@
             { id: 'time', ok: monitorDays >= 14, text: `${monitorDays} days since the install (two weeks or more is enough to see a range of mail).` },
             { id: 'reviewed', ok: would.length > 0 && reviewed.length >= Math.min(50, Math.ceil(would.length * 0.8)),
               text: would.length ? `${reviewed.length} of ${would.length} "would move" emails reviewed (Mark false alarm or Confirm phishing). Review at least 80% of them, or 50.` : 'No email would have been moved yet: wait for more mail, or send the test email (docs/INSTALL.md, step 6).' },
-            { id: 'falseAlarms', ok: rate !== null && rate <= 0.05, text: rate === null ? 'No reviewed emails yet, so no false-alarm rate.' : `${falseAlarms.length} false alarms among the reviewed (${Math.round(rate * 1000) / 10}%). At most 5% is a good start; Status → Model health shows which kind of move they were.` },
+            { id: 'falseAlarms', ok: rate !== null && rate <= 0.05, text: rate === null ? 'No reviewed emails yet, so no false-alarm rate.' : `${falseAlarms.length} false alarms among the reviewed (${Math.round(rate * 1000) / 10}%). At most 5% is a good start; Health → Model health shows which kind of move they were.` },
             { id: 'staff', ok: staffUnverified.length === 0, text: staffUnverified.length ? `${staffUnverified.length} emails from a staff address didn't pass DMARC and weren't confirmed as phishing: check they are forged, not your own staff's mail.` : 'No staff address failed DMARC (or each one was confirmed as phishing).' },
             { id: 'brake', ok: peak < ctx.brakeLimit, text: `At most ${peak} emails would have been moved in one hour; the brake stops at ${ctx.brakeLimit}.` },
             { id: 'notifications', ok: quietFor !== null && quietFor < ctx.quietHours * 3600 * 1000, text: quietFor === null ? 'No notification from Gmail yet.' : `Gmail's last notification: ${Math.round(quietFor / 60000)} minutes ago, for ${ctx.watched} watched mailboxes.` },
@@ -278,7 +278,7 @@
         if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
         return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
     };
-    // Status → Activity as CSV, for audits (0.5.29): when (UTC), kind, alert, an admin's own action, mailbox, text.
+    // Health → Activity as CSV, for audits (0.5.29): when (UTC), kind, alert, an admin's own action, mailbox, text.
     function activityCsv(events) {
         const cols = ['at_utc', 'kind', 'alert', 'admin_action', 'mailbox', 'text'];
         const rows = events.map(e => [e.at ? new Date(e.at).toISOString() : '', e.kind || '', e.alert && !isAdminAction(e) ? 'yes' : '', isAdminAction(e) ? 'yes' : '', e.user || '', e.text || ''].map(csvCell).join(','));
@@ -310,5 +310,37 @@
         error: (e) => e.kind === 'error' || e.kind === 'gap', watch: (e) => ['watch', 'watch-asked', 'mode'].includes(e.kind) };
     function activity(events, kind) { return ACTIVITY[kind] ? events.filter(ACTIVITY[kind]) : events; }
 
-    return { DAY, dayOf, dayIn, addDays, setTimeZone, TRIGGERS, signalCategory, summary, trend, topReasons, campaigns, users, filterRecords, modelHealth, readiness, toCsv, activity, isAdminAction, activityCsv, rechecked, recheckAlert, recheckReason };
+    // The review queue's items: the copies of one campaign (the same email to many people) are one item, decided
+    // together; an email of no campaign is an item of its own. Each says what the list shows before it is opened
+    // (0.6.0): the first copy's subject and sender, when the first arrived, the highest AI score and rules score,
+    // and the copy's three heaviest signs.
+    const REVIEW_GROUP_MAX = 2000;
+    function reviewGroups(list) {
+        const out = [], byCampaign = new Map();
+        for (const r of list) {
+            let g = r.campaign ? byCampaign.get(r.campaign) : null;
+            if (!g) {
+                g = { campaign: r.campaign || null, label: r.campaignLabel || '', keys: [], users: new Set(), senders: new Set(), count: 0,
+                    subject: r.subject || '', sender: r.sender ? { name: r.sender.name || '', address: r.sender.address || '' } : null, firstAt: r.receivedAt || r.processedAt || null,
+                    ai: null, score: null, inside: !!r.inside,
+                    signs: (r.signals || []).filter(s => s.weight > 0).sort((a, b) => b.weight - a.weight).slice(0, 3).map(s => ({ text: s.text, weight: s.weight })) };
+                if (r.campaign) byCampaign.set(r.campaign, g);
+                out.push(g);
+            }
+            if (g.keys.length < REVIEW_GROUP_MAX) g.keys.push(r.key);
+            g.count++;
+            if (r.user && g.users.size < REVIEW_GROUP_MAX) g.users.add(r.user);
+            const from = r.sender && r.sender.address;
+            if (from && g.senders.size < REVIEW_GROUP_MAX) g.senders.add(from);
+            const ai = r.ai && typeof r.ai.probability === 'number' ? r.ai.probability : null;
+            if (ai !== null && (g.ai === null || ai > g.ai)) g.ai = ai;
+            if (typeof r.score === 'number' && (g.score === null || r.score > g.score)) g.score = r.score;
+            const at = r.receivedAt || r.processedAt;
+            if (at && (!g.firstAt || at < g.firstAt)) g.firstAt = at;
+        }
+        return out.map(g => ({ campaign: g.campaign, label: g.label, count: g.count, keys: g.keys, users: [...g.users], senders: [...g.senders],
+            subject: g.subject, sender: g.sender, firstAt: g.firstAt, ai: g.ai, score: g.score, inside: g.inside, signs: g.signs }));
+    }
+
+    return { DAY, dayOf, dayIn, addDays, setTimeZone, TRIGGERS, signalCategory, summary, trend, topReasons, campaigns, users, filterRecords, modelHealth, readiness, toCsv, activity, isAdminAction, activityCsv, rechecked, recheckAlert, recheckReason, reviewGroups };
 });

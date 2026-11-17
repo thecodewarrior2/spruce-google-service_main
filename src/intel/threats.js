@@ -38,7 +38,7 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, now = (
         if (ok) { down[name] = null; return; }
         if (!down[name]) { down[name] = now(); return; }
         if (now() - down[name] >= OUTAGE_MS && onOutage) {
-            try { await onOutage(name, `${NAMES[name]}'s lookups have all failed for ${Math.round((now() - down[name]) / 60000)} minutes: ${name === 'cloudflare' ? 'link sites and sender domains' : 'links'} aren't checked with it meanwhile (they are "not checked", never "safe"; the other checks still run). It usually comes back by itself; Status → Service status shows how it is going.`); }
+            try { await onOutage(name, `${NAMES[name]}'s lookups have all failed for ${Math.round((now() - down[name]) / 60000)} minutes: ${name === 'cloudflare' ? 'link sites and sender domains' : 'links'} aren't checked with it meanwhile (they are "not checked", never "safe"; the other checks still run). It usually comes back by itself; Health → Service status shows how it is going.`); }
             catch (e) { /* told next time */ }
         }
     }

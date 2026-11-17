@@ -83,13 +83,13 @@ with). It needs the same two things as the colleague-name check above: **Users �
 them the switch says so and changes nothing. The directory is read again at once; a domain of 10,000 is
 watched over the next hours (each hourly run continues the renewal). Switching back to the pilot (the same
 three confirmations) stops the other mailboxes' watches the same way. Before switching, look at
-Status → Readiness and Help → Costs: everyone's mail is checked in the current mode.
+Health → Readiness and Help → Costs: everyone's mail is checked in the current mode.
 
 ### Link clicks (optional, off by default)
 
-For each email found to be phishing **after** it was delivered (Email → Re-checked, 0.5.35), the service can
+For each email found to be phishing **after** it was delivered (Threats → Re-checked, 0.5.35), the service can
 read Gmail's own logs to tell who opened it and who **clicked a link** in it: the people whose password may
-have been given away. Not needed to run the service; without it, Email → Re-checked still says who got each
+have been given away. Not needed to run the service; without it, Threats → Re-checked still says who got each
 email and whether it had been opened.
 
 1. Your Google Workspace edition must have Gmail log events (Admin console → Reporting → Audit and
@@ -217,7 +217,7 @@ When it finishes, it prints the **dashboard address**.
    Identity-Aware Proxy can take a few minutes to let you in.
 2. **Settings → Mailboxes** should show the number of people in the group, and list each
    mailbox with the last time Gmail notified the service about it.
-   - **Overview → Recent activity** has a "Watching … mailboxes" line after each re-read of the group.
+   - **Today → Recent activity** has a "Watching … mailboxes" line after each re-read of the group.
      It says how many entries the group has, and why any were left out.
    - If it shows fewer than you expect, see "Troubleshooting" below.
    - Delegation changes can take a few minutes to apply. Then rerun the job from step 7.
@@ -226,7 +226,7 @@ When it finishes, it prints the **dashboard address**.
    - Mail you send from a watched mailbox to itself isn't checked: it's your own sent mail.
    - An email whose text includes the link `http://malware.testcategory.com/` should be recorded. That
      address is Cloudflare's own test site for its malware block. The email should show in
-     **Email → Messages** as *Would be moved*, or at least *Suspicious*. In monitor mode it stays in the Inbox.
+     **Mail → Messages** as *Would be moved*, or at least *Suspicious*. In monitor mode it stays in the Inbox.
    - If Gmail puts the test email in Spam on its own, the service never sees it. It only reads mail
      that reaches the Inbox.
 4. **The worker's log:**
@@ -246,7 +246,7 @@ When it finishes, it prints the **dashboard address**.
 - **Mode, AI move threshold, AI suspicious line, brake and time zone** can also be changed on the
   dashboard: **Settings → Policy → Change** (and the allowlist on **Settings → Allowlist**).
   - Each change needs the Google Cloud project ID, and switching to enforce mode also needs **I agree**.
-  - A change applies everywhere within 30 seconds and is noted in Status → Activity → What admins did.
+  - A change applies everywhere within 30 seconds and is noted in Health → Activity → What admins did.
   - The next `install.sh` (or `upgrade.sh`, `update.sh`) compares the dashboard with
     `deploy/settings.env`:
 
@@ -270,16 +270,16 @@ When it finishes, it prints the **dashboard address**.
 
   Removed members stop being watched.
 - **Monitor for two to three weeks.**
-  - Open the *Would be moved* emails: **Email → Review**.
+  - Open the *Would be moved* emails: **Review**.
   - Use **Mark false alarm** or **Confirm phishing** (keys **F** and **P**).
   - Optional (off by default): **Settings → Policy → Suspicious label** puts the Gmail label
     `SPRUCE/Suspicious` on those emails, so their readers see them, in monitor mode too; nothing is moved by it.
-  - **Email → Re-checked** lists mail found to be phishing after it was delivered (a list added its site
+  - **Threats → Re-checked** lists mail found to be phishing after it was delivered (a list added its site
     later): in monitor mode it is recorded as "would move", like any email.
   - Also go through **Review → Suspicious, not moved** now and then: phishing among them is what the
     move rules miss. In enforce mode, **P** there moves the email to Spam.
-  - Watch **Status → Model health**.
-  - **Status → Readiness** turns these into checks; switch when they are all green.
+  - Watch **Health → Model health**.
+  - **Health → Readiness** turns these into checks; switch when they are all green.
 - **To move mail for real**, either:
   - on the dashboard: **Settings → Policy → Mode → Change**, choose **Enforce**, tick **I agree**, type
     the project ID and **Save** (within 30 seconds, everywhere); or
@@ -288,17 +288,17 @@ When it finishes, it prints the **dashboard address**.
   Moved mail goes to Spam with the label `SPRUCE/Moved`. A user can always move it back, and the
   dashboard records that.
 - **In enforce mode, the brakes** (README, "Careful by default"):
-  - **Moving a campaign paused for your decision** (an alert, and a banner on Overview). Many copies were
+  - **Moving a campaign paused for your decision** (an alert, and a banner on Today). Many copies were
     moved on evidence nothing outside the email confirms, so the others are left in the Inbox, like any
     email not moved. Open it:
     - **Confirm phishing** moves every copy to Spam, optionally searching every watched mailbox for more;
     - **False alarm** moves the moved ones back to the Inbox, and later copies aren't moved.
   - **The domain-wide brake** (an alert, and a red banner). Far more moves in an hour than a campaign
-    makes: something may be wrong. Look at Email → Messages, then:
+    makes: something may be wrong. Look at Mail → Messages, then:
     - **Resume, and move those to Spam** moves the emails left in the Inbox while it was on;
     - **Resume, and leave them in the Inbox** doesn't.
   - Moving clear phishing (rules plus outside confirmation) never pauses for a campaign.
-- **A phishing list that missed its download** (an alert, and a red banner on Overview). The checks keep
+- **A phishing list that missed its download** (an alert, and a red banner on Today). The checks keep
   using its previous copy, and it is tried again every 3 hours. **Settings → About** highlights it with
   what went wrong and since when; **Re-check the lists now** downloads it again at once. A list host that
   is down for a day is common and harmless; one failing for days usually means the list moved (its
@@ -317,7 +317,7 @@ When it finishes, it prints the **dashboard address**.
   From 0.5.23. An existing installation upgrades to it from Cloud Shell, once: `bash deploy/update.sh` once
   it is approved, or `bash deploy/upgrade.sh` from an unzipped copy (see "Upgrading to a new version"). The
   upgrade runs `install.sh`, which sets up Secret Manager for the key.
-- **Audits: Status → Activity.** Every alert, every admin's action (policy and allowlist changes, decisions on
+- **Audits: Health → Activity.** Every alert, every admin's action (policy and allowlist changes, decisions on
   emails and campaigns, updates, the Safe Browsing key, downloads of the email list or of Activity, opening the
   dashboard, once a day each; every wrong project ID or email address, with which try it was) and every error, kept a year (`AUDIT_DAYS`, 30 to 1,825 days; the email records
   themselves are kept `RETENTION_DAYS`). Choose the period, a kind, words to look for, and **Download CSV**
@@ -445,11 +445,11 @@ bash deploy/clear-data.sh
 
 It shows what it deletes and what it keeps, and asks you to type the project ID first.
 - **Deleted:**
-  - every recorded email (Overview; under Email: Review, Campaigns, Messages, Users; under Status:
+  - every recorded email (Today, Review; under Threats: Campaigns; under Mail: Messages, Users; under Health:
     Model health, Readiness);
   - the daily counts;
   - campaign pauses and admins' campaign decisions;
-  - Status → Activity.
+  - Health → Activity.
 - **Kept:**
   - the watched mailboxes;
   - which emails were already checked, so none is judged twice;
@@ -463,7 +463,7 @@ It can't be undone.
 
 | Option | What it does |
 |---|---|
-| `--keep-activity` | Keeps Status → Activity (what admins did, alerts) |
+| `--keep-activity` | Keeps Health → Activity (what admins did, alerts) |
 | `--reset-clock` | Also restarts the monitor-mode clock: Readiness counts days again, and senders are learned for 14 days again |
 | `--even-if-paused` | Clears even when the brake or a campaign pause is on. The emails they left in the Inbox are no longer tracked, so decide on them on the dashboard first (`--even-if-held` still works) |
 | `--yes` | No question (for scripts) |
@@ -534,14 +534,14 @@ To turn the alert off, set `BUDGET_ALERT=off`.
 
 ## Investigating an email in Google Workspace
 
-Every recorded email shows its **Message-ID**, with a **Copy** button (Email → Messages → open the email →
+Every recorded email shows its **Message-ID**, with a **Copy** button (Mail → Messages → open the email →
 Details).
 - In the Admin console, go to **Reporting → Email log search** and paste it into **Message ID**: you see
   every delivery of that email in the domain.
 - Or use the **security investigation tool** (Gmail log events, Message ID), where your edition has it.
 - In **Google Vault**, press **Copy for Vault** (next to Copy) and paste it into a Gmail search's terms: it
   copies `rfc822msgid:<Message-ID>`, which finds that email in every mailbox the search covers.
-- For an email someone reported but the service didn't record: **Email → Messages → Check an email**. Paste its
+- For an email someone reported but the service didn't record: **Mail → Messages → Check an email**. Paste its
   original (in Gmail: ⋮ → Show original → Copy to clipboard). You see what the service would decide, and
   its Message-ID.
 
@@ -558,7 +558,7 @@ Details).
 - **"Gmail refused the service"**: usually the domain-wide delegation was removed or changed; until it is
   back, new mail isn't checked.
 
-- **Start with Status → Service status** in the dashboard. In Cloud Shell, `bash deploy/doctor.sh` checks the
+- **Start with Health → Service status** in the dashboard. In Cloud Shell, `bash deploy/doctor.sh` checks the
   rest (the subscription, Gmail's permission to publish, the jobs, the alert policies, recent errors)
   and says what to run.
 
@@ -592,8 +592,8 @@ Details).
 - **A mailbox that gets mail shows "None yet" under Last notification** (Settings): Gmail isn't
   notifying the service about it. Run `install.sh` again: step 5 lets Gmail publish to the topic, and
   step 9 starts the watches again.
-- **"Alerts couldn't be set up from here" (step 9/9).** The alerts still show on the dashboard (Overview,
-  Status → Activity). Setting them up needs the Monitoring Editor role, or Owner, on the project. Run `install.sh`
+- **"Alerts couldn't be set up from here" (step 9/9).** The alerts still show on the dashboard (Today,
+  Health → Activity). Setting them up needs the Monitoring Editor role, or Owner, on the project. Run `install.sh`
   again with it.
 - **No alert emails arrive.** The address in `ALERT_EMAIL` (or the admin group) must accept email from
   outside the domain: alerts come from Google Cloud (`alerting-noreply@google.com`). For a group, allow

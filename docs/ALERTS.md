@@ -3,7 +3,7 @@
 An **alert** is a problem the admins are emailed about. Cloud Monitoring sends it to `ALERT_EMAIL` (the admin
 group by default) with the subject **"SPRUCE Mail Protection Service: an alert from the service"**. The
 email shows which alert it is (`alert`) and its message (`message`), which says what happened, what it
-means for mail, and what to do. Each alert is also listed in the dashboard, **Status → Activity → Alerts**,
+means for mail, and what to do. Each alert is also listed in the dashboard, **Health → Activity → Alerts**,
 marked "alert, emailed to the admins".
 
 - A problem that lasts is emailed **at most once a day**, not every time it happens. Activity lists every
@@ -44,7 +44,7 @@ These matter most: while one lasts, some mail isn't checked.
 - **What it means for mail:** once a watch ends, Gmail stops notifying the service about that mailbox, and
   its new mail isn't checked.
 - **What to do:** Settings → Mailboxes → **Read the directory again now**. If it keeps happening, the daily
-  renewal job (`spruce-renew-watches`) is failing: Status → Service status, or `bash deploy/doctor.sh`.
+  renewal job (`spruce-renew-watches`) is failing: Health → Service status, or `bash deploy/doctor.sh`.
 
 ### The service fell behind (`gaps`)
 - **When:** the service fell behind on 10 or more mailboxes within 24 hours (`GAPS_ALERT_DAY`).
@@ -58,8 +58,8 @@ These matter most: while one lasts, some mail isn't checked.
 - **Why:** once in a while is normal, after an outage. Ten in a day usually means Gmail's notifications
   weren't being processed for days (the worker stopped or kept failing, Pub/Sub backed up), or a bug.
 - **What to do:**
-  1. Status → Service status: are the worker, the jobs and the notifications all right now?
-  2. Status → Activity → Errors and gaps: since when?
+  1. Health → Service status: are the worker, the jobs and the notifications all right now?
+  2. Health → Activity → Errors and gaps: since when?
   3. In Cloud Shell: `bash deploy/doctor.sh`.
   4. If you know why (an outage, a long upgrade), nothing more is needed: the service catches up by itself.
 
@@ -74,7 +74,7 @@ These matter most: while one lasts, some mail isn't checked.
   1. Settings → Mailboxes: when did Gmail last notify the service about it?
   2. Settings → Mailboxes → **Read the directory again now** (it renews every watch).
   3. Admin console → Users: is the account active and licensed, with Gmail on?
-  4. If it goes on, it may be a bug: note the mailbox and the times (Status → Activity, search for the
+  4. If it goes on, it may be a bug: note the mailbox and the times (Health → Activity, search for the
      mailbox) and report it.
 
 ### An email left unchecked (`unchecked-mail`)
@@ -88,7 +88,7 @@ These matter most: while one lasts, some mail isn't checked.
 - **When:** 25 or more errors within an hour.
 - **What it means for mail:** something stopped working (Gmail, Firestore, the model…). Some mail may be
   waiting to be checked; it is retried.
-- **What to do:** Status → Activity → Errors and gaps says what failed; Status → Service status and
+- **What to do:** Health → Activity → Errors and gaps says what failed; Health → Service status and
   `bash deploy/doctor.sh` check the rest.
 
 ### The AI model doesn't work (`ai-model`)
@@ -97,7 +97,7 @@ These matter most: while one lasts, some mail isn't checked.
 - **What it means for mail:** emails are judged by the rule checks alone meanwhile (they still move clear
   phishing; the AI's score is missing).
 - **What to do:** install the version again (`bash deploy/update.sh`, or `upgrade.sh` from the folder).
-  Status → Service status shows the model's state.
+  Health → Service status shows the model's state.
 
 ### Who is in the pilot couldn't be read (`error`)
 - **When:** the daily re-read of the pilot group or organizational unit failed.
@@ -111,7 +111,7 @@ These matter most: while one lasts, some mail isn't checked.
   about $0.40 a month for it). Its email has its own subject: "SPRUCE Mail Protection Service: Gmail's
   notifications are waiting".
 - **What it means for mail:** the worker isn't taking the notifications, so new mail isn't checked.
-- **What to do:** Status → Service status and Activity → Errors; `bash deploy/doctor.sh`.
+- **What to do:** Health → Service status and Activity → Errors; `bash deploy/doctor.sh`.
 
 ### A scheduled job failed (Cloud Monitoring)
 - **When:** one of the service's scheduled jobs (`spruce-renew-watches`, `spruce-sync-feeds`,
@@ -127,7 +127,7 @@ Mail is still checked; one source of evidence is missing until it comes back.
 ### A phishing list missed its download (`list-download`)
 - **When:** a phishing list couldn't be downloaded. Emailed when it first fails, then once a day while it
   keeps failing.
-- **What it means for mail:** the checks use that list's previous copy. A banner on Overview says so.
+- **What it means for mail:** the checks use that list's previous copy. A banner on Today says so.
 - **What to do:** Settings → About shows what went wrong, and has **Re-check the lists now**. It is tried
   again every 3 hours. A day's outage at the list's host is common; days of it usually mean the list moved.
 
@@ -135,7 +135,7 @@ Mail is still checked; one source of evidence is missing until it comes back.
 - **When:** every Cloudflare Security (or Google Safe Browsing) lookup has failed for 30 minutes.
 - **What it means for mail:** links are "not checked" with that service (never "safe"); the other checks
   still run.
-- **What to do:** usually nothing: it comes back by itself. Status → Service status shows how it is going.
+- **What to do:** usually nothing: it comes back by itself. Health → Service status shows how it is going.
 
 ### Google refuses the Safe Browsing key (`safe-browsing-key`)
 - **When:** Google refuses the saved API key (revoked, restricted, quota).
@@ -145,7 +145,7 @@ Mail is still checked; one source of evidence is missing until it comes back.
 ### Gmail's logs couldn't be read (`click-logs`)
 - **When:** Settings → Link clicks is on (off by default), and Google refused the service's request for
   Gmail's logs about re-checked mail.
-- **What it means for mail:** nothing for the checks. Email → Re-checked can't say who clicked a link in
+- **What it means for mail:** nothing for the checks. Threats → Re-checked can't say who clicked a link in
   mail found to be phishing after delivery; it still says who got it and whether it was opened.
 - **Usually:** the admin typed on Settings → Link clicks doesn't have the Reports privilege (Google: "not
   authorized to read activity records"; for the directory admin, tick Reports on its SPRUCE group reader
@@ -172,22 +172,22 @@ Mail is still checked; one source of evidence is missing until it comes back.
 - **When:** far more emails were moved within an hour than the limit (`BRAKE_PER_HOUR`, or automatic).
 - **What it means for mail:** nothing is moved in any mailbox until an admin resumes; emails that would be
   moved stay in the Inbox.
-- **What to do:** look at Email → Messages, then on Overview **Resume**, moving the held emails to Spam or
+- **What to do:** look at Mail → Messages, then on Today **Resume**, moving the held emails to Spam or
   leaving them (docs/INSTALL.md, "In enforce mode, the brakes").
 
 ### Moving a campaign is paused (`campaign-held`)
 - **When:** many copies of one campaign were moved on evidence nothing outside the email confirms.
-- **What to do:** Email → Campaigns → open it → **Confirm phishing** (every copy to Spam) or **False alarm**
+- **What to do:** Threats → Campaigns → open it → **Confirm phishing** (every copy to Spam) or **False alarm**
   (the moved ones back to the Inbox).
 
 ### A large campaign (`campaign`)
 - **When:** many copies of one campaign were moved to Spam.
-- **What to do:** nothing needed. Email → Campaigns lists who received it, if you want to warn them.
+- **What to do:** nothing needed. Threats → Campaigns lists who received it, if you want to warn them.
 
 ### One outside account shared with many of your people (`mass-share`)
 - **When:** the same outside account sent a document share or signature request to 10 or more of your
   people within an hour (the usual sign of an account taken over elsewhere).
-- **What to do:** if it's phishing, Email → Campaigns → open it → **Confirm phishing** moves every copy.
+- **What to do:** if it's phishing, Threats → Campaigns → open it → **Confirm phishing** moves every copy.
 
 ### Re-checked mail (`recheck`)
 - **When:** an email already delivered to an Inbox is found to be phishing on a re-check: a phishing list
@@ -200,10 +200,10 @@ Mail is still checked; one source of evidence is missing until it comes back.
   check on arrival would have: moved each copy still in an Inbox to Spam (enforce mode, through the
   brakes), or recorded it as "would move" (monitor mode). A copy its reader had already archived or
   deleted is left where it is.
-- **What to do:** dashboard, **Email → Re-checked**: every copy, who got it, when it was delivered,
+- **What to do:** dashboard, **Threats → Re-checked**: every copy, who got it, when it was delivered,
   whether it had been opened, and (Settings → Link clicks on) whether a link in it was clicked. Warn the
   people who opened it; for anyone who may have typed a password, see "A link was clicked" below. "Mark all
-  as seen" there clears the banner on Overview and Messages.
+  as seen" there clears the banner on Today and Messages.
 
 ### A link was clicked (`recheck-click`)
 - **When:** Settings → Link clicks is on, and Gmail's logs show that someone clicked a link (in the email,
@@ -213,7 +213,7 @@ Mail is still checked; one source of evidence is missing until it comes back.
 - **What to do:** in the Admin console, for that user: reset the password, sign them out of every session
   (Users → the user → Security), check their recent sign-ins and any mail-forwarding rule or app access
   added since (Security → Investigation tool, or Reporting → Audit and investigation). Talk to them: what
-  did they type in? Email → Re-checked shows when they clicked.
+  did they type in? Threats → Re-checked shows when they clicked.
 
 ### A look-alike of your domain (`lookalike`)
 - **When:** the look-alike watch (0.5.36) finds a newly registered domain that imitates yours: a letter left
@@ -223,7 +223,7 @@ Mail is still checked; one source of evidence is missing until it comes back.
 - **What it means:** someone may be preparing payroll, vendor or "the superintendent asks" fraud. From now
   on, mail from it, replies sent to it and links to it are strong signs of phishing (they move mail with the
   rules).
-- **What to do:** dashboard, **Status → Look-alikes**: whether it has mail servers or a website, and when it
+- **What to do:** dashboard, **Threats → Look-alikes**: whether it has mail servers or a website, and when it
   was registered. If your district registered it (a defensive registration), mark it **It's ours**. Otherwise
   warn the business office and payroll; consider reporting it to the registrar, and blocking it in Gmail
   (Admin console → Apps → Gmail → Spam, phishing and malware → Blocked senders).

@@ -96,7 +96,7 @@ test('the dashboard: CSV downloads and opening it are recorded; Activity over a 
         // The email list as CSV: recorded.
         const csv = await fetch(`${base}/api/export.csv?days=30`);
         assert.equal(csv.status, 200);
-        assert.ok((await mine()).some(e => e.kind === 'export' && /^demo-admin@example\.org downloaded \d+ email records? as CSV \(Email → Messages, last 30 days\)\.$/.test(e.text)));
+        assert.ok((await mine()).some(e => e.kind === 'export' && /^demo-admin@example\.org downloaded \d+ email records? as CSV \(Mail → Messages, last 30 days\)\.$/.test(e.text)));
         // Activity: 200 days ago is there for a year's view, not for 30 days; searched; downloaded (recorded).
         const a30 = await (await fetch(`${base}/api/activity?days=30&kind=admin`)).json();
         assert.equal(a30.maxDays, 365);
@@ -169,7 +169,7 @@ test('0.5.31: missed changes now and then are only noted; many in a day, or one 
     assert.equal(warned.length, 0, 'nine in a day: noted only');
     const tenth = await gap(`u9@${ORG}`);
     assert.deepEqual([tenth.day, tenth.alerted], [10, ['gaps']]);
-    assert.match(warned[0].message, /^The service fell behind on 10 mailboxes in the last 24 hours \(10 times\)\. What happened: .* What it means for mail: new mail reached those Inboxes before it was checked; .* What to do: 1\) Status → Service status/);
+    assert.match(warned[0].message, /^The service fell behind on 10 mailboxes in the last 24 hours \(10 times\)\. What happened: .* What it means for mail: new mail reached those Inboxes before it was checked; .* What to do: 1\) Health → Service status/);
     await gap(`u10@${ORG}`);
     assert.equal(warned.filter(w => w.spruceAlert === 'gaps').length, 1, 'once a day');
     // One mailbox, three times in 7 days (an older one written before 0.5.31 counts by its text): its own alert, per mailbox.

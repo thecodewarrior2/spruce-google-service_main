@@ -158,7 +158,7 @@ starts a sweep (`state/updateRecheck`) of the `seen` markers of the mail deliver
 queued as the queue has room (1,500 an hour at most), up to `RECHECK_AFTER_UPDATE_MAX`. Mail that arrived
 after the instance started was judged by the new version already and isn't taken. A version that changes
 only the dashboard, wording or documentation keeps the level and re-checks nothing. An email its reader archived or deleted, or one an
-admin decided on, is never moved. Email → Re-checked lists them with who got each copy and whether they opened
+admin decided on, is never moved. Threats → Re-checked lists them with who got each copy and whether they opened
 it; with Link clicks on, Gmail's logs (Admin SDK Reports API) add who clicked a link in it.
 
 ## The look-alike watch
@@ -277,7 +277,7 @@ Their data is never exported for retraining: their terms don't allow it to train
   health check: no notification from Gmail for `QUIET_HOURS`, or watches about to end. It also downloads
   the phishing lists once a day, and a list whose download failed again 3 hours later
   (`state/feedHealth` keeps each list's last download); a list that newly fails, and once a day one that
-  keeps failing, is an alert (`list-download`), on Overview until it downloads again, and on Settings →
+  keeps failing, is an alert (`list-download`), on Today until it downloads again, and on Settings →
   About, whose Re-check (`POST /api/lists/recheck`) downloads it at once.
 - **Mail that skipped the checks.** An email the user moves into the Inbox that the service never
   checked (it went to Spam first) is checked when its Inbox label shows in the history, and never moved.

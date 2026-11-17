@@ -402,7 +402,7 @@ alerts() {
     ALERT_CHANNEL="$channel"
     policy "SPRUCE Mail Protection Service: an alert from the service" 'resource.type=\"cloud_run_revision\" AND jsonPayload.spruceAlert:*' \
         '{ "alert": "EXTRACT(jsonPayload.spruceAlert)", "message": "EXTRACT(jsonPayload.message)" }' \
-        "The service reported something to look at: the message says what happened, what it means for mail, and what to do. docs/ALERTS.md (in the folder you installed from, or the release repository) explains every alert. The dashboard lists them: Status → Activity → Alerts." "$channel" || return 1
+        "The service reported something to look at: the message says what happened, what it means for mail, and what to do. docs/ALERTS.md (in the folder you installed from, or the release repository) explains every alert. The dashboard lists them: Health → Activity → Alerts." "$channel" || return 1
     policy "SPRUCE Mail Protection Service: a scheduled job failed" 'resource.type=\"cloud_scheduler_job\" AND severity>=ERROR AND resource.labels.job_id:\"spruce-\"' \
         '{ "job": "EXTRACT(resource.labels.job_id)", "why": "EXTRACT(jsonPayload.debugInfo)" }' \
         "A scheduled job couldn't reach the worker. If it says 401 or 403, see docs/INSTALL.md, Troubleshooting, The jobs and notifications are refused." "$channel" || return 1
@@ -422,7 +422,7 @@ backlog_alert() {
     [ -n "$channel" ] || return 1
     printf '%s\n' '{' \
         "  \"displayName\": \"$BACKLOG_NAME\"," \
-        '  "documentation": { "content": "Gmail'"'"'s notifications have waited in Pub/Sub for over 30 minutes: the worker isn'"'"'t taking them, so new mail isn'"'"'t checked. Look at Status → Service status and Activity → Errors; bash deploy/doctor.sh checks the rest.", "mimeType": "text/markdown" },' \
+        '  "documentation": { "content": "Gmail'"'"'s notifications have waited in Pub/Sub for over 30 minutes: the worker isn'"'"'t taking them, so new mail isn'"'"'t checked. Look at Health → Service status and Activity → Errors; bash deploy/doctor.sh checks the rest.", "mimeType": "text/markdown" },' \
         '  "combiner": "OR",' \
         '  "conditions": [ { "displayName": "Oldest waiting notification over 30 minutes", "conditionThreshold": {' \
         "    \"filter\": \"resource.type = \\\"pubsub_subscription\\\" AND resource.labels.subscription_id = \\\"gmail-spruce-push\\\" AND metric.type = \\\"pubsub.googleapis.com/subscription/oldest_unacked_message_age\\\"\"," \
@@ -445,7 +445,7 @@ else
     id="$(gcloud monitoring policies list --filter="displayName=\"$BACKLOG_NAME\"" --format='value(name)' 2>/dev/null | head -1)"
     [ -z "$id" ] || { gcloud monitoring policies delete "$id" --quiet >/dev/null 2>&1 && echo "  PUBSUB_BACKLOG_ALERT is off: its alert policy was removed."; }
 fi
-# AUDIT_LOG=on: a copy of Status → Activity (what admins did, alerts, errors) in Cloud Logging, in its own log
+# AUDIT_LOG=on: a copy of Health → Activity (what admins did, alerts, errors) in Cloud Logging, in its own log
 # bucket kept AUDIT_LOG_DAYS (365 by default), where a Firestore wipe can't reach it. Google charges for log
 # storage past 30 days ($0.01 per GiB a month at its published price): a few cents a year here. The services
 # write the log lines only when it is on (AUDIT_LOG=true on both).

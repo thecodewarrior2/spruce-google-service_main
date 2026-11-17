@@ -346,7 +346,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `ALLOW_DOMAINS`, `ALLOW_ADDRESSES` | none | never moved, when Gmail's DMARC check passed for the sender's domain (also on the dashboard: Settings → Allowlist). Your own domains can't be allowlisted |
 | `ALLOW_LINK_DOMAINS` | none | link sites a phishing list's listing of their whole domain doesn't flag (0.5.73; a newsletter's click tracker listed by mistake), in every sender's mail; a listing of the exact page still does, and the other link checks still apply. Not passed by `install.sh`: set on the dashboard (Settings → Allowlist, "Link domains") or in the services' environment. Shared hosting, link shorteners and your own domains are refused |
 | `RECHECK` | `true` | re-check delivered mail (0.5.35): emails left in the Inbox keep one-way hashes of their link sites and sender; when a phishing list's daily download adds one, every copy still in an Inbox is checked again in full (and moved, or recorded in monitor mode, as on arrival); suspicious mail is looked at again an hour and a day after it arrived; since 0.5.51 also mail from, replying to or linking to a look-alike of your domain once found or marked a threat, and recent mail after an update that changes how email is checked (`RECHECK_AFTER_UPDATE_HOURS`). Also on the dashboard: Settings → Policy, "Re-check delivered mail" |
-| `LOOKALIKE_WATCH` | `true` | the look-alike watch (0.5.36): look-alikes of `ORG_DOMAINS` asked of Cloudflare's public DNS resolver, a pass a day (Status → Look-alikes); the new ones are alerts and strong signs in mail |
+| `LOOKALIKE_WATCH` | `true` | the look-alike watch (0.5.36): look-alikes of `ORG_DOMAINS` asked of Cloudflare's public DNS resolver, a pass a day (Threats → Look-alikes); the new ones are alerts and strong signs in mail |
 | `DONATE_BUTTON` | `true` | the Donate button on Help → About & credits (0.5.46); `off` hides it |
 | `RECHECK_DAYS` | `7` | how far back (1 to 30 days) delivered mail is looked for when a list adds a site or sender, or (0.5.51) a look-alike of your domain is found or marked a threat |
 | `RECHECK_AFTER_UPDATE_HOURS` | `24` | after an update that changes how email is checked (0.5.51; `checksLevel` in `package.json` raised), the mail delivered in this many hours (0 to 72; 0: none) that is still in the Inbox is checked again, newest first. An update that changes only the dashboard, wording or documentation re-checks nothing. Only with `RECHECK` on |
@@ -359,7 +359,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `GOOGLE_CLOUD_PROJECT`, `CLOUD_RUN_REGION` | none | where the services run, for the dashboard's Status page |
 | `QUIET_HOURS` | `12` | no notification from Gmail for this long sends an alert (the hourly health check) |
 | `ALERT_EMAIL` (installer; shown on the dashboard) | the `ADMIN_GROUP` | where Cloud Monitoring emails alerts; `off` for none (Google charges about $0.70 a month for the two alert policies) |
-| `AUDIT_DAYS` | `365` | how long Status → Activity is kept, 30 to 1,825 days (0.5.29) |
+| `AUDIT_DAYS` | `365` | how long Health → Activity is kept, 30 to 1,825 days (0.5.29) |
 | `GAPS_ALERT_DAY`, `GAPS_ALERT_MAILBOX` | `10`, `3` | missed changes that make an alert: across the organization within 24 hours, or for one mailbox within 7 days (0.5.31) |
 | `PUBSUB_BACKLOG_ALERT` (installer) | off | on: an email when Gmail's notifications wait in Pub/Sub over 30 minutes; a metric alert policy Google charges about $0.40 a month for |
 | `AUDIT_LOG`, `AUDIT_LOG_DAYS` (installer) | off, `365` | on: a copy of Activity in the log bucket `spruce-audit` (a sink on `jsonPayload.spruceAudit`), kept that long; Google charges a few cents a year |
@@ -377,5 +377,5 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `WORKER_MAX_INSTANCES` (installer) | `30` | the most worker instances at once (1 to 100); they cost only while they work |
 | `BUDGET_ALERT` (installer only) | `1` | budget alert amount for the project, in the billing account's currency; `off` for none |
 | `STORE_SUBJECTS`, `STORE_AI_QUOTES` | `true` | keep subjects and the model's short quotes in records |
-| `COLLEAGUE_NAMES` | `true` | the colleague-name check: the directory's names (one-way hashes, in memory) against the names on outside addresses (From, Reply-To, Cc, To); needs `DIRECTORY_ADMIN` with Users → Read and the `admin.directory.user.readonly` scope (off, and said on Status, without them) |
+| `COLLEAGUE_NAMES` | `true` | the colleague-name check: the directory's names (one-way hashes, in memory) against the names on outside addresses (From, Reply-To, Cc, To); needs `DIRECTORY_ADMIN` with Users → Read and the `admin.directory.user.readonly` scope (off, and said on Health → Service status, without them) |
 | `FIRST_SEEN_LEARNING_DAYS` | `14` | "first email from this sender" only counts after this |

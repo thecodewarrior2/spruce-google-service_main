@@ -106,12 +106,12 @@ It also looks things up (`src/intel/`; `docs/PRIVACY.md` says exactly what is se
 |---|---|---|
 | **Cloudflare Security DNS** | host names of link sites, the sender's domain and its organization's domain | a blocked link is dangerous; a blocked or nonexistent sender domain is a sign (a sender subdomain with no DNS records of its own, common for newsletters and no-reply addresses, is judged by its organization's domain, and is never "made up" when that domain exists or Gmail verified the sender: 0.5.62) |
 | **Google Safe Browsing**: optional, off by default. An admin adds the API key (kept in Secret Manager) and turns it on in Settings → Safe Browsing | link addresses (no `#…`; one-time links without their query) | a listed link is dangerous |
-| **Phishing lists** (OpenPhish, Phishing Army, HaGeZi Threat Intelligence Feeds, TweetFeed, Sefinek) | nothing: downloaded once a day (a list that misses its download: tried again every 3 hours, a red banner on Overview, an alert to the admins, and Settings → About shows it with a Re-check button), matched in the service | listed links are dangerous; a listed sender address or domain is a sign. TweetFeed (domains researchers reported in the last 30 days) is a community report: a reported link is amber and a sign of 2, never dangerous on its own. Your own domains count only as exact listed links and addresses, never as a whole site or domain |
+| **Phishing lists** (OpenPhish, Phishing Army, HaGeZi Threat Intelligence Feeds, TweetFeed, Sefinek) | nothing: downloaded once a day (a list that misses its download: tried again every 3 hours, a red banner on Today, an alert to the admins, and Settings → About shows it with a Re-check button), matched in the service | listed links are dangerous; a listed sender address or domain is a sign. TweetFeed (domains researchers reported in the last 30 days) is a community report: a reported link is amber and a sign of 2, never dangerous on its own. Your own domains count only as exact listed links and addresses, never as a whole site or domain |
 | **Site age** (registries, RDAP) | domain names, to their own registry | brand-new link sites and sender domains are signs (stronger with sign-in or payment wording) |
 | **Brand ownership** (0.5.64; DNS over HTTPS and RDAP) | when a sender's name claims a brand its domain isn't known to be: the domain names | whose the domain is, from public records (its name servers, DMARC reports, a corporate registrar and registrant), as in the extension: "Xoom, a PayPal Service" from xoom.com (PayPal's name servers) is no sign; unproven, the sign stays. A government agency's name on GovDelivery (Granicus, the service agencies send bulletins through: "IRS Newswire" <irs@service.govdelivery.com>) is no sign unless its sender check failed (0.5.70). "Business via QuickBooks" (a brand only after "via") from the sender's own address, its DMARC passing, is no sign either, unless the domain carries the brand's name (0.5.74) |
 | **Spamhaus** (0.5.37): optional, off by default. An admin adds the district's free DQS key (Secret Manager) and turns it on in Settings → Spamhaus | the sender's domain and up to 5 link sites' names, by DNS, at most `SPAMHAUS_DAILY_MAX` (90,000) lookups a day | a link site on the Domain Blocklist for phishing, malware or botnet control is dangerous (the sender's domain: strong evidence); low reputation or an abused site: a sign; a domain first seen in the last 24 hours (ZRD): a sign |
 | **abuse.ch** (0.5.37): optional, off by default. An admin adds the district's free Auth-Key (Secret Manager) and turns it on in Settings → abuse.ch | nothing: URLhaus and ThreatFox are downloaded once a day and matched in the service | links spreading malware, malware sites and control servers are dangerous, as the phishing lists' |
-| **The look-alike watch** (0.5.36; `LOOKALIKE_WATCH`): a pass a day over look-alike names of your domains (a letter left out, swapped or replaced, other endings, `-k12`, `schools`…), Status → Look-alikes | those names only, to Cloudflare's public resolver | a newly registered look-alike is an alert; mail from it, replies to it and links to it are strong signs (one there before the watch: a small sign; one marked as yours: none) |
+| **The look-alike watch** (0.5.36; `LOOKALIKE_WATCH`): a pass a day over look-alike names of your domains (a letter left out, swapped or replaced, other endings, `-k12`, `schools`…), Threats → Look-alikes | those names only, to Cloudflare's public resolver | a newly registered look-alike is an alert; mail from it, replies to it and links to it are strong signs (one there before the watch: a small sign; one marked as yours: none) |
 
 **Reputation check before a newsletter's link is called dangerous.** A link whose text shows a well-known
 site but goes somewhere else is dangerous, except when it goes through the click tracker of the mail
@@ -132,11 +132,11 @@ mailbox, is read again and checked in full, and the policy acts as on arrival: m
 through the brakes) or recorded as "would move" (monitor mode). An email found suspicious on arrival is also
 looked at again an hour and a day later (Safe Browsing or a list may know its site by then). Never moved by a
 re-check: an email its reader already archived or deleted, or one an admin released or marked. Each is listed
-on **Email → Re-checked**, a red banner on Overview and Messages says so, and the admins get an alert.
+on **Threats → Re-checked**, a red banner on Today and Messages says so, and the admins get an alert.
 
 Since 0.5.51 two more things start a re-check:
 
-- **A look-alike of your domain** that the look-alike watch finds, or that an admin marks a threat on Status →
+- **A look-alike of your domain** that the look-alike watch finds, or that an admin marks a threat on Threats →
   Look-alikes: the delivered mail of the last 7 days sent from it, asking for replies to it or linking to it.
   (The hashes now include the sender's domain and Reply-To domains too, never a personal mailbox provider's.)
 - **An update that changes how email is checked**: the mail delivered in the last 24 hours that is still in
@@ -205,62 +205,77 @@ turns it off.
 ## The dashboard
 
 The dashboard keeps itself up to date: the page you're on is fetched again every 30 seconds while
-the tab is visible (not while you're typing in it, or using it otherwise). The bar under the tabs says
+the tab is visible (not while you're typing in it, or using it otherwise). The bar at the top says
 when it last updated, and **Pause updates** stops it.
 
-The dashboard has five tabs: **Overview**, **Email**, **Status**, **Settings** and **Help**. Email, Status,
-Settings and Help each have a menu on the left (a row of buttons above the page on a phone). **Help** (0.5.46)
-shows this version's own docs (how it works, the dashboard, alerts, privacy, Google Workspace settings, install
-and troubleshooting, the settings reference, costs, the architecture deep dive) and **About & credits**, with a
-Donate button (`DONATE_BUTTON=off` hides it).
+The dashboard (0.6.0) has a menu on the left: **Today**, **Review**, **Threats**, **Mail**, **Health** and
+**Settings**, with **Help** at its foot, the signed-in admin, and a card saying the mode (monitor or enforce) and
+where to go from it. The mode is also in the bar at the top, with the period (7, 30 or 90 days) and the live
+updates. Threats, Mail, Health, Settings and Help each have their pages in a menu beside the page (Settings' in four
+groups: Protection, Threat feeds, Organization, System). On a phone the menu is a drawer, and a tab bar at the
+bottom has Today, Review, Threats, Health and More. **Help** (0.5.46) shows this version's own docs (how it works,
+the dashboard, alerts, privacy, Google Workspace settings, install and troubleshooting, the settings reference,
+costs, the architecture deep dive) and **About & credits**, with a Donate button (`DONATE_BUTTON=off` hides it).
+The classic tabs (before 0.6.0) can be put back: `docs/DASHBOARD-ROLLBACK.md`.
 
-- **Overview:** emails checked, moved and moved back (by admins and by users); users affected; moves per
-  day by trigger; top reasons; largest campaigns; alerts. The daily chart (0.5.45) shows every email checked
-  behind the emails moved (or, in monitor mode, that would be moved), each colored by what triggered it: rules +
-  AI, the AI score alone, the rules alone, an admin's confirmation; **Zoom in to the moved ones** fits the scale to
-  them. In monitor mode the big number says how many would move by each trigger.
-- **Email**, with the number of emails waiting for review on the tab:
-  - **Review:** emails nobody has reviewed, one at a time, in two queues (the menu shows how many are
-    left in the first). The copies of one email (a campaign: the same email to many people) are one item,
-    decided together: who received it (and who sent it, when the copies came from several addresses) is
-    listed, the first two shown, **…show more** for everyone:
-    - **Moved or would move**, oldest first: **F** false alarm, **P** phishing, **I** ignore (unclear), **N** next.
-    - **Suspicious, not moved**, newest first: emails the checks found suspicious (a rules score of 3 or
-      more, or an AI score from the suspicious line) but not enough to move, still in the Inbox. **F**
-      not phishing, **P** phishing, **I** ignore, treat as suspicious, **N** next. Marking them shows what the move rules miss, and gives
-      the retraining export its best examples. Each says what made it suspicious: the rule checks'
-      score, the AI's, or a link check.
-    - **I, Ignore, treat as suspicious** (0.5.60; also on an email's own page in Messages): for an email that is
+- **Today:** first **Needs attention**, one list of what needs an admin, each with its button: moving paused by
+  the brake (resume, moving the held emails or not), campaigns paused for your decision, a phishing list that
+  missed its download, phishing found after it was delivered, new look-alikes of your domain, and the emails
+  waiting for review. Then emails checked, moved and moved back (by admins and by users); users affected;
+  campaigns; moves per day by trigger; top reasons; largest campaigns; recent activity. The daily chart (0.5.45)
+  shows every email checked behind the emails moved (or, in monitor mode, that would be moved), each colored by
+  what triggered it: rules + AI, the AI score alone, the rules alone, an admin's confirmation; **Zoom in to the
+  moved ones** fits the scale to them. In monitor mode the big number says how many would move by each trigger.
+- **Review**, with the number of emails waiting for review beside it: every email nobody has reviewed, in one
+  list, in two queues: **Would move** (moved or would move, oldest first) and **Suspicious** (not moved, newest
+  first). The copies of one email (a campaign: the same email to many people) are one item, answered together.
+  - Each row shows the AI score, the subject, the sender, how many copies and people, when it arrived and its
+    heaviest sign, with quick **Phishing**, **False alarm** (**Not phishing** for a suspicious email) and
+    **Ignore** buttons for the clear cases. Tick several to answer them all at once.
+  - **Open one** to weigh the evidence: who sent it to whom (the first two, **…show more** for everyone), where
+    the AI score and the rules score stand, the signs that **point to phishing** and those that **point to safe**
+    (each weak, medium or strong), and what the AI weighed most. Its answers, with their keys:
+    - **P Phishing**; **F False alarm** (**Not phishing**); **I Ignore, unclear** (0.5.60): for an email that is
       neither clearly phishing nor clearly safe, such as an outside request for access to a form, where only the
       reader can tell. It is left as it is (still in the Inbox, with its Suspicious label), counts as reviewed so it
       leaves the queue, is never used for retraining, and the later checks and the re-check after an update leave
-      it alone. Marking it phishing or not phishing afterwards replaces it.
-    - **The AI opinion** says where its score stands against the lines in force; **…show more** shows
-      what the model reads of the email, sentence by sentence, and each sentence that weighed most
-      between the sentence of real text before and after it (blank lines, invisible padding and lone
-      punctuation skipped). When the whole email reads as genuine (under 50%), nothing is marked. Since 0.5.66 it
-      shows the whole email, every sentence (redacted as the model reads it); the first 40 are also scored on their
-      own, and those the model's input leaves out (it keeps 60 sentences of a longer text: since 0.5.67 the first 40
-      and the last 20) are marked "not read by the model".
-    - **R re-scans** the email: it is read again from the mailbox and judged with today's checks and AI
-      model (after a model update, say). Its scores, AI opinion, model and signs become the re-scan's,
-      beside what they were on arrival; what happened to it (moved, flagged) stays. A re-scan never moves
-      anything: you decide with F or P. Activity notes who re-scanned what.
-    - **In enforce mode, P moves an email still in the Inbox to Spam** (the button then reads
-      **Phishing: move to Spam**), with the service's `SPRUCE/Moved` label; Activity notes who. In monitor
-      mode nothing is moved. An email no longer in the Inbox (archived, deleted) is left where it is.
-  - **Campaigns:** each opens the list of emails behind it, with **Confirm phishing: move every copy**
-    (optionally searching every watched mailbox for copies the service didn't record), **False alarm:
-    move every copy back**, and **Find other copies**.
-  - **Messages:** search and filters (also by Message-ID), opening each email's decision. **Download
-    CSV** gives the same list. An email found to be phishing after it was delivered has a red mark and
-    "found later".
+      it alone. Marking it phishing or not phishing afterwards replaces it;
+    - **N Skip for now**: the next item opens, and this one stays in the queue, undecided;
+    - **R Re-scan:** the email is read again from the mailbox and judged with today's checks and AI model (after
+      a model update, say). Its scores, AI opinion, model and signs become the re-scan's, beside what they were on
+      arrival; what happened to it (moved, flagged) stays. A re-scan never moves anything. Activity notes who
+      re-scanned what;
+    - **More details** opens the email's own page (Mail → Messages); **Show the email** reads it from Gmail at that
+      moment, as the model reads it, sentence by sentence, with what weighed most between the sentence of real
+      text before and after it (nothing is kept, and Activity notes that you looked). When the whole email reads
+      as genuine (under 50%), nothing is marked. It shows the whole email, every sentence (redacted as the model
+      reads it); the first 40 are also scored on their own, and those the model's input leaves out (it keeps 60
+      sentences of a longer text: the first 40 and the last 20) are marked "not read by the model".
+  - Marking suspicious emails shows what the move rules miss, and gives the retraining export its best examples.
+  - **In enforce mode, Phishing moves an email still in the Inbox to Spam** (the button then reads **Phishing:
+    move to Spam**), with the service's `SPRUCE/Moved` label; Activity notes who. In monitor mode nothing is
+    moved. An email no longer in the Inbox (archived, deleted) is left where it is.
+- **Threats:**
+  - **Campaigns** (a timeline since 0.6.0): the newest 15 as bars from their first copy to their last across the
+    period, colored by whether they were moved (or would be) or only suspicious; pick one to see its people,
+    moved, would move, moved back, highest AI score, top reason, first and last seen, and **Open every copy**.
+    Every campaign is in the table below; each opens the list of emails behind it, with **Confirm phishing: move
+    every copy** (optionally searching every watched mailbox for copies the service didn't record), **False
+    alarm: move every copy back**, and **Find other copies**.
   - **Re-checked** (0.5.35): emails already delivered and found later to be phishing or suspicious, one
     card per email (all its copies): why (which list added which site, or a second look), when it was first
     delivered and re-checked, and for each person who got it: when it arrived, whether they had opened it,
     whether they clicked a link in it (with **Settings → Link clicks** on; Gmail's logs), and what was done
     (moved to Spam and when; would move; it had already left the Inbox). **Mark all as seen** clears the red
-    banner on Overview and Messages until something new is found.
+    banner on Today and Messages until something new is found.
+  - **Look-alikes** (0.5.36): the look-alike watch's progress and each domain found that imitates yours
+    (when, registered, mail servers, website, how it counts in mail), with **It's ours**, **Harmless**, **A
+    threat** and **Watch as found** (each with the project ID, noted in Activity). A new one is a red banner
+    on Today and an alert.
+- **Mail:**
+  - **Messages:** search and filters (also by Message-ID), opening each email's decision. **Download
+    CSV** gives the same list. An email found to be phishing after it was delivered has a red mark and
+    "found later".
     - Tick several to **move back to the Inbox**, **mark false alarm** or **confirm phishing** them at once
       (in enforce mode, confirming also moves those still in the Inbox to Spam).
     - Each email shows the signs found with their weights, flagged links, the AI score with what weighed
@@ -270,12 +285,14 @@ Donate button (`DONATE_BUTTON=off` hides it).
     - Each email also shows its **Message-ID** and Gmail ID, each with a **Copy** button. The Message-ID
       is what Google Workspace's Email log search and the security investigation tool look an email
       up by. **Copy for Vault** copies it as Google Vault's search writes it: `rfc822msgid:<Message-ID>`.
-    - **Check an email:** paste a reported email's original (Gmail: Show original), or an `.eml` file, to
-      see what the service would decide and why. Nothing is stored, moved or counted.
+  - **Check an email:** paste a reported email's original (Gmail: Show original), or an `.eml` file, to
+    see what the service would decide and why. Nothing is stored, moved or counted.
   - **Users:** everyone who had mail moved, would have had it moved, or got suspicious mail; each opens
     the list of their emails.
-- **Status:**
-  - **Service status:** whether the service works end to end, with what to do for each problem:
+- **Health:**
+  - **Service status** (a status page since 0.6.0): one line on how it is, then whether the service works end to
+    end, with what to do for each problem, and beside them the Readiness checks and the AI model in use, its
+    reviews and false alarms:
     - Identity-Aware Proxy off on the worker, and who may call it;
     - both services on the same build, and the jobs reaching the worker;
     - notifications arriving and watches renewed;
@@ -295,10 +312,6 @@ Donate button (`DONATE_BUTTON=off` hides it).
       default) gives the emails admins marked, read from Gmail at that moment with the people taken
       out, as training examples in the extension's format. Nothing is stored. `docs/RETRAINING.md` says
       how to check the file and train the model with it.
-  - **Look-alikes** (0.5.36): the look-alike watch's progress and each domain found that imitates yours
-    (when, registered, mail servers, website, how it counts in mail), with **It's ours**, **Harmless**, **A
-    threat** and **Watch as found** (each with the project ID, noted in Activity). A new one is a red banner
-    on Overview and an alert.
   - **Readiness:** whether monitor mode has shown enough to switch to enforce mode, as checks:
     - time in monitor mode, emails reviewed, false alarms;
     - staff mail failing DMARC, and the busiest hour against the brake;
@@ -312,6 +325,9 @@ Donate button (`DONATE_BUTTON=off` hides it).
   - **Policy:** **Change** the mode, the AI move threshold, the AI suspicious line, the brake (automatic,
     or a fixed number of moves an hour) or the time zone, and how the rest decides (read-only). The
     suspicious line is never above the move threshold.
+    - At the top (0.6.0), **Monitor** and **Enforce** side by side (the one in force marked, Monitor as the safe
+      default; choosing the other opens its form), and the AI's two lines on one scale, with a button for each.
+      Each setting below says **On** or **Off**, and whether it is the default.
     - Each change needs the Google Cloud project ID; five wrong ones lock it for 10 minutes.
     - Switching to enforce mode also needs **I agree**, next to how many Readiness checks pass.
     - A change applies everywhere within 30 seconds and is noted in Activity (What admins did).
@@ -331,8 +347,8 @@ Donate button (`DONATE_BUTTON=off` hides it).
   - **Weekly summary** (off by default): every Monday from 7 AM (`TIME_ZONE`), the week's numbers, what
     waits, and the largest campaigns go into each dashboard admin's Inbox. **Preview** and **Send one
     now** are next to it.
-  - **Retraining** (off by default): allows **Download for retraining** on Status → Model health.
-  - Each service's page (Safe Browsing, Spamhaus, abuse.ch, Link clicks; Status → Look-alikes) shows beside
+  - **Retraining** (off by default): allows **Download for retraining** on Health → Model health.
+  - Each service's page (Safe Browsing, Spamhaus, abuse.ch, Link clicks; Threats → Look-alikes) shows beside
     its title whether it is on: a green "Service is on", a red "Service is on, but not working", or a grey
     "Service is off" (0.5.40).
   - **Spamhaus** and **abuse.ch** (0.5.37; optional, off by default): what each adds, its key (tested, then
@@ -474,7 +490,7 @@ training examples, and a better AI model.
 | `src/releases.js`, `src/update.js` | Settings → Update: the newest approved version and its changelog (read from GitHub), and the request |
 | `src/training.js`, `src/names.js` | The retraining export: an email → a training example, with the people taken out |
 | `src/digest.js` | The weekly summary email (put in admins' Inboxes; never judged by the service) |
-| `src/cloudrun.js` | Cloud Run, read-only, for the Status page |
+| `src/cloudrun.js` | Cloud Run, read-only, for the Service status page |
 | `src/dashboard/cache.js` | The dashboard's copy of the records: the last 32 days first, older ones when a page shows them, then only what changed |
 | `src/server.js` | The HTTP service (`ROLE=worker` / `admin`) |
 | `public/` | The dashboard (plain HTML, CSS and JavaScript; no build step) |

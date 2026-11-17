@@ -14,7 +14,7 @@
 const crypto = require('crypto');
 const path = require('path');
 
-// Two made-up emails for the self-check when the engine starts (Status → Service status): it must score the
+// Two made-up emails for the self-check when the engine starts (Health → Service status): it must score the
 // first as phishing and the second as genuine (both sides of 50%).
 const CHECK_PHISHING = 'subject: Your password expires today. from: "Mail Administrator" at mail-account-verify.example (outside your organization). sender check: dmarc fail. links: "Keep my password" goes to mail-account-verify.example (warning: the site was registered 3 days ago). text: Dear user, your password expires in 2 hours. Click below to keep your current password, or your mailbox will be closed today.';
 const CHECK_GENUINE = 'subject: Field trip permission slips. from: "Amy Samplesby" at maple-schools.example (your organization). sender check: dmarc pass. text: Hi all, please send the signed permission slips for Friday\'s field trip back to the office by Thursday. Thanks!';

@@ -122,7 +122,7 @@ test('a list adds a site after the email was delivered: every copy still in an I
     }
     const alert = (await t.store.listEvents(0)).find(e => e.kind === 'recheck' && e.alert);
     assert.ok(alert, 'an alert, emailed');
-    assert.match(alert.text, /3 emails delivered earlier are now found to be phishing \(Phishing Army.* listed fresh-phish\.example\).*3 moved to Spam.*1 had been opened.*Email → Re-checked/);
+    assert.match(alert.text, /3 emails delivered earlier are now found to be phishing \(Phishing Army.* listed fresh-phish\.example\).*3 moved to Spam.*1 had been opened.*Threats → Re-checked/);
     assert.deepEqual(await t.store.getState('recheckQueue'), []);
     // Done once: the next run finds nothing more to do.
     t.clock.add(HOUR);

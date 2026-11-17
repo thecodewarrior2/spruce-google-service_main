@@ -1,5 +1,5 @@
 'use strict';
-// 0.5.28: Status → Activity. An admin's own change that is also emailed (a policy change, an update started,
+// 0.5.28: Health → Activity. An admin's own change that is also emailed (a policy change, an update started,
 // a Safe Browsing key) is listed under "What admins did", not "Alerts"; an alert is what needs looking at.
 // Made-up people only.
 const test = require('node:test');

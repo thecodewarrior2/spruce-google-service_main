@@ -288,7 +288,7 @@ function watchedLookalikeSigns(E, facts, judged, lookalikes) {
     const sender = regOf(at(facts.senderAddress));
     const sw = lookalikes.get(sender);
     if (sw) out.push(sw === 'strong'
-        ? { weight: 5, kind: 'watched-lookalike-sender', text: `The sender's domain ${sender} imitates your organization's, and was registered recently (the look-alike watch found it; Status → Look-alikes).` }
+        ? { weight: 5, kind: 'watched-lookalike-sender', text: `The sender's domain ${sender} imitates your organization's, and was registered recently (the look-alike watch found it; Threats → Look-alikes).` }
         : { weight: 3, kind: 'known-lookalike-sender', text: `The sender's domain ${sender} imitates your organization's (the look-alike watch lists it; it was there before the watch began).` });
     const reply = (facts.replyTo || []).map(a => regOf(at(a))).find(d => d && d !== sender && lookalikes.get(d));
     if (reply) out.push(lookalikes.get(reply) === 'strong'

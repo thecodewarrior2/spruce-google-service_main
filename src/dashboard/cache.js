@@ -1,6 +1,6 @@
 'use strict';
 // The dashboard's copy of the records (one per dashboard instance). The first use reads the records of
-// the last startDays (32: the 30 days the Overview and the other pages show first, from the midnight
+// the last startDays (32: the 30 days Today and the other pages show first, from the midnight
 // before, with a day to spare); a page that shows
 // more (Last 90 days) has the older ones read then, up to the retention period, and they are forgotten
 // again after OLDER_KEPT_MS without such a page. After that, only records saved or changed since (each

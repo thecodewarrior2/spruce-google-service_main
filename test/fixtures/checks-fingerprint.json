@@ -1,5 +1,5 @@
 {
   "checksLevel": 13,
-  "fingerprint": "4c32cbdf505376f6db68813e680e0bf90eaa2a4337e7cb4a78500a22d0660229",
-  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
+  "fingerprint": "fafa2e32610b63925078a8907bec0f353e5af63c1fb2c83098eeda770ce368e4",
+  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.0: the dashboard's menu paths in sign, alert and activity wording (Status → Look-alikes is Threats → Look-alikes, Email → Re-checked is Threats → Re-checked, Status → Activity is Health → Activity"
 }

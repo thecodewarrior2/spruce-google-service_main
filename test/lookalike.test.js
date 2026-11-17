@@ -79,7 +79,7 @@ test('the first pass takes stock without alerts (except a name registered in the
     assert.deepEqual(Object.values(w.found).map(e => [e.domain, e.status]).sort(), [['maple-schools-k12.org', 'new'], ['maple-schools.com', 'baseline'], ['mapleschools.example', 'baseline']]);
     let alerts = (await t.store.listEvents(0)).filter(e => e.kind === 'lookalike');
     assert.equal(alerts.length, 1, 'only the one registered 5 days ago');
-    assert.match(alerts[0].text, /maple-schools-k12\.org \(mail servers: yes; a website: no; registered 5 days ago\).*Status → Look-alikes/);
+    assert.match(alerts[0].text, /maple-schools-k12\.org \(mail servers: yes; a website: no; registered 5 days ago\).*Threats → Look-alikes/);
     // Within the day: nothing more asked.
     t.clock.add(3 * 3600e3);
     assert.deepEqual(await t.svc.lookalikeStep(), { idle: true });

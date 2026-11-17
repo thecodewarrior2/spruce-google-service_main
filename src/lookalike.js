@@ -14,7 +14,7 @@
 // alert, and counts as a small sign in mail. A name that appears afterwards, or one there before but
 // registered in the last 30 days, is new: the admins are alerted, and mail from it, replies to it and
 // links to it are strong signs. An admin can mark each one: the district's own, someone else's and
-// harmless (no sign), or a threat (a strong sign) (Status → Look-alikes).
+// harmless (no sign), or a threat (a strong sign) (Threats → Look-alikes).
 const ENDINGS = ['com', 'org', 'net', 'us', 'info', 'co'];
 const HOMOGLYPHS = [['o', '0'], ['l', '1'], ['i', '1'], ['i', 'l'], ['l', 'i'], ['m', 'rn'], ['rn', 'm'], ['w', 'vv'], ['vv', 'w'], ['e', '3'], ['a', '4'], ['s', '5'], ['d', 'cl']];
 // What a school district's look-alike usually adds to its name.

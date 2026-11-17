@@ -73,10 +73,10 @@ case "$held" in '' | *[!0-9]*) held='?' ;; esac
 cat <<EOF
 
 Clear the dashboard's data in $PROJECT:
-  Deleted: every recorded email (Overview, every page under Email, Model health and Readiness),
-           the daily counts, campaign pauses and decisions, the brake's hourly counters$( [ -n "$KEEP_ACTIVITY" ] || printf ',\n           and Status → Activity')
+  Deleted: every recorded email (Today, Review, Campaigns, Messages, Users, Model health and Readiness),
+           the daily counts, campaign pauses and decisions, the brake's hourly counters$( [ -n "$KEEP_ACTIVITY" ] || printf ',\n           and Health → Activity')
   Kept:    the watched mailboxes, the emails already checked (none is judged twice), your Settings
-           switches, the brake's state, sender history, the phishing lists$( [ -z "$KEEP_ACTIVITY" ] || printf ', Status → Activity')
+           switches, the brake's state, sender history, the phishing lists$( [ -z "$KEEP_ACTIVITY" ] || printf ', Health → Activity')
   $( [ -n "$RESET_CLOCK" ] && echo 'Also:    the monitor-mode clock restarts (Readiness counts days again; 14 days of learning senders)' || echo 'Not:     the monitor-mode clock (add --reset-clock to restart it)')
   Nothing in Gmail changes. This can't be undone.
 EOF
@@ -87,7 +87,7 @@ if [ "$brake" != off ] || [ "$held" != 0 ]; then
     if [ "$brake" = '?' ] || [ "$held" = '?' ]; then
         echo "  Couldn't check whether the brake or a campaign pause is on (Firestore didn't answer as expected)."
     fi
-    echo "  Decide first on the dashboard (Overview: resume; Email → Campaigns: confirm, or dismiss as a false alarm)."
+    echo "  Decide first on the dashboard (Overview: resume; Threats → Campaigns: confirm, or dismiss as a false alarm)."
     [ -n "$EVEN_IF_HELD" ] || fail "moving is or may be paused. Check the dashboard's Overview first, then add --even-if-paused to clear anyway."
 fi
 

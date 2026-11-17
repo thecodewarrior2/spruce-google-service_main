@@ -56,7 +56,7 @@ const WAIT_FOR_OTHERS_MS = 5000;
 // each renewed every two days or so, well within the 7 days. One renewed less than RENEW_FRESH_MS ago is
 // left for the next run.
 // How often a mailbox's "last notification" time is written when its history position doesn't move (it
-// is written with the position otherwise): the Status page and the quiet-mailbox alert (12 hours) need no more.
+// is written with the position otherwise): the Service status page and the quiet-mailbox alert (12 hours) need no more.
 const NOTED_EVERY_MS = 10 * 60 * 1000;
 // How long a mailbox's sync position may wait when its notifications bring nothing new (see above).
 const QUIET_POSITION_MS = 30 * 60 * 1000;
@@ -454,7 +454,7 @@ class Service {
                     : `A message couldn't be checked (try ${e.tries || 1} of ${MAX_TRIES}; it is tried again in a minute or so): ${why}` });
                 this.log.error(`process ${user} ${id}:`, e);
                 // An email left unchecked is a gap in the protection: the admins are told (0.5.29, once a day).
-                if (e.gaveUp) await this.alertDaily('unchecked-mail', `An email to ${user} couldn't be checked after ${MAX_TRIES} tries and was left in the mailbox unchecked (${why.slice(0, 160)}). Any more today are listed in Status → Activity → Errors and gaps.`).catch(() => {});
+                if (e.gaveUp) await this.alertDaily('unchecked-mail', `An email to ${user} couldn't be checked after ${MAX_TRIES} tries and was left in the mailbox unchecked (${why.slice(0, 160)}). Any more today are listed in Health → Activity → Errors and gaps.`).catch(() => {});
                 await this.gmailTrouble(e, user);
                 continue;
             }
@@ -520,7 +520,7 @@ class Service {
         try {
             const r = await this.store.shareReach(senderHash(src.address), senderHash(user), now, MASS_SHARE);
             if (r.crossed) {
-                await this.alert('mass-share', `${src.address} (outside your organization) sent the same ${src.relay ? `${src.relay.via} share` : 'share or signature request'} to ${r.count} of your people within the hour. If it's phishing, Email → Campaigns → open it → Confirm phishing moves every copy.`);
+                await this.alert('mass-share', `${src.address} (outside your organization) sent the same ${src.relay ? `${src.relay.via} share` : 'share or signature request'} to ${r.count} of your people within the hour. If it's phishing, Threats → Campaigns → open it → Confirm phishing moves every copy.`);
             }
             return r.count;
         } catch (e) {
@@ -778,7 +778,7 @@ class Service {
         if (decision.action === 'move' && !this.alerted.has(campaign.key)) {
             // (counted until the campaign's alert is sent; after that this instance writes nothing more)
             if (await this.store.campaignMoved(campaign.key, this.cfg.campaignAlertAfter, now, () => this.alerted.add(campaign.key))) {
-                await this.alert('campaign', `A large campaign: ${this.cfg.campaignAlertAfter} copies of "${campaignLabel}" moved to Spam so far (${rec.evidence} evidence). The dashboard's Email → Campaigns page lists who received it.`, { campaign: campaign.key });
+                await this.alert('campaign', `A large campaign: ${this.cfg.campaignAlertAfter} copies of "${campaignLabel}" moved to Spam so far (${rec.evidence} evidence). The dashboard's Threats → Campaigns page lists who received it.`, { campaign: campaign.key });
             }
         }
         if (userPlaced && result.status === 'flagged') {
@@ -843,7 +843,7 @@ class Service {
             const h = await this.store.campaignHold(campaignKey, this.cfg.campaignHoldAfter, now, campaignLabel);
             if (h.decision === 'released') return released(decision);
             if (h.held) {
-                if (h.first) await this.alert('campaign-held', `Moving copies of "${campaignLabel}" is paused: more than ${this.cfg.campaignHoldAfter} were moved on evidence nothing outside the email confirms, so the next ones stay in the Inbox, like any email not moved. Confirm it as phishing (every copy is moved to Spam) or dismiss it as a false alarm (the moved ones go back to the Inbox): on the dashboard, Email → Campaigns, then open the campaign.`, { campaign: campaignKey });
+                if (h.first) await this.alert('campaign-held', `Moving copies of "${campaignLabel}" is paused: more than ${this.cfg.campaignHoldAfter} were moved on evidence nothing outside the email confirms, so the next ones stay in the Inbox, like any email not moved. Confirm it as phishing (every copy is moved to Spam) or dismiss it as a false alarm (the moved ones go back to the Inbox): on the dashboard, Threats → Campaigns, then open the campaign.`, { campaign: campaignKey });
                 return { decision: { action: 'would-move', trigger: decision.trigger, why: `${decision.why} (not moved: moving this campaign is paused after ${this.cfg.campaignHoldAfter} copies on evidence nothing outside the email confirms, until an admin confirms it or dismisses it)` }, held: 'campaign' };
             }
         }
@@ -863,7 +863,7 @@ class Service {
     }
     async tripBrake(now, count, limit) {
         if (!(await this.store.setStateIfUnset('brake', { at: now, moves: count, limit }))) return;
-        await this.alert('brake', `${count} emails were moved within the hour (limit ${limit}). Moving has stopped in every mailbox: from now on, emails that would be moved stay in the Inbox, like any other email, until an admin resumes on the dashboard (Overview), which can also move them then.`);
+        await this.alert('brake', `${count} emails were moved within the hour (limit ${limit}). Moving has stopped in every mailbox: from now on, emails that would be moved stay in the Inbox, like any other email, until an admin resumes on the dashboard (Today), which can also move them then.`);
     }
 
     // An alert: in Recent activity, and a log line Cloud Monitoring emails to ALERT_EMAIL (install.sh).
@@ -920,7 +920,7 @@ class Service {
                 + `What happened: Gmail no longer had the list of what changed in ${boxes === 1 ? 'that mailbox' : 'those mailboxes'} since the service last looked (it keeps about a week), so the service started again from now and is checking the mail still in each Inbox from that time. `
                 + `What it means for mail: new mail reached those Inboxes before it was checked; mail still in the Inbox is being checked now, but mail already deleted or moved out of the Inbox wasn't. `
                 + `Why: once in a while is normal, after an outage. This many usually means Gmail's notifications weren't being processed for days (the worker stopped or kept failing, Pub/Sub backed up), or a bug. `
-                + `What to do: 1) Status → Service status: are the worker, the jobs and the notifications all right now? 2) Status → Activity → Errors and gaps: since when? 3) In Cloud Shell: bash deploy/doctor.sh. If you know why (an outage, a long upgrade), nothing more is needed: the service catches up by itself ("Caught up on …" in Activity). `
+                + `What to do: 1) Health → Service status: are the worker, the jobs and the notifications all right now? 2) Health → Activity → Errors and gaps: since when? 3) In Cloud Shell: bash deploy/doctor.sh. If you know why (an outage, a long upgrade), nothing more is needed: the service catches up by itself ("Caught up on …" in Activity). `
                 + `More: docs/ALERTS.md, "The service fell behind".`)) out.alerted.push('gaps');
         }
         if (mine.length >= perMailbox) {
@@ -928,7 +928,7 @@ class Service {
                 + `What happened: each time, Gmail no longer had the list of what changed in that mailbox since the service last looked, so the service started again and checked the mail still in its Inbox. `
                 + `What it means for mail: mail that arrived meanwhile reached the Inbox before it was checked; mail deleted or moved out of the Inbox meanwhile wasn't checked. `
                 + `Why: once in a while is normal; this often for one mailbox usually means Gmail stops notifying the service about it, a problem with that account, or a bug. Other mailboxes aren't affected unless they have their own alert. `
-                + `What to do: 1) Settings → Mailboxes: when did Gmail last notify the service about it? 2) Settings → Mailboxes → Read the directory again now (it renews every watch). 3) Admin console → Users: is the account active, licensed, with Gmail on? If it goes on, it may be a bug: note the mailbox and the times (Status → Activity, search for it). `
+                + `What to do: 1) Settings → Mailboxes: when did Gmail last notify the service about it? 2) Settings → Mailboxes → Read the directory again now (it renews every watch). 3) Admin console → Users: is the account active, licensed, with Gmail on? If it goes on, it may be a bug: note the mailbox and the times (Health → Activity, search for it). `
                 + `More: docs/ALERTS.md, "The service fell behind on one mailbox".`, { user }, { key: `gaps-${senderHash(user)}` })) out.alerted.push('gaps-mailbox');
         }
         return out;
@@ -1375,7 +1375,7 @@ class Service {
     // What the check says now is done as on arrival: moved to Spam (enforce mode, through the brakes),
     // recorded as "would move" (monitor mode), or recorded as suspicious. Never moved: an email no longer
     // in the Inbox (its reader archived, deleted or reported it), one an admin released or marked, one its
-    // reader put in the Inbox themselves. Each is on the dashboard (Email → Re-checked) with who got it,
+    // reader put in the Inbox themselves. Each is on the dashboard (Threats → Re-checked) with who got it,
     // whether they had opened it and, with Settings → Link clicks on, what Gmail's logs say they did; the
     // admins are alerted.
     async queueRechecks(items) {
@@ -1494,7 +1494,7 @@ class Service {
         const before = await this.store.getRecord(key);
         // A decision already made stands: moved or released, an admin's mark, the reader's own choice, a
         // re-check that already moved it or would.
-        // (A copy held by a brake waits for the admins' decision on its campaign: Email → Campaigns.)
+        // (A copy held by a brake waits for the admins' decision on its campaign: Threats → Campaigns.)
         if (before && (before.state !== 'inbox' || before.falseAlarm != null || before.unclear || before.userPlaced || before.held || (before.recheck && before.recheck.outcome !== 'flag'))) return { item, outcome: 'skipped' };
         let msg;
         try { msg = await this.gmail.raw(user, id); }
@@ -1575,10 +1575,10 @@ class Service {
             const opened = bad.filter(r => r.opened).length;
             await this.alert('recheck', `Re-checked mail: ${bad.length} ${bad.length === 1 ? 'email' : 'emails'} delivered earlier ${bad.length === 1 ? 'is' : 'are'} now found to be phishing`
                 + `${why.length ? ` (${why.join('; ')})` : ''}, from ${camps.slice(0, 3).map(c => `"${c}"`).join(', ')}${camps.length > 3 ? ` and ${camps.length - 3} more` : ''}: ${parts.join(', ')}. `
-                + `${opened ? `${opened} had been opened. ` : 'None had been opened. '}Who got them, when, and what Gmail's logs say they did: dashboard, Email → Re-checked. More: docs/ALERTS.md, "Re-checked mail".`,
+                + `${opened ? `${opened} had been opened. ` : 'None had been opened. '}Who got them, when, and what Gmail's logs say they did: dashboard, Threats → Re-checked. More: docs/ALERTS.md, "Re-checked mail".`,
                 { rechecked: bad.length });
         }
-        if (sus.length) await this.store.addEvent({ kind: 'recheck', text: `Re-checked mail: ${sus.length} ${sus.length === 1 ? 'email' : 'emails'} delivered earlier ${sus.length === 1 ? 'is' : 'are'} now found suspicious and left in the Inbox (${[...new Set(sus.map(r => r.campaignLabel))].slice(0, 3).join(', ')}). Email → Re-checked lists them.` });
+        if (sus.length) await this.store.addEvent({ kind: 'recheck', text: `Re-checked mail: ${sus.length} ${sus.length === 1 ? 'email' : 'emails'} delivered earlier ${sus.length === 1 ? 'is' : 'are'} now found suspicious and left in the Inbox (${[...new Set(sus.map(r => r.campaignLabel))].slice(0, 3).join(', ')}). Threats → Re-checked lists them.` });
     }
 
     // Settings → Link clicks (0.5.35; off by default): Gmail's logs (Admin SDK Reports API) read as an admin
@@ -1626,7 +1626,7 @@ class Service {
         if (failed) await this.alertDaily('click-logs', `Gmail's logs couldn't be read for re-checked mail (Settings → Link clicks, as ${cl.admin}): ${failed} More: docs/ALERTS.md, "Gmail's logs couldn't be read".`);
         if (clicked.length) {
             const who = clicked.slice(0, 5).map(r => `${r.user} (an email from ${r.sender.address}${r.clickedAt ? `, at ${new Date(r.clickedAt).toISOString().slice(0, 16).replace('T', ' ')} UTC` : ''})`);
-            await this.alert('recheck-click', `A link was clicked in mail later found to be phishing: ${who.join('; ')}${clicked.length > 5 ? ` and ${clicked.length - 5} more` : ''}. Their password may have been given away: consider resetting it, ending their sessions and checking their sign-ins (Admin console). Dashboard: Email → Re-checked. More: docs/ALERTS.md, "A link was clicked".`, { clicked: clicked.length });
+            await this.alert('recheck-click', `A link was clicked in mail later found to be phishing: ${who.join('; ')}${clicked.length > 5 ? ` and ${clicked.length - 5} more` : ''}. Their password may have been given away: consider resetting it, ending their sessions and checking their sign-ins (Admin console). Dashboard: Threats → Re-checked. More: docs/ALERTS.md, "A link was clicked".`, { clicked: clicked.length });
         }
         return { checked, clicked: clicked.length, error: failed };
     }
@@ -1723,7 +1723,7 @@ class Service {
         if (newly.length) {
             const words = (e) => `${e.domain} (mail servers: ${e.mx ? 'yes' : 'no'}; a website: ${e.web ? 'yes' : 'no'}${typeof e.ageDays === 'number' ? `; registered ${e.ageDays} day${e.ageDays === 1 ? '' : 's'} ago` : ''})`;
             await this.alert('lookalike', `${newly.length === 1 ? 'A domain that imitates yours was registered' : `${newly.length} domains that imitate yours were registered`}: ${newly.slice(0, 5).map(words).join('; ')}${newly.length > 5 ? ` and ${newly.length - 5} more` : ''}. `
-                + `Mail from ${newly.length === 1 ? 'it' : 'them'}, replies to ${newly.length === 1 ? 'it' : 'them'} and links to ${newly.length === 1 ? 'it' : 'them'} now count as strong signs of phishing. If the district registered ${newly.length === 1 ? 'it' : 'one'} itself, mark it so: dashboard, Status → Look-alikes. More: docs/ALERTS.md, "A look-alike of your domain".`,
+                + `Mail from ${newly.length === 1 ? 'it' : 'them'}, replies to ${newly.length === 1 ? 'it' : 'them'} and links to ${newly.length === 1 ? 'it' : 'them'} now count as strong signs of phishing. If the district registered ${newly.length === 1 ? 'it' : 'one'} itself, mark it so: dashboard, Threats → Look-alikes. More: docs/ALERTS.md, "A look-alike of your domain".`,
                 { domains: newly.map(e => e.domain).slice(0, 20) });
         }
         return { asked, failed, cursor: w.cursor, of: cands.length, found: Object.keys(w.found).length, newly: newly.length };
@@ -1879,7 +1879,7 @@ class Service {
         return { enabled: !!enabled };
     }
 
-    // --- The retraining export (Status → Model health; off until an admin allows it in Settings) ------
+    // --- The retraining export (Health → Model health; off until an admin allows it in Settings) ------
     // The emails an admin marked (confirmed phishing; with falseAlarms, false alarms too), one per
     // campaign, newest first, read from Gmail now and turned into the extension's training format with
     // the people taken out (src/training.js). Nothing of them is stored: the rows are only returned.
@@ -1927,7 +1927,7 @@ class Service {
     async setTrainingExport(enabled, by) {
         const st = (await this.store.getState('trainingExport')) || {};
         await this.store.setState('trainingExport', Object.assign({}, st, { enabled: !!enabled, updatedBy: by, updatedAt: this.now() }));
-        await this.store.addEvent({ kind: 'settings', text: `${by} ${enabled ? 'allowed' : 'turned off'} the retraining export (Status → Model health: Download for retraining).` });
+        await this.store.addEvent({ kind: 'settings', text: `${by} ${enabled ? 'allowed' : 'turned off'} the retraining export (Health → Model health: Download for retraining).` });
         return { enabled: !!enabled };
     }
 
@@ -1976,7 +1976,7 @@ class Service {
         try {
             const errs = (await this.store.listEvents(now - HOUR)).filter(e => e.kind === 'error').length;
             out.errorsLastHour = errs;
-            if (errs >= ERRORS_ALERT) await this.alertDaily('errors', `${errs} errors in the last hour: something may have stopped working. Status → Activity → Errors and gaps says what failed; Status → Service status, and bash deploy/doctor.sh, check the rest.`);
+            if (errs >= ERRORS_ALERT) await this.alertDaily('errors', `${errs} errors in the last hour: something may have stopped working. Health → Activity → Errors and gaps says what failed; Health → Service status, and bash deploy/doctor.sh, check the rest.`);
         } catch (e) { /* the next hour */ }
         out.expiring = sum.ending;
         if (out.expiring) await once('expiringAlertAt', 'watch-expiring', `${out.expiring} mailbox watches end within a day and weren't renewed: the daily re-read of the group (spruce-renew-watches) may be failing. Settings → Mailboxes says when it last reached the service.`);
