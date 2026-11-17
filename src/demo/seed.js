@@ -17,6 +17,7 @@ const { createSafeBrowsingKey, memorySecrets } = require('../intel/sbkey');
 const DAY = 24 * 60 * 60 * 1000;
 const ORG = 'maple-schools.example';
 const FIRST = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Jamie', 'Avery', 'Quinn', 'Drew', 'Sam', 'Robin', 'Dana', 'Reese', 'Skyler', 'Emerson', 'Rowan', 'Harper', 'Logan', 'Kendall', 'Parker', 'Sage', 'Blake', 'Cameron'];
+// (0.6.15) Plainly made-up surnames: every person in the demo is made up, and reads as made up (tools/pii-names.txt).
 const LAST = ['Samplewood', 'Testwood', 'Exampleberg', 'Madeupton', 'Testerson', 'Fakesley', 'Mockingham', 'Notrealty', 'Placeholden', 'Samplesworth', 'Examplestone', 'Madeupwell', 'Fakeington', 'Mockford', 'Testmore', 'Notrealis'];
 
 function rng(seed) {

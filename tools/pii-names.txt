@@ -1,0 +1,52 @@
+# tools/pii-names.txt — the surnames tools/pii-check.js lets through after a first name: the plainly made-up ones the
+# tests, docs and demo use, and the words that follow a first name without being a surname. One a line, any case.
+# A new person in a test or doc gets a surname like these (Sample…, Example…, Madeup…, Fake…, Mock…, Test…,
+# Notreal…, Placeholder…): never a real one.
+
+# Words after a name-like word that are no surname (a role, a department: "Front Office" <…>)
+Office
+Desk
+News
+
+# The standard placeholders for an unknown person (Jane Doe, Jo Doe; Firstname Lastname in docs)
+Doe
+Lastname
+
+# Made-up surnames (0.6.15)
+Madeup
+Samplefield
+Exampleton
+Testwood
+Fictional
+Fakewell
+Sampleford
+Madeupson
+Placeholder
+Testcase
+Samplesby
+Testerly
+Notreal
+Exemplar
+Fakeham
+Placeford
+Mockley
+Mockwell
+Madeupfield
+Sample
+Fakeray
+# The demo's staff (src/demo/seed.js)
+Samplewood
+Exampleberg
+Madeupton
+Testerson
+Fakesley
+Mockingham
+Notrealty
+Placeholden
+Samplesworth
+Examplestone
+Madeupwell
+Fakeington
+Mockford
+Testmore
+Notrealis

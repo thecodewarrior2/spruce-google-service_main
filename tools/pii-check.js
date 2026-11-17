@@ -16,6 +16,9 @@
 //     outlook.com…) is always a finding unless listed there too;
 //   - a phone number, a US Social Security number, a payment card number (13 to 19 digits that pass the Luhn check),
 //     a street address (a house number, a name, and Street, Avenue, Road…);
+//   - a person's name: a common first name (src/names.js) followed by a surname, in text (Firstname Lastname) or in an
+//     address (firstname.lastname@…), whose surname isn't on tools/pii-names.txt: the plainly made-up surnames the tests,
+//     docs and demo use (Madeup, Samplefield, Testwood…), and the words after a first name that are no surname;
 //   - your own private words: one per line in .pii-terms (in the repository, never committed: .gitignore) or in the
 //     file SPRUCE_PII_TERMS names. Put your district's name and domains there: they are checked without ever being
 //     written into the repository.
@@ -56,12 +59,27 @@ function readList(file) {
     try { return fs.readFileSync(file, 'utf8').split('\n').map(l => l.replace(/\s+#.*$/, '').trim()).filter(l => l && !l.startsWith('#')); }
     catch (e) { return []; }
 }
+// The common first names in src/names.js (its FIRST list), read from the file so that file stays as it is.
+let firstNames = null, lastNames = null;
+function namesBlock(which) {
+    const m = new RegExp(`const ${which} = \`([^\`]*)\``).exec(fs.readFileSync(path.join(ROOT, 'src', 'names.js'), 'utf8'));
+    return new Set((m ? m[1] : '').split(/\s+/).filter(Boolean));
+}
+function firstNameSet() { return firstNames || (firstNames = namesBlock('FIRST')); }
+// ... and its common surnames: a capitalized word before one of them is a name too, whatever the first name.
+function lastNameSet() { return lastNames || (lastNames = namesBlock('LAST')); }
+// tools/pii-names.txt: one word a line, compared without case.
+const nameList = () => new Set(readList(path.join(ROOT, 'tools', 'pii-names.txt')).map(s => s.toLowerCase()));
+const NAME_PAIR = /\b([A-Z][a-z]+)\s+((?:Mc|Mac|O')?[A-Z][a-z]+(?:-[A-Z][a-z]+)?)\b/g;
+// A quoted two-word display name before an address ("Firstname Lastname" <…>): a person, whatever the first name.
+const NAME_SHOWN = /\\?"([A-Z][a-z]+) ((?:Mc|Mac|O')?[A-Z][a-z]+(?:-[A-Z][a-z]+)?)\\?"\s*</g;
+const NAME_ADDR = /\b([a-z]+)[._]([a-z]+)(?:[._-]?[a-z0-9]+)*@/g;
 const allowList = () => new Set(readList(path.join(ROOT, 'tools', 'pii-allow.txt')).map(s => s.toLowerCase()));
 const privateTerms = () => [...readList(path.join(ROOT, '.pii-terms')), ...(process.env.SPRUCE_PII_TERMS ? readList(process.env.SPRUCE_PII_TERMS) : [])]
     .map(t => t.toLowerCase()).filter(t => t.length >= 3);
 
 // The findings in one line of text: [{ kind, text }].
-function scanLine(line, { allow = allowList(), terms = privateTerms() } = {}) {
+function scanLine(line, { allow = allowList(), terms = privateTerms(), names = nameList(), first = firstNameSet(), last = lastNameSet() } = {}) {
     const out = [];
     const allowed = (t) => allow.has(String(t).toLowerCase());
     for (const m of line.matchAll(EMAIL)) {
@@ -79,6 +97,19 @@ function scanLine(line, { allow = allowList(), terms = privateTerms() } = {}) {
         if (digits.length >= 13 && digits.length <= 19 && luhn(digits) && !/^(\d)\1+$/.test(digits) && !allowed(m[0])) out.push({ kind: 'a payment card number', text: m[0] });
     }
     for (const m of line.matchAll(STREET)) if (!allowed(m[0])) out.push({ kind: 'a street address', text: m[0] });
+    // A person's name: a first name, then a surname not on the made-up list.
+    for (const m of line.matchAll(NAME_PAIR)) {
+        const [a, b] = [m[1].toLowerCase(), m[2].toLowerCase()];
+        if ((first.has(a) || last.has(b)) && !first.has(b) && !names.has(b) && !names.has(a) && !allowed(m[0])) out.push({ kind: 'a person\'s name (its surname isn\'t a made-up one: tools/pii-names.txt)', text: m[0] });
+    }
+    for (const m of line.matchAll(NAME_SHOWN)) {
+        const t = `${m[1]} ${m[2]}`;
+        if (!names.has(m[2].toLowerCase()) && !names.has(m[1].toLowerCase()) && !allowed(t) && !out.some(f => f.text === t)) out.push({ kind: 'a person\'s name (its surname isn\'t a made-up one: tools/pii-names.txt)', text: t });
+    }
+    for (const m of line.matchAll(NAME_ADDR)) {
+        const [a, b] = [m[1], m[2]];
+        if (first.has(a) && b.length > 1 && !first.has(b) && !names.has(b) && !allowed(`${a}.${b}`)) out.push({ kind: 'a person\'s name in an address (its surname isn\'t a made-up one: tools/pii-names.txt)', text: `${a}.${b}` });
+    }
     const low = line.toLowerCase();
     for (const t of terms) if (low.includes(t)) out.push({ kind: 'one of your private words (.pii-terms)', text: t });
     return out;
@@ -86,9 +117,9 @@ function scanLine(line, { allow = allowList(), terms = privateTerms() } = {}) {
 
 // [{ where, line }] → findings with where they are.
 function scan(lines, opts = {}) {
-    const allow = allowList(), terms = privateTerms();
+    const allow = allowList(), terms = privateTerms(), names = nameList(), first = firstNameSet(), last = lastNameSet();
     const out = [];
-    for (const l of lines) for (const f of scanLine(l.line, Object.assign({ allow, terms }, opts))) out.push(Object.assign({ where: l.where }, f));
+    for (const l of lines) for (const f of scanLine(l.line, Object.assign({ allow, terms, names, first, last }, opts))) out.push(Object.assign({ where: l.where }, f));
     return out;
 }
 

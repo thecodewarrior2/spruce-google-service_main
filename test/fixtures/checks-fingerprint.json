@@ -1,5 +1,5 @@
 {
   "checksLevel": 16,
-  "fingerprint": "1c7e5e613d88bb6867d6214351451a4ffaff8225222ff7d0c8751af350156549",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.7: example names in comments made up (the district's domains and a business's name replaced)"
+  "fingerprint": "22f2055035ab79063cfe2cb1a324234e20e121ed12469b75cfd1dc375b4ec3eb",
+  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.15: made-up example names in comments replaced with plainly made-up ones; the self-check's made-up genuine email's sender name (its score is unchanged, 0.06%)"
 }

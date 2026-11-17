@@ -45,6 +45,11 @@ Then follow its section below.
   - A finding: write it again with made-up data. Only what is no person's (an organization's or a service's own
     address, a documented example) may go in `tools/pii-allow.txt`, with a comment saying why. Never allow a real
     person's detail there.
+  - **People's names:** every person in a test, doc, the changelog or the demo has a plainly made-up surname from
+    `tools/pii-names.txt` (Madeup, Samplefield, Testwood…), or a new one just as plainly made up, added there. Never
+    a real-looking one, even invented: it could be someone's. The check refuses a common first name with any other
+    surname, a common surname after any word, and a quoted display name ("Firstname Lastname" <…>); it can't know
+    every name, so reading the change still matters.
   - Your district's own name and domains go in `.pii-terms` (one per line, never committed: `.gitignore`), so the
     check refuses them without them ever being written into the repository.
   - `npm test` scans every tracked file too (`test/pii-check.test.js`): the tests fail on any finding.

@@ -37,16 +37,15 @@ noreply@anthropic.com
 # The standard test payment card number (Visa's documented test number: no real card)
 4111 1111 1111 1111
 
-# REVIEW: personal mailbox addresses already in the tests at 0.6.12, before this check existed. Made up for the tests
-# (the personal-mailbox checks need a real provider's name), but realistic enough that a real person could own one:
-# replace each with an obviously made-up name before the @ (made-up.person.01, say) and remove its line here.
+# Made-up addresses at personal mailbox providers, for the tests and docs about personal mailboxes (the checks need a
+# real provider's name, so the domain is real; the names are plainly made up: 0.6.15 replaced the realistic ones).
 someone@gmail.com
 1jo.doe@gmail.com
-misty.samplefield.1975@gmail.com
+jr.lab.help@gmail.com
 jordan.exampleton.office@gmail.com
+misty.samplefield.1975@gmail.com
+dana.madeup.1985@gmail.com
+dana.madeup.payroll@gmail.com
 coach.pat.sample@gmail.com
 coach.pat.sample@outlook.com
 coach.pat.sample@yahoo.com
-dana.madeup.1985@gmail.com
-dana.madeup.payroll@gmail.com
-jr.lab.help@gmail.com

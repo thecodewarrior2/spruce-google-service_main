@@ -459,7 +459,8 @@ approved for `spruce-google-service_main`.
 
 **Before every commit and every push** the git hooks in `.githooks/` check the change for personal information (real
 email addresses, phone, SSN and card numbers, street addresses, and your own private words in `.pii-terms`, which is
-never committed): `tools/pii-check.js`. `npm install` turns them on; `npm run pii` checks the whole repository, as
+never committed), and people's names whose surname isn't one of the made-up ones in `tools/pii-names.txt`:
+`tools/pii-check.js`. `npm install` turns them on; `npm run pii` checks the whole repository, as
 `npm test` does. Data in this repository is always made up (`maple-schools.example`).
 
 ```bash
@@ -568,6 +569,6 @@ training examples, and a better AI model.
 | `deploy/` | `install.sh`, `update.sh`, `upgrade.sh`, `rollback.sh`, `stop.sh`, `doctor.sh` and `clear-data.sh` (Cloud Shell), `dashboard-policy.sh` (theirs), `cloud-update.sh` (Settings → Update's Cloud Build), `settings.example.env` |
 | `.githooks/` | `pre-commit`, `commit-msg`, `pre-push`: the personal-information check (`tools/pii-check.js`) on every commit and push; `npm install` turns them on (`core.hooksPath`) |
 | `.github/` | Dependabot (`dependabot.yml`: security fixes as pull requests) and the tests on every pull request (`workflows/test.yml`) |
-| `tools/` | `build-mockup.js`, `release.js` (the install zip); `sync-model.js` (pins a model of TinyPhishLLM), `fetch-model.js` (downloads it: the image build and `npm test` run it); `checks-level.js` (records a raised or cosmetic checks level); `pii-check.js` and `pii-allow.txt` (refuses personal information before every commit and push: CLAUDE.md, `npm run pii` for the whole repository); for retraining: `check-training-file.js`, `split-examples.js`, `score-examples.js` |
+| `tools/` | `build-mockup.js`, `release.js` (the install zip); `sync-model.js` (pins a model of TinyPhishLLM), `fetch-model.js` (downloads it: the image build and `npm test` run it); `checks-level.js` (records a raised or cosmetic checks level); `pii-check.js`, `pii-allow.txt` and `pii-names.txt` (refuses personal information, people's names included, before every commit and push: CLAUDE.md, `npm run pii` for the whole repository); for retraining: `check-training-file.js`, `split-examples.js`, `score-examples.js` |
 | `ui-classic/` | the classic dashboard (0.5.74, before the 0.6.0 redesign), kept to put back: not served (`docs/DASHBOARD-ROLLBACK.md`) |
 | `vendor/spruce/` | The checks and the code that runs the model (this project's own since 0.4.0; they began as the extension's); `VENDOR.json` says from which commits, and pins the model (`modelSource`); `models/phish-tiny/` is where `fetch-model.js` puts the model (not committed) |

@@ -33,6 +33,19 @@ test('numbers and addresses: SSN, card (Luhn), phone (not the fictional 555), st
     assert.deepEqual(kinds('Mail from Oakwood Unified today', { allow: new Set(), terms: ['oakwood unified'] }), ['one of your private words (.pii-terms)']);
 });
 
+test('people\'s names: a first name and a surname that isn\'t on the made-up list, in text or in an address', () => {
+    const opts = { allow: new Set(), terms: [], names: new Set(['madeup', 'doe']), first: new Set(['dana', 'jordan', 'misty']) };
+    const real = 'Mor' + 'ales';
+    assert.deepEqual(kinds(`Thanks, Dana ${real}`, opts), ['a person\'s name (its surname isn\'t a made-up one: tools/pii-names.txt)']);
+    assert.deepEqual(kinds(`write to ${at('dana.' + real.toLowerCase(), 'maple-schools.example')}`, opts), ['a person\'s name in an address (its surname isn\'t a made-up one: tools/pii-names.txt)']);
+    assert.deepEqual(kinds('Thanks, Dana Madeup; dana.madeup@maple-schools.example; Jane Doe', opts), [], 'made-up surnames pass');
+    assert.deepEqual(kinds(['Jordan', 'Review and Misty', 'Settings'].join(' '), Object.assign({}, opts, { names: new Set(['review', 'settings']) })), [], 'words listed as no surname pass');
+    assert.deepEqual(kinds('Dana Jordan wrote', opts), [], 'two first names: not a surname');
+    const shown = ['"Misty', `${'Holl' + 'ins'}"`, '<x@freemail.example>'].join(' ');
+    assert.deepEqual(kinds(shown, Object.assign({}, opts, { first: new Set() })), ['a person\'s name (its surname isn\'t a made-up one: tools/pii-names.txt)'], 'a quoted display name, whatever the first name');
+    assert.deepEqual(kinds(['"Front', 'Office"', '<o@maple-schools.example>'].join(' '), Object.assign({}, opts, { names: new Set(['office']) })), [], 'a department listed as no surname');
+});
+
 test('a diff: only the lines it adds, with where they are', () => {
     const diff = ['diff --git a/x.md b/x.md', '--- a/x.md', '+++ b/x.md', '@@ -3,0 +4,2 @@', `+a line with ${at('x', 'gma' + 'il.com')}`, '+fine', '@@ -9 +11 @@', '-old', '+new'].join('\n');
     assert.deepEqual(addedLines(diff), [{ where: 'x.md:4', line: `a line with ${at('x', 'gma' + 'il.com')}` }, { where: 'x.md:5', line: 'fine' }, { where: 'x.md:11', line: 'new' }]);

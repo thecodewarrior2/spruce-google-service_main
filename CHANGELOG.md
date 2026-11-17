@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.15: every person in the repository has a plainly made-up name, and names are checked before every commit and push
+
+- **People's names:** the people in the tests, docs, comments, the changelog and the demo had realistic names, some
+  with a personal mailbox and a birth year, the way a real account looks. Each has a plainly made-up surname now
+  (Madeup, Samplefield, Exampleton, Testwood…), in every form it took (the full name, first.last, the surname alone);
+  first names are kept. The demo's staff get made-up surnames too (`src/demo/seed.js`). `src/names.js`, the
+  retraining export's list of common names (no one in particular), is unchanged.
+- **The name check:** `tools/pii-check.js` also refuses a person's name before every commit and push: a common first
+  name with a surname that isn't on `tools/pii-names.txt`, a common surname after any word, a quoted display name
+  ("Firstname Lastname" <…>), and the same as an address (firstname.lastname@…). It can't know every name: reading
+  the change is still part of the rule (CLAUDE.md).
+- **`tools/pii-allow.txt`:** its review section is gone; the test addresses at personal mailbox providers (which the
+  checks about personal mailboxes need) carry the made-up names.
+- **Not changed here:** one made-up name in `test/fixtures/model-input-format.jsonl`, the AI model's input-format
+  reference, which comes from TinyPhishLLM byte for byte (the tests refuse any other): it changes there. The old
+  names are still in the history of earlier commits.
+- **Checks level unchanged:** in the files that judge email only comments changed, and the sender name of the
+  self-check's made-up genuine email (its score is the same, 0.06%).
+
 ## 0.6.14: update.sh and the tests leave nothing behind in /tmp
 
 - **`deploy/update.sh` left a copy of the release it downloaded in `/tmp`** on every update: it hands over to
