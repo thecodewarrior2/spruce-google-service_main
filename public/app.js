@@ -1530,6 +1530,12 @@
         if (ai !== null && ai < 0.5) pro.unshift([ai < 0.2 ? 3 : 2, `The AI scores it ${pct(ai)}: it reads as genuine`]);
         if (m.auth && m.auth.dmarc === 'pass') pro.push([1, 'It passed the sender check (DMARC)']);
         if (m.inside) pro.push([1, 'It comes from inside your organization']);
+        // (0.6.3) A sender check that neither passed nor failed: said beside the evidence, not counted either way.
+        const dm = m.auth ? m.auth.dmarc : undefined;
+        const dmarcNote = !m.auth ? 'Sender check (DMARC): not recorded for this email. Not counted either way.'
+            : !dm ? 'Sender check (DMARC): Gmail wrote no result for this email. Not counted either way.'
+            : dm === 'none' ? 'Sender check (DMARC): none. The sender\'s domain publishes no DMARC policy, so nothing confirms who sent it. Not counted either way.'
+            : dm !== 'pass' && dm !== 'fail' ? `Sender check (DMARC): ${dm} (neither a pass nor a failure). Not counted either way.` : '';
         const list = (items, tone, none) => (items.length ? h('ul', { class: 'ev-list' }, items.map(([w, t]) => h('li', {}, signDots(w, tone), h('span', { text: t }))))
             : h('p', { class: 'small muted', text: none }));
         const lean = ai === null ? null : h('div', { class: 'lean-box' },
@@ -1551,6 +1557,7 @@
                 h('section', { class: 'ev against', 'aria-label': 'Points to phishing' }, h('h3', { text: 'Points to phishing' }), list(against, 'phish', 'Nothing found that points to phishing.')),
                 h('section', { class: 'ev for', 'aria-label': 'Points to safe' }, h('h3', { text: 'Points to safe' }), list(pro, 'safe', 'Nothing found that points to safe.'),
                     quotes ? h('div', { class: 'ev-quotes' }, h('div', { class: 'small muted', text: 'What the AI weighed most:' }), quotes) : null)),
+            dmarcNote ? h('p', { class: 'small muted rv-note', text: dmarcNote }) : null,
             h('div', { class: 'rv-actions' },
                 h('button', { class: 'btn big phish', type: 'button', onclick: () => act([g], 'phishing') }, moves ? 'Phishing: move to Spam' : 'Phishing', h('kbd', { text: 'P' })),
                 h('button', { class: 'btn big safe', type: 'button', onclick: () => act([g], 'false-alarm') }, Q.no, h('kbd', { text: 'F' })),

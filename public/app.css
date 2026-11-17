@@ -552,6 +552,7 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .rv-link { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 4px; border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13.5px; cursor: pointer; text-decoration: none; }
 .rv-link:hover { text-decoration: underline; }
 .rv-help { margin: -4px 0 0; }
+.rv-note { margin: -4px 0 0; }
 
 /* Threats → Campaigns: the timeline and the one picked out. */
 .tl-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }

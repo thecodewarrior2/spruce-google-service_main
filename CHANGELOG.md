@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.4: Review notes a sender check that neither passed nor failed
+
+- **Review** shows, under the evidence, a note when an email's sender check (DMARC) neither passed nor failed: Gmail
+  wrote no result, the sender's domain publishes no DMARC policy ("none"), another result (temperror…), or nothing
+  recorded. It is said "not counted either way": a missing DMARC result adds no points (a failure does, and a pass
+  is already under "Points to safe"). Before, it was only in the email's details (`reviewEvidence` in
+  `public/app.js`). No checks change.
+
 ## 0.6.3: no DMARC result from Gmail is worked out from its SPF and DKIM results; your own sent copy isn't judged
 
 - **False alarm:** mail between two staff accounts of the district's second domain (cedarvaleschools.com) was judged
