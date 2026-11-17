@@ -138,7 +138,7 @@ test('dashboard: the review queue in groups; one decision marks every copy; "…
         assert.ok(c.reading.sentences.length > 0 && c.reading.sentences.every(s => typeof s.weight === 'number'));
         assert.ok(!/@/.test(JSON.stringify(c.reading)), 'addresses keep only their domain, as the model reads them');
         assert.equal(JSON.stringify(await store.getRecord(key)), before, 'nothing stored');
-        assert.ok((await store.listEvents()).some(e => e.kind === 'check' && /opened what the AI reads of an email/.test(e.text)), 'noted in Activity');
+        assert.ok((await store.listEvents()).some(e => e.kind === 'check' && /opened an email \(the whole email and what the AI reads of it\)/.test(e.text)), 'noted in Activity');
         assert.equal((await post('/api/message/context', { key })).status, 429, 'not twice within seconds');
         // A Spanish email: no reading, and why.
         const es = (await store.listRecords({ sinceMs: 0 })).find(r => /correo-seguro/.test(r.sender.domain));

@@ -362,8 +362,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         add('brake', !brake, brake ? 'The domain-wide brake is on: nothing is moved.' : 'The domain-wide brake is off.', 'Today → Resume.');
         return out;
     }
-    const ACTIONS_GAP_MS = 5000;
-    const RESCAN_GAP_MS = 30 * 1000, rescanning = new Set();   // (0.6.6) re-scans: see POST /api/rescan   // a campaign action at most every 5 s per campaign (no double clicks)
+    const ACTIONS_GAP_MS = 5000;   // a campaign action at most every 5 s per campaign (no double clicks)
+    const RESCAN_GAP_MS = 30 * 1000, rescanning = new Set();   // (0.6.6) re-scans: see POST /api/rescan
     const lastAction = new Map();
     let exporting = false;   // one retraining export at a time (it reads up to 100 emails from Gmail)
     // Wrong project IDs (and email addresses) typed per admin, on the policy and Update: five in 10 minutes lock both.
@@ -665,7 +665,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // (0.5.60) Ignore, treat as suspicious: reviewed, left as it is, not used for retraining.
         'POST /api/unclear': async (q, body, admin) => service.setAside(String(body.key || ''), admin.email),
         // Re-scan one email (Review, Messages): judged again now, recorded beside the on-arrival result, never
-        // moved. At most every 5 s per email (a double click, or two admins).
+        // moved. One email again only 30 s after its last re-scan (kept on its record, so every instance knows),
+        // and 2 at a time per instance (pipeline.js rescan).
         'POST /api/rescan': async (q, body, admin) => {
             const key = String(body.key || '');
             if (!key) return { error: 'Choose an email.', status: 400 };

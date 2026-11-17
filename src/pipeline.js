@@ -637,7 +637,7 @@ class Service {
         // its start and end, so the score is the same.
         const reading = !skipped && result.language.english ? await aiReading(Object.assign({}, result.aiFacts, { bodyText: String(facts.visibleText || '') })) : null;
         await this.store.addEvent({ kind: 'check', user: rec.user,
-            text: `${by} opened what the AI reads of an email to ${rec.user} from ${(rec.sender && rec.sender.domain) || 'an unknown sender'} (read from Gmail just now; nothing stored).` });
+            text: `${by} opened an email (the whole email and what the AI reads of it) to ${rec.user} from ${(rec.sender && rec.sender.domain) || 'an unknown sender'} (read from Gmail just now; nothing stored).` });
         // (0.6.6) The email itself, whatever the AI did with it (it skips mail from inside and other languages, and a
         // picture or an attachment has no text for it): as received, read from Gmail now, never stored. Text only:
         // the page never renders its HTML, loads its pictures or makes its links clickable.

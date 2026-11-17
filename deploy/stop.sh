@@ -30,7 +30,9 @@ echo "   (waiting for it to run)"; sleep "${SPRUCE_STOP_WAIT:-45}"   # (the test
 gcloud scheduler jobs pause spruce-stop-watches --location="$REGION" --quiet >/dev/null
 
 cat <<EOF
-Done: Gmail stops notifying for the pilot mailboxes within a minute.
+Done: every watched mailbox is switched off at once (its notifications are ignored from now on). Gmail is told
+to stop notifying for them 10 at a time; for a whole district, the hourly job tells it for the rest, and never
+watches them again while the service is switched off. bash deploy/install.sh switches it on again.
 To switch all access off as well, remove the domain-wide delegation entry in the Admin console
 (Security > Access and data control > API controls > Manage Domain Wide Delegation).
 EOF

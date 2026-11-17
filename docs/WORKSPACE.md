@@ -59,6 +59,14 @@ Inbox with a warning, move to Spam, quarantine). Worth turning on:
 - **DMARC at `p=reject`** (or `p=quarantine`) on your domain, with SPF and DKIM set up, so mail forged with
   your address is refused by receivers, including Gmail. The service already treats a forged staff address
   as outside mail.
+- **A DMARC record for every domain in `ORG_DOMAINS`** (a subdomain may use its parent's). Mail from one of your
+  domains counts as inside only when Gmail writes `dmarc=pass` for it; without a record, your second domain's
+  staff mail is judged as outside mail. When Gmail writes no DMARC result at all for one of your domains (it
+  happens on mail between two accounts of one Workspace), it is worked out from the SPF and DKIM results Gmail
+  did verify (0.6.3).
+- **Health → DMARC & reputation** (0.6.1, admins only) shows each domain's DMARC and SPF records as published,
+  what they tell other mail servers to do, a grade, and what would make them stronger. Changing them is done
+  where the domains' DNS is managed.
 - **Register the obvious look-alikes yourself** (`yourdistrict-k12.org`, `yourdistrictschools.com`) if they
   are free, so nobody else can.
 
