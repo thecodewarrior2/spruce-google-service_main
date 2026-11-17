@@ -173,6 +173,10 @@ async function analyze(facts, ctx = {}) {
     if (!relay) safe(() => colleagueWithTitle(E, facts, signals, ctx));
     // A colleague's name on an outside address counts only when the email claims to be from inside (0.5.43).
     safe(() => colleagueInContext(E, facts, signals, ctx, bodyText));
+    // (0.6.19) A partner's name for a brand's program counts again when the sender's domain is new; signs that count
+    // only together with others; and padded list mail, which is spam rather than phishing.
+    safe(() => partnerNameInContext(signals));
+    const spam = safeOne(() => signsNeedingCompany(signals, facts, inside));
     const base = { status: ctx.trusted ? 'trusted' : 'clean', reasons: [], move: false };
     const verdict = E.applyEmailSignals(base, signals) || base;
     // What confirms it from outside the email's own text: a link a security service blocks or a
@@ -243,6 +247,8 @@ async function analyze(facts, ctx = {}) {
         verified,
         confirmedBy,
         strong: verdict.status === 'flagged' && confirmedBy.length > 0,
+        // (0.6.19) Spam, not phishing: moved to Spam by the policy (trigger 'spam') when nothing else is wrong.
+        spam: spam || undefined,
         ai,
         language: { code: language.code, name: language.name, english: language.english },
         // Only for the retraining export (src/training.js), which takes the people out: never stored.
@@ -296,9 +302,50 @@ function colleagueInContext(E, facts, signals, ctx, bodyText) {
     let asks = false;
     try { asks = E.highRiskRequestKinds(bodyText).length > 0; } catch (e) { asks = false; }
     if (asks || IMPERSONATOR_RE.test(`${facts.subject || ''}\n${bodyText || ''}`)) why.push('asking for what impersonators ask (a favor, a phone number, payment or payroll details, codes or passwords)');
+    // (0.6.19) Only the domain resembling the organization's (a local group's domain with the town's name in it): it
+    // counts only together with another warning sign (signsNeedingCompany).
+    const lookalikeOnly = why.length === 1 && why[0] === 'from an address imitating your organization\'s domain';
     signals[i] = why.length
-        ? Object.assign({}, signals[i], { kind: 'sender-colleague-name', weight: 3, text: `The sender uses the name of someone in your organization, but writes from an outside address (${address.slice(0, 120)}), ${why.slice(0, 3).join('; ')}.` })
+        ? Object.assign({}, signals[i], { kind: 'sender-colleague-name', weight: 3, needsCompany: lookalikeOnly || undefined, text: `The sender uses the name of someone in your organization, but writes from an outside address (${address.slice(0, 120)}), ${why.slice(0, 3).join('; ')}.` })
         : Object.assign({}, signals[i], { kind: 'sender-name-shared', weight: 0, text: `The sender has the same name as someone in your organization, writing from ${domain}'s own address. Nothing in the email claims to be from inside your organization, so it doesn't count (people share names).` });
+}
+
+// (0.6.19) Signs that count only together with another warning sign. Each alone, with only "it comes from outside"
+// and "the first email from this sender" beside it, made ordinary mail suspicious:
+//   - hidden-filler: text far below the message after a blank space; newsletters and marketing mail do it too;
+//   - a colleague's name on an outside address whose only reason is that the domain resembles the organization's
+//     (a local group's domain with the town's name in it: drugfreemaple.example for maple-schools.example);
+//   - a colleague copied in at an outside or resembling address.
+// Then they keep their text, with no weight, saying why. Hidden filler in list or marketing mail (a List-Unsubscribe or
+// List-Id header, Precedence: bulk, or an unsubscribe link) with nothing else wrong is spam, not phishing: returned as
+// { why } for the policy, which moves it to Spam (trigger 'spam'); never mail from inside the organization.
+const NEEDS_COMPANY = new Set(['hidden-filler', 'colleague-copied-lookalike', 'colleague-copied-outside']);
+const CONTEXT_ONLY = new Set(['outside-org', 'first-time']);
+const ALONE_NOTE = ' Alone it isn\'t counted: nothing else in the email is suspicious.';
+function bulkMail(facts) {
+    const raw = String(facts.rawForHeaders || '');
+    const head = raw.split(/\r?\n\r?\n/)[0] || '';
+    if (/^(list-unsubscribe|list-id)[ \t]*:/im.test(head) || /^precedence[ \t]*:[ \t]*(bulk|list)\b/im.test(head)) return true;
+    return /\bunsubscribe\b|\bopt[- ]out\b|\bemail preferences\b/i.test(String(facts.visibleText || '').slice(-4000));
+}
+function signsNeedingCompany(signals, facts, inside) {
+    const needs = (s) => !!s && (NEEDS_COMPANY.has(s.kind) || !!s.needsCompany);
+    const held = signals.map((s, i) => [s, i]).filter(([s]) => needs(s) && (s.weight || 0) > 0);
+    if (!held.length) return null;
+    if (signals.some(s => s && !needs(s) && !CONTEXT_ONLY.has(s.kind) && (s.weight || 0) > 0)) return null;
+    for (const [s, i] of held) signals[i] = Object.assign({}, s, { weight: 0, text: `${s.text}${ALONE_NOTE}` });
+    if (!inside && held.some(([s]) => s.kind === 'hidden-filler') && bulkMail(facts)) {
+        return { why: 'list or marketing mail that hides a block of unrelated text below the message (a spam trick), with nothing else suspicious' };
+    }
+    return null;
+}
+// (0.6.19) A brand's program run by a partner (the engine's brand-partner-name, no weight) whose domain is new or on a
+// list: an imitation after all; it counts as the brand's name on another address (5).
+const YOUNG_OR_LISTED = new Set(['young-sender-domain', 'young-lookalike-sender', 'zrd-sender', 'sender-domain-listed', 'sender-domain-blocked', 'sender-domain-reported', 'scam-sender-list']);
+function partnerNameInContext(signals) {
+    const i = signals.findIndex(s => s && s.kind === 'brand-partner-name');
+    if (i < 0 || !signals.some(s => s && YOUNG_OR_LISTED.has(s.kind))) return;
+    signals[i] = Object.assign({}, signals[i], { weight: 5, text: signals[i].text.replace(/, not ([^.]+) itself\.$/, ', but the sender\'s domain is new or listed, so it counts as $1\'s name on another address.') });
 }
 
 // Mail from, replying to, or linking to a domain the look-alike watch found (src/lookalike.js): new or

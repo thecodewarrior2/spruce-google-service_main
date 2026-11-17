@@ -794,6 +794,26 @@ function viaPlatformSign(name, address, domain, claimed, context, shown) {
     if (isPersonalMailDomain(registrableDomain(domain) || domain)) return { weight: SIGNAL_CAUTION_SCORE, text: `The sender's name says “${shown}”: ${via.who}, sending through ${via.platform} from a personal mailbox (${address}), which anyone can open. Real for a small business, but make sure it's who you expect.` };
     return { weight: 0, text: `The sender's name says “${shown}”: ${via.who}, sending through ${via.platform} from its own address (${address}, its sender check passed), not ${claimed.name} itself.` };
 }
+// (service 0.6.19) A sender's name that gives a brand's program and the sender's own organization ("PayPal Future
+// Coders - Sample Scholarship Fund" from samplescholarshipfund.example): a partner running the brand's program, not
+// an imitation. Only when Gmail's DMARC check passed for the sender's domain, one part of the name
+// (split at " - ", "|", "/", ",", " & ", " and ", " with ", " x ") is the sender's domain's own name, letter for letter,
+// of at least two words and none of an account desk's ("Account Center", "Security Team"), and that domain doesn't
+// carry the brand's name (a look-alike such as brand-support.example never counts). The service also takes it back
+// when the sender's domain is new (analyze.js partnerNameInContext).
+function partnerProgramName(name, claimed, domain, context) {
+    if (!claimed || !dmarcPassedFor(context, domain) || domainCarriesBrand(claimed, domain)) return false;
+    const label = String(registrableDomain(String(domain || '').toLowerCase()) || domain || '').split('.')[0].replace(/[^a-z0-9]/g, '');
+    if (label.length < 6) return false;
+    const parts = foldName(name).split(/\s+[-–—|\/x]\s+|\s*[,|\/]\s*|\s+(?:&|and|with)\s+/i).map(p => p.trim()).filter(Boolean);
+    return parts.length >= 2 && parts.some(p => {
+        const letters = p.replace(/[^a-z0-9]/gi, '').toLowerCase();
+        return letters === label && p.split(/\s+/).length >= 2 && !PARTNER_SERVICE_WORDS_RE.test(p)
+            && !(claimed.tokens || []).some(t => letters.includes(String(t).replace(/[^a-z0-9]/gi, '').toLowerCase()));
+    });
+}
+// The words of an account desk, not of an organization's name ("Account Center", "Security Team"): never a partner.
+const PARTNER_SERVICE_WORDS_RE = /\b(account|accounts|security|secure|support|billing|payments?|service|services|team|center|centre|desk|help|helpdesk|verification|verify|alert|alerts|notice|notices|login|signin|password|wallet|refunds?|claims?|rewards?|prize|winner)\b/i;
 function nameAddressSigns(name, address, own, colleagues, ownership, context) {
     const out = [];
     const domain = domainOfAddress(address);
@@ -811,6 +831,7 @@ function nameAddressSigns(name, address, own, colleagues, ownership, context) {
         else if (ownership && ownership.state === 'likely') out.push({ weight: SIGNAL_CAUTION_SCORE, text: `The sender's name says “${shown}”, and ${address} isn't a known ${claimed.name} address, though ${ownershipNote(ownership, reg, claimed.name)}. Make sure it's really who you expect.` });
         else if (nameOnOtherEnding(claimed, reg)) out.push({ weight: SIGNAL_CAUTION_SCORE, text: `The sender's name says “${shown}”, and ${reg} carries ${claimed.name}'s name under another ending, but it isn't known to be ${claimed.name}'s. Make sure it's really who you expect.` });   // [5.90-4] amber, never moved
         else if (nameSpeaksAboutBrand(name)) out.push({ weight: SIGNAL_CAUTION_SCORE, text: thirdPartyNameText(shown, address, claimed.name) });   // [5.92] amber, never moved
+        else if (partnerProgramName(name, claimed, domain, context)) out.push({ weight: 0, kind: 'brand-partner-name', text: `The sender's name says “${shown}”: a program of ${claimed.name} run by the organization the name also gives, writing from its own address (${address}, its sender check passed), not ${claimed.name} itself.` });   // (service 0.6.19)
         else out.push({ weight: 5, text: `The sender's name says “${shown}”, but ${address} isn't ${claimed.name}'s address.` });
     }
     const h = colleagues && colleagues.size ? colleagueNameHash(name) : '';

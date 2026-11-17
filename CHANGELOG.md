@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.19: signs that need another sign; padded list mail is spam; a brand's partner; one brand's text on another's link
+
+- **Hidden filler alone:** text hidden far below the message after a blank space (3) made ordinary newsletters
+  suspicious together with "it comes from outside" (1). It now counts only with another warning sign; alone it is
+  shown with no weight ("Alone it isn't counted: nothing else in the email is suspicious"). With another sign it
+  counts 3 as before.
+- **Spam, not phishing:** the same filler in list or marketing mail (a List-Unsubscribe or List-Id header,
+  Precedence: bulk, or an unsubscribe link near the end), with nothing else suspicious, is moved to Spam as spam:
+  trigger `spam` (`src/policy.js`), under the same switch as the rules (`MOVE_ON_RULES`), monitor mode, the campaign
+  hold and the brake; never mail from inside the organization or an allowlisted sender. The user can take it back
+  out of Spam. The dashboard counts it apart ("Spam (padded list mail)").
+- **A colleague's name on a resembling domain:** when the only reason a colleague's name on an outside address
+  counted was that the domain resembles the organization's (a local group's domain with the town's name in it), it
+  now needs another warning sign too. So does a colleague copied in at an outside or resembling address.
+- **A brand's program run by a partner:** a sender's name giving a brand's program and the sender's own
+  organization ("Brand Future Coders - Sample Scholarship Fund" from samplescholarshipfund.example) was a 5 (moved).
+  Now, when Gmail's DMARC check passed for the sender's domain, one part of the name is that domain's own name
+  letter for letter, of at least two words and none of an account desk's (Account Center, Security Team), and the
+  domain doesn't carry the brand's name, it is a note of no weight; 5 again when the domain is new or listed
+  (`partnerProgramName` in `vendor/spruce/shared.js`, `partnerNameInContext` in `src/engine/analyze.js`).
+- **One brand's text on another established company's link:** a link whose text shows a well-known brand but which
+  goes to another company's own domain (a hotel chain's click tracker in a co-branded offer) was dangerous (two made
+  the email moved). Now it is a note of no weight when the sender passed DMARC and the destination is proven by
+  public records to be the company it is named after (`ofCompany`, as in 0.6.17), is clean at Cloudflare, is at
+  least 180 days old, and is no platform where anyone can make a page (a form, a file share, cloud storage, a big
+  platform of the protected list) (`src/engine/network.js`).
+- Tests: `test/needs-company.test.js` (made-up emails), and updated `test/colleague-context.test.js`,
+  `test/explain.test.js`, `test/activity.test.js`. The scams forwarded for 0.6.18 are judged exactly as before.
+- **Checks level 19:** delivered mail of the last hours is checked again after this update.
+
 ## 0.6.18: the "renewal" callback scam from a free mail account, and unfilled placeholders
 
 - **The renewal callback scam:** a "billing notice" for security software or a tech-support plan, with an amount

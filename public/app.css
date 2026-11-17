@@ -6,7 +6,7 @@
   --text: #14201b; --text-2: #46534e; --muted: #5f6b66;
   --grid: #e3e8e5; --axis: #c5cec9; --border: rgba(20,32,27,0.11);
   --accent: #1f6f54; --accent-ink: #ffffff; --accent-soft: #e3f0ea;
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #8a63d2;
   --total: #d9ddd9;   /* 0.5.45: the emails checked, behind the moved ones (recessive, neutral) */
   --good: #0ca30c; --good-text: #006300; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --critical-text: #b42727;
   --critical-soft: #fbeaea; --warning-soft: #fff5de; --good-soft: #e7f6e7;
@@ -23,7 +23,7 @@
     --text: #eef2ef; --text-2: #c1cbc6; --muted: #95a19b;
     --grid: #27302c; --axis: #36413c; --border: rgba(255,255,255,0.10);
     --accent: #5cc29a; --accent-ink: #0b1f17; --accent-soft: #1a3329;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9b7ae0;
     --total: #34403a;
     --good-text: #3fcf6a; --critical-text: #f08080; --critical-soft: #3a1d1d; --warning-soft: #3a2f14; --good-soft: #15301a;
     --phish: #f08a5d; --phish-soft: #3a2218; --phish-text: #f6a27e; --safe: #7fa6f5; --safe-soft: #1a2741; --safe-text: #a9c2fa;
@@ -36,7 +36,7 @@
   --text: #eef2ef; --text-2: #c1cbc6; --muted: #95a19b;
   --grid: #27302c; --axis: #36413c; --border: rgba(255,255,255,0.10);
   --accent: #5cc29a; --accent-ink: #0b1f17; --accent-soft: #1a3329;
-  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9b7ae0;
   --total: #34403a;
   --good-text: #3fcf6a; --critical-text: #f08080; --critical-soft: #3a1d1d; --warning-soft: #3a2f14; --good-soft: #15301a;
   --phish: #f08a5d; --phish-soft: #3a2218; --phish-text: #f6a27e; --safe: #7fa6f5; --safe-soft: #1a2741; --safe-text: #a9c2fa;

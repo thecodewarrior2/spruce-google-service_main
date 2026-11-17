@@ -113,6 +113,9 @@ test('0.5.45: the daily chart\'s data: moved and would-move apart, by trigger, a
     assert.deepEqual([day.scanned, day['rules+ai'], day['wm:rules+ai'], day['by:rules+ai'], day.ai, day['by:ai'], day['wm:rules'], day['by:rules'], day.admin, day.wouldMove, day.flagged],
         [1900, 1, 2, 3, 1, 1, 1, 1, 1, 3, 1]);
     const sm = A.summary(recs, [], now, 2);
-    assert.deepEqual(sm.wouldMoveBy, { rules: 1, ai: 0, 'rules+ai': 2, admin: 0 });
-    assert.deepEqual(sm.movedBy, { rules: 0, ai: 1, 'rules+ai': 1, admin: 1 });
+    assert.deepEqual(sm.wouldMoveBy, { rules: 1, ai: 0, 'rules+ai': 2, admin: 0, spam: 0 });
+    assert.deepEqual(sm.movedBy, { rules: 0, ai: 1, 'rules+ai': 1, admin: 1, spam: 0 });
+    // (0.6.19) Spam (padded list mail) is a trigger of its own.
+    const withSpam = A.summary([...recs, rec('move', 'spam'), rec('would-move', 'spam')], [], now, 2);
+    assert.deepEqual([withSpam.movedBy.spam, withSpam.wouldMoveBy.spam], [1, 1]);
 });

@@ -28,6 +28,7 @@ const YOUNG_SENDER_DAYS = 30, LOOKALIKE_YOUNG_DAYS = 90;
 
 const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } };
 const { sendingService, mismatchHost, companyWordOf, MAILER_MIN_AGE_DAYS } = require('./mailers');
+const { isShareLink } = require('./notifications');
 
 // judged: the links as analyze.judgeLinks made them (mutated: severity, reason and network of flagged links,
 // mailer of softened ones). Returns { signals: [...], checks: { … } } for the record (checks null without intel).
@@ -54,7 +55,9 @@ async function networkChecks(E, intel, facts, judged, ctx) {
     }
     // (A mail service's domain behind a "text shows another site" link first: its age is part of its reputation.)
     const mailerReg = new Set(web.map(j => mismatchHost(j.reason)).filter(h => h && sendingService(h, facts, E.registrableDomain)).map(h => E.registrableDomain(h)));
-    const rank = (d) => (mailerReg.has(d) ? 2 : 0) + (signInOf.get(d) ? 1 : 0);
+    // (0.6.19) And a domain behind a well-known brand's text: its age decides whether it is another established company's.
+    const brandReg = new Set(web.filter(j => /\(a well-known brand\)/.test(String(j.reason || ''))).map(j => mismatchHost(j.reason)).filter(Boolean).map(h => E.registrableDomain(h)));
+    const rank = (d) => (mailerReg.has(d) || brandReg.has(d) ? 2 : 0) + (signInOf.get(d) ? 1 : 0);
     const ageDomains = [...signInOf.keys()].sort((a, b) => rank(b) - rank(a)).slice(0, LINK_AGE_LOOKUPS);
     const senderReg = senderDomain && !personal && !ours(senderDomain) ? E.registrableDomain(senderDomain) : '';
     // (0.5.62) The organization's domain behind a sender's subdomain is looked up too: newsletters and no-reply
@@ -156,6 +159,42 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         j.severity = null;
         j.reason = `${j.reason}: the sender's own domain, proven to be ${company[0].toUpperCase()}${company.slice(1)}'s (${proof.how}); not counted`;
         j.ownBrand = reg;
+    }
+    // (0.6.19) A link whose text shows a well-known brand (paypal.com) but which goes to another established company's
+    // own domain (a hotel chain's click tracker, in a co-branded offer): one brand's text on another brand's site,
+    // not a disguise. Counted only when the email's sender passed Gmail's DMARC check, and the destination: is
+    // proven by public records to be the company it is named after (ofCompany, as above), is clean at Cloudflare, is
+    // at least MAILER_MIN_AGE_DAYS old, and is no platform where anyone can put a page (a file share, cloud storage,
+    // a big platform of the protected list). Then it isn't dangerous: one note, no weight.
+    const brandToBrand = [];
+    const brandCandidates = fromVerified && intel.ownership && intel.ownership.ofCompany ? web.filter(j => j.severity === 'danger' && !j.network && !j.mailer && !j.ownBrand && /\(a well-known brand\)/.test(String(j.reason || ''))) : [];
+    for (const j of brandCandidates) {
+        const host = mismatchHost(j.reason);
+        const reg = host && E.registrableDomain(host);
+        if (!reg || reg === senderReg || E.isPersonalMailDomain(reg) || (E.PROTECTED_DOMAINS && E.PROTECTED_DOMAINS.has(reg))) continue;
+        let hosted = false;
+        try { hosted = !!E.cloudStoragePage(j.finalUrl || j.url) || isShareLink(j.finalUrl || j.url); } catch (e) { hosted = true; }
+        if (hosted) continue;
+        const cf = hostResults.get(host), days = ageOf.get(reg);
+        if (!cf || cf.verdict !== 'clean' || typeof days !== 'number' || days < MAILER_MIN_AGE_DAYS) continue;
+        const company = companyWordOf(reg);
+        if (!company) continue;
+        if (!proofs.has(reg)) {
+            let timer;
+            const late = new Promise(r => { timer = setTimeout(() => r(null), OWN_LINK_WAIT_MS); });
+            proofs.set(reg, Promise.race([intel.ownership.ofCompany(reg, company, [`${company}.com`]), late]).catch(() => null).finally(() => clearTimeout(timer)));
+        }
+        const proof = await proofs.get(reg);
+        if (!proof || proof.state !== 'owned') continue;
+        const text = (/^link text shows (\S+)/.exec(j.reason) || [])[1] || '';
+        brandToBrand.push({ reg, how: proof.how, text });
+        j.severity = null;
+        j.reason = `${j.reason}: another established company's own domain, proven to be ${company[0].toUpperCase()}${company.slice(1)}'s (${proof.how}); not counted`;
+        j.brandToBrand = reg;
+    }
+    if (brandToBrand.length) {
+        const b = brandToBrand[0], n = brandToBrand.length;
+        signals.push({ weight: 0, kind: 'brand-to-brand-link', text: `${n === 1 ? `A link shows ${b.text} but goes` : `${n} links show a well-known brand but go`} to ${b.reg}, an established company's own domain (${b.how}; not blocked, not new), and Gmail's DMARC check passed for the sender: one company's offer on another's site, not a disguise. Not counted.` });
     }
     if (owned.length) {
         const o = owned[0], n = owned.length;

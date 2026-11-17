@@ -36,7 +36,7 @@
     function addDays(day, k) { const [y, m, d] = String(day).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + k)).toISOString().slice(0, 10); }
     const days = (now, n) => { const today = dayOf(now); return Array.from({ length: n }, (_, i) => addDays(today, i - (n - 1))); };
     const isMove = (r) => r.action === 'move';
-    const TRIGGERS = { rules: 'Rules', ai: 'AI score', 'rules+ai': 'Rules + AI', admin: 'An admin (campaign)' };
+    const TRIGGERS = { rules: 'Rules', ai: 'AI score', 'rules+ai': 'Rules + AI', admin: 'An admin (campaign)', spam: 'Spam (padded list mail)' };
 
     // What a signal is about, for "top reasons" (the extension's sign texts, grouped).
     function signalCategory(s) {

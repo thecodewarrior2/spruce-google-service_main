@@ -100,6 +100,7 @@ For each new Inbox message:
 |---|---|
 | The rules flag it (score 5+), from any sender | **Move to Spam** (label `SPRUCE/Moved`) |
 | The AI scores **90%** or more (`AI_MOVE_THRESHOLD`), sender outside the organization (or a staff address without DMARC passing): the AI score alone, no rule, link check or other sign needs to agree | **Move to Spam** |
+| **Spam, not phishing** (0.6.19): list or marketing mail (an unsubscribe header or link) that hides a block of unrelated text below the message, with nothing else suspicious | **Move to Spam** as spam (trigger "spam"; the user can take it back out) |
 | Same, in monitor mode, or while moving is paused (a campaign on weaker evidence, or the domain-wide brake) | Left in the Inbox, recorded as "would move" (a paused one can be moved later) |
 | An admin dismissed the campaign as a false alarm | Recorded as suspicious, not moved |
 | The user moved it into the Inbox themselves, and the service hadn't checked it | Checked and recorded, never moved (an alert if flagged) |
@@ -175,6 +176,17 @@ with a colleague's name, writing a greeting from her company's own address, is s
 other address lines: **Reply-To** under a colleague's name going to an outside address (3: replies would
 go to someone else), and a colleague **copied in** (Cc or To) at an outside address (1) or at an address
 that imitates your domain (3: "I've copied our superintendent").
+
+**Signs that need another sign** (0.6.19): text hidden far below the message after a blank space, a colleague's
+name whose only reason to count is that the sender's domain resembles yours (a local group's domain with your
+town's name in it), and a colleague copied in at an outside or resembling address count only together with
+another warning sign. Alone, with only "it comes from outside" and "first email from this sender" beside them,
+they are shown with no weight. A sender's name giving a brand's program and the sender's own organization
+("Brand Future Coders - Sample Scholarship Fund" from samplescholarshipfund.example, DMARC passing) is a partner,
+not an imitation (no weight; 5 again when the domain is new or listed). A link whose text shows a well-known
+brand but which goes to another established company's own domain (a hotel chain's click tracker in a co-branded
+offer) is not dangerous when public records prove that domain is the company's, it is old and clean, and the
+sender passed DMARC; a page anyone can make (a form, a file share, cloud storage) never counts as one.
 
 **Shares and notifications sent through a platform** (Google Classroom, Drive, Docs, Forms, Calendar;
 DocuSign; Dropbox; Adobe Acrobat Sign; SharePoint): the sender's address, the sender check and your

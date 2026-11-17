@@ -4,7 +4,8 @@
 //   move        to Spam (and the "SPRUCE/Moved" label): the extension's verdict is "flagged" (as the
 //               extension moves flagged email; MOVE_ON_RULES, on by default), or the AI model's score is at or
 //               above the threshold (90% by default) for a sender outside the organization (inside too with
-//               AI_MOVES_INSIDE). trigger: 'rules', 'ai' or 'rules+ai'.
+//               AI_MOVES_INSIDE). trigger: 'rules', 'ai' or 'rules+ai'; 'spam' (0.6.19) for list or marketing
+//               mail padded with hidden filler and nothing else suspicious: spam, not phishing.
 //   would-move  the same, in monitor mode or while the brake is on (braked): recorded, nothing moved. (The
 //               campaign hold and an admin's decision on a campaign come after this: pipeline.js.)
 //   flag        suspicious but not moved (amber verdict, an AI score of cfg.aiSuspicious or more below the
@@ -61,15 +62,19 @@ function decide(result, cfg, state = {}) {
     const notes = [result.allowlistedUnverified ? 'allowlisted sender, but DMARC didn\'t pass, so it was judged like any other' : '',
                    result.ownAddress && !result.inside ? 'the address is the organization\'s, but DMARC didn\'t pass, so it isn\'t treated as inside' : ''].filter(Boolean);
     const noted = (s) => [s, ...notes].filter(Boolean).join('; ');
-    if (!ruleMove && !aiMove) {
+    // (0.6.19) Spam, not phishing (analyze.js signsNeedingCompany): list or marketing mail padded with hidden filler,
+    // nothing else suspicious. Moved to Spam like the rest (the user can take it back out), under the same switch as
+    // the rules (MOVE_ON_RULES), monitor mode and the brake; never from inside the organization.
+    const spamMove = !ruleMove && !aiMove && cfg.moveOnRules && !!result.spam && !result.inside;
+    if (!ruleMove && !aiMove && !spamMove) {
         const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : AI_SUSPICIOUS;
         const byRules = result.status === 'caution' || result.status === 'flagged';
         const byAi = p !== null && p >= line;
         const suspicious = byRules || aiHigh || byAi;
         return { action: suspicious ? 'flag' : 'none', trigger: null, why: noted(suspicious ? suspiciousWhy(result, cfg) : '') };
     }
-    const trigger = ruleMove && aiMove ? 'rules+ai' : ruleMove ? 'rules' : 'ai';
-    const why = noted([ruleMove ? `rules flagged it (score ${result.score})` : '',
+    const trigger = ruleMove && aiMove ? 'rules+ai' : ruleMove ? 'rules' : aiMove ? 'ai' : 'spam';
+    const why = spamMove ? noted(`spam: ${result.spam.why}`) : noted([ruleMove ? `rules flagged it (score ${result.score})` : '',
                        aiMove ? `AI ${Math.round(p * 100)}% ≥ ${Math.round(cfg.aiThreshold * 100)}%${result.inside ? ' (the sender is inside the organization; "AI alone moves inside mail" is on)' : ''}` : ''].filter(Boolean).join(' and '));
     if (cfg.mode !== 'enforce') return { action: 'would-move', trigger, why: `${why} (monitor mode: not moved)` };
     if (state.brake) return { action: 'would-move', trigger, why: `${why} (brake on: not moved)`, braked: true };

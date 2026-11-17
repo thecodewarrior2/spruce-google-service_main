@@ -372,7 +372,8 @@
         { key: 'by:rules+ai', trig: 'rules+ai', name: 'Rules + AI', color: '--s1' },
         { key: 'by:ai', trig: 'ai', name: 'AI score only', color: '--s2' },
         { key: 'by:rules', trig: 'rules', name: 'Rules only', color: '--s3' },
-        { key: 'by:admin', trig: 'admin', name: 'Confirmed by an admin', color: '--s4' }
+        { key: 'by:admin', trig: 'admin', name: 'Confirmed by an admin', color: '--s4' },
+        { key: 'by:spam', trig: 'spam', name: 'Spam (padded list mail)', color: '--s5' }
     ];
     const CHECKED_SERIES = { key: 'scanned', name: 'Emails checked', color: '--total' };
 
@@ -427,7 +428,7 @@
         const movedBack = `${num(sm.released)} moved back (${pct(sm.releaseRate, 1)}): ${num(sm.released - (sm.userReleased || 0))} by admins, ${num(sm.userReleased || 0)} by users`;
         const wb = sm.wouldMoveBy || {};
         const hero = d.mode === 'enforce' ? { label: 'Moved to Spam', value: sm.moved, note: movedBack }
-            : { label: 'Would be moved', value: sm.wouldMove, note: `monitor mode, recorded only: ${num(wb['rules+ai'] || 0)} by rules + AI, ${num(wb.ai || 0)} by the AI score alone, ${num(wb.rules || 0)} by the rules alone` };
+            : { label: 'Would be moved', value: sm.wouldMove, note: `monitor mode, recorded only: ${num(wb['rules+ai'] || 0)} by rules + AI, ${num(wb.ai || 0)} by the AI score alone, ${num(wb.rules || 0)} by the rules alone${wb.spam ? `, ${num(wb.spam)} as spam` : ''}` };
         out.push(h('div', { class: 'grid kpis' },
             h('div', { class: 'card kpi hero' }, h('div', { class: 'label', text: hero.label }), h('div', { class: 'value', text: num(hero.value) }), h('div', { class: 'note', text: hero.note })),
             kpi('Emails checked', compact(sm.scanned), `last ${days} days`),
@@ -458,9 +459,9 @@
             draw();
         });
         // How much each trigger adds (moved or would move), in words.
-        const bt = sm.byTrigger || {}, totalBy = (bt['rules+ai'] || 0) + (bt.ai || 0) + (bt.rules || 0);
+        const bt = sm.byTrigger || {}, totalBy = (bt['rules+ai'] || 0) + (bt.ai || 0) + (bt.rules || 0) + (bt.spam || 0);
         const share = (n) => (totalBy ? ` (${pct(n / totalBy)})` : '');
-        const triggerNote = totalBy ? h('p', { class: 'small muted trigger-note', text: `In these ${days} days, of ${num(totalBy)} emails moved or that would be moved: ${num(bt['rules+ai'] || 0)} by the rules and the AI together${share(bt['rules+ai'] || 0)}, ${num(bt.ai || 0)} by the AI score alone${share(bt.ai || 0)} (the AI score alone moves an email at ${pct(d.aiThreshold || 0.9)}), and ${num(bt.rules || 0)} by the rules alone${share(bt.rules || 0)}.` }) : null;
+        const triggerNote = totalBy ? h('p', { class: 'small muted trigger-note', text: `In these ${days} days, of ${num(totalBy)} emails moved or that would be moved: ${num(bt['rules+ai'] || 0)} by the rules and the AI together${share(bt['rules+ai'] || 0)}, ${num(bt.ai || 0)} by the AI score alone${share(bt.ai || 0)} (the AI score alone moves an email at ${pct(d.aiThreshold || 0.9)}), and ${num(bt.rules || 0)} by the rules alone${share(bt.rules || 0)}${bt.spam ? `; ${num(bt.spam)} were spam (list or marketing mail padded with hidden text, nothing else suspicious)${share(bt.spam)}` : ''}.` }) : null;
         out.push(h('div', { class: 'grid two' },
             h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('div', {}, h('h2', { text: 'Emails checked and moved per day' }),
                 h('div', { class: 'sub', text: `Behind: every email checked. In front: the emails moved${d.mode === 'enforce' ? '' : ', or in monitor mode that would be moved,'} by what triggered it. On one scale the moved ones are a small share: zoom in to see them. Hover a day for its numbers.` })),
