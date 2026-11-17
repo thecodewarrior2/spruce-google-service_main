@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.23: a colleague's name from a personal email account alone counts 2
+
+- **"The sender uses the name of someone in your organization… from a personal email account"** counted 3; with
+  "from outside" (1) and "the first email from this sender" (1.5) that moved the email, though staff and people who
+  share a colleague's name write from their own Gmail too. When the personal account is the only reason, it now counts
+  2 (suspicious with those two, not moved). With any other reason (a request impersonators make, replies going
+  elsewhere, a title or the organization's name in the sender's name, a failed sender check, a new or look-alike
+  domain) it is 3, as before (`colleagueInContext` in `src/engine/analyze.js`).
+- Tests: `test/colleague-context.test.js` (made-up names).
+- **Checks level 23:** delivered mail of the last hours is checked again after this update.
+
 ## 0.6.22: a mail provider's delivery report isn't scored by the AI
 
 - **"Delivery Status Notification (Failure)" was suspicious:** a bounce from Google's own mail system

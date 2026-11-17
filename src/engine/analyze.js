@@ -311,8 +311,11 @@ function colleagueInContext(E, facts, signals, ctx, bodyText) {
     // (0.6.19) Only the domain resembling the organization's (a local group's domain with the town's name in it): it
     // counts only together with another warning sign (signsNeedingCompany).
     const lookalikeOnly = why.length === 1 && why[0] === 'from an address imitating your organization\'s domain';
+    // (0.6.23) Only a personal email account (people write from their own Gmail too): 2, not 3. With a request, a
+    // reply address elsewhere, a title, a failed sender check or a new or look-alike domain: 3, as before.
+    const personalOnly = why.length === 1 && why[0] === 'from a personal email account';
     signals[i] = why.length
-        ? Object.assign({}, signals[i], { kind: 'sender-colleague-name', weight: 3, needsCompany: lookalikeOnly || undefined, text: `The sender uses the name of someone in your organization, but writes from an outside address (${address.slice(0, 120)}), ${why.slice(0, 3).join('; ')}.` })
+        ? Object.assign({}, signals[i], { kind: 'sender-colleague-name', weight: personalOnly ? 2 : 3, needsCompany: lookalikeOnly || undefined, text: `The sender uses the name of someone in your organization, but writes from an outside address (${address.slice(0, 120)}), ${why.slice(0, 3).join('; ')}.` })
         : Object.assign({}, signals[i], { kind: 'sender-name-shared', weight: 0, text: `The sender has the same name as someone in your organization, writing from ${domain}'s own address. Nothing in the email claims to be from inside your organization, so it doesn't count (people share names).` });
 }
 

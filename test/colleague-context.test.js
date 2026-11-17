@@ -28,7 +28,8 @@ test('a vendor\'s employee sharing a colleague\'s name, writing a greeting from 
 
 test('it counts (3) when the email claims to be from inside, and says how', async () => {
     const cases = [
-        [{ from: 'Misty Samplefield <misty.samplefield.1975@gmail.com>' }, /from a personal email account/],
+        // (0.6.23) A personal account alone is 2 (below); with what impersonators ask, 3.
+        [{ from: 'Misty Samplefield <misty.samplefield.1975@gmail.com>', subject: 'Quick favor', body: 'Are you free? I need a quick favor. Text me your cell number.' }, /from a personal email account; asking for what impersonators ask/],
         // (0.6.19) A domain that only resembles the organization's counts with another reason or sign (needs-company.test.js).
         [{ from: 'Misty Samplefield <misty@maple-schools-k12.example>', subject: 'Quick favor', body: 'Are you free? I need a quick favor.' }, /imitating your organization's domain/],
         [{ dmarc: 'fail' }, /Gmail's sender check failed/],
@@ -44,6 +45,12 @@ test('it counts (3) when the email claims to be from inside, and says how', asyn
         assert.match(s.text, /^The sender uses the name of someone in your organization, but writes from an outside address \(/);
         assert.match(s.text, re, JSON.stringify(opts));
     }
+});
+
+test('a personal email account is the only reason: 2, not 3 (0.6.23)', async () => {
+    const s = await sign({ from: 'Misty Samplefield <misty.samplefield.1975@gmail.com>' });
+    assert.deepEqual([s.kind, s.weight], ['sender-colleague-name', 2]);
+    assert.match(s.text, /writes from an outside address \(misty\.samplefield\.1975@gmail\.com\), from a personal email account\.$/);
 });
 
 test('the rest of the checks are unchanged: the vendor\'s greeting is clean; the impersonation is still caught', async () => {
