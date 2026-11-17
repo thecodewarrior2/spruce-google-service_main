@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.16: the personal-information check can't hang on a long line
+
+- **The check could hang:** the pattern for a name in an address (firstname.lastname@) backtracked without end on a
+  long run of letters with no @ (33 characters were enough), so a commit or push touching such a line could wait
+  forever. Addresses are now found with bounded patterns, only in lines with an @, and their domain is checked apart
+  (`tools/pii-check.js`). A test feeds it long runs of letters, dots, digits and @ (`test/pii-check.test.js`).
+- Nothing in the service changes.
+
 ## 0.6.15: every person in the repository has a plainly made-up name, and names are checked before every commit and push
 
 - **People's names:** the people in the tests, docs, comments, the changelog and the demo had realistic names, some

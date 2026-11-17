@@ -38,7 +38,9 @@ const RESERVED = /(^|\.)(example|test|invalid|localhost)$|^example\.(com|org|net
 const PERSONAL_DOMAINS = new Set(['gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'rocketmail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'icloud.com', 'me.com', 'mac.com',
     'aol.com', 'proton.me', 'protonmail.com', 'pm.me', 'gmx.com', 'gmx.net', 'mail.com', 'zoho.com', 'yandex.com', 'comcast.net', 'att.net', 'verizon.net', 'sbcglobal.net', 'bellsouth.net', 'cox.net', 'charter.net']);
 const PERSONAL = { test: (d) => PERSONAL_DOMAINS.has(String(d).toLowerCase()) };
-const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}/g;
+// (bounded: a long run of letters without an @ must not take time; the domain is checked apart, below)
+const EMAIL = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}/g;
+const DOMAIN = /^(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$/;
 const PHONE = /(?<![\w.-])(?:\+?1[ .-]?)?\(?[2-9]\d{2}\)?[ .-]\d{3}[ .-]\d{4}(?![\w-])/g;
 const SSN = /(?<![\w-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\w-])/g;
 const CARD = /(?<![\w-])(?:\d[ -]?){12,18}\d(?![\w-])/g;
@@ -73,7 +75,6 @@ const nameList = () => new Set(readList(path.join(ROOT, 'tools', 'pii-names.txt'
 const NAME_PAIR = /\b([A-Z][a-z]+)\s+((?:Mc|Mac|O')?[A-Z][a-z]+(?:-[A-Z][a-z]+)?)\b/g;
 // A quoted two-word display name before an address ("Firstname Lastname" <…>): a person, whatever the first name.
 const NAME_SHOWN = /\\?"([A-Z][a-z]+) ((?:Mc|Mac|O')?[A-Z][a-z]+(?:-[A-Z][a-z]+)?)\\?"\s*</g;
-const NAME_ADDR = /\b([a-z]+)[._]([a-z]+)(?:[._-]?[a-z0-9]+)*@/g;
 const allowList = () => new Set(readList(path.join(ROOT, 'tools', 'pii-allow.txt')).map(s => s.toLowerCase()));
 const privateTerms = () => [...readList(path.join(ROOT, '.pii-terms')), ...(process.env.SPRUCE_PII_TERMS ? readList(process.env.SPRUCE_PII_TERMS) : [])]
     .map(t => t.toLowerCase()).filter(t => t.length >= 3);
@@ -82,8 +83,9 @@ const privateTerms = () => [...readList(path.join(ROOT, '.pii-terms')), ...(proc
 function scanLine(line, { allow = allowList(), terms = privateTerms(), names = nameList(), first = firstNameSet(), last = lastNameSet() } = {}) {
     const out = [];
     const allowed = (t) => allow.has(String(t).toLowerCase());
-    for (const m of line.matchAll(EMAIL)) {
-        const addr = m[0].replace(/\.+$/, ''), domain = addr.split('@')[1].toLowerCase();
+    const emails = line.includes('@') ? [...line.matchAll(EMAIL)].map(m => m[0].replace(/\.+$/, '')).filter(a => DOMAIN.test(a.split('@')[1])) : [];
+    for (const addr of emails) {
+        const domain = addr.split('@')[1].toLowerCase();
         if (allowed(addr) || RESERVED.test(domain)) continue;
         // "@domain" in the allow list: that organization's addresses and its subdomains' (never a personal provider's)
         if (!PERSONAL.test(domain) && domain.split('.').some((x, i, a) => i < a.length - 1 && allowed(`@${a.slice(i).join('.')}`))) continue;
@@ -106,8 +108,11 @@ function scanLine(line, { allow = allowList(), terms = privateTerms(), names = n
         const t = `${m[1]} ${m[2]}`;
         if (!names.has(m[2].toLowerCase()) && !names.has(m[1].toLowerCase()) && !allowed(t) && !out.some(f => f.text === t)) out.push({ kind: 'a person\'s name (its surname isn\'t a made-up one: tools/pii-names.txt)', text: t });
     }
-    for (const m of line.matchAll(NAME_ADDR)) {
-        const [a, b] = [m[1], m[2]];
+    // ... and in an address: firstname.lastname@ (the parts before the @, a first name and a surname).
+    for (const addr of emails) {
+        const parts = addr.split('@')[0].toLowerCase().split(/[._]/);
+        if (parts.length < 2 || !/^[a-z]+$/.test(parts[0]) || !/^[a-z]+$/.test(parts[1])) continue;
+        const [a, b] = parts;
         if (first.has(a) && b.length > 1 && !first.has(b) && !names.has(b) && !allowed(`${a}.${b}`)) out.push({ kind: 'a person\'s name in an address (its surname isn\'t a made-up one: tools/pii-names.txt)', text: `${a}.${b}` });
     }
     const low = line.toLowerCase();

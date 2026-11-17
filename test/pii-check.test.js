@@ -46,6 +46,13 @@ test('people\'s names: a first name and a surname that isn\'t on the made-up lis
     assert.deepEqual(kinds(['"Front', 'Office"', '<o@maple-schools.example>'].join(' '), Object.assign({}, opts, { names: new Set(['office']) })), [], 'a department listed as no surname');
 });
 
+test('long lines take no time: no pattern backtracks (a long run of letters, dots or digits once hung the check)', () => {
+    const lines = ['a.b' + 'x'.repeat(28) + '!', 'ab.cd' + 'efgh'.repeat(25000), ' 1'.repeat(5000), 'w'.repeat(200000), 'x@'.repeat(20000), 'a.'.repeat(30000) + '@y.example'];
+    const t = Date.now();
+    for (const l of lines) scanLine(l, { allow: new Set(), terms: [] });
+    assert.ok(Date.now() - t < 2000, `${Date.now() - t} ms`);
+});
+
 test('a diff: only the lines it adds, with where they are', () => {
     const diff = ['diff --git a/x.md b/x.md', '--- a/x.md', '+++ b/x.md', '@@ -3,0 +4,2 @@', `+a line with ${at('x', 'gma' + 'il.com')}`, '+fine', '@@ -9 +11 @@', '-old', '+new'].join('\n');
     assert.deepEqual(addedLines(diff), [{ where: 'x.md:4', line: `a line with ${at('x', 'gma' + 'il.com')}` }, { where: 'x.md:5', line: 'fine' }, { where: 'x.md:11', line: 'new' }]);
