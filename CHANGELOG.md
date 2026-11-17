@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.1: moderators (spruce-moderators) review emails without being admins; Retraining examples on its own page
+
+- **Moderators:** the members of a new group, `MODERATOR_GROUP` (`spruce-moderators@` the first of `ORG_DOMAINS`
+  unless `deploy/settings.env` names another; `off` for none), may open the dashboard to review and categorize
+  emails. They see **Today**, **Review**, **Threats → Campaigns** and **Re-checked**, **Mail** (Messages, an
+  email's page, Check an email, Users) and **Help**; they answer phishing, false alarm or ignore, and re-scan, one
+  at a time or ticked together. They don't see **Health** or **Settings** (nor Look-alikes), and can't move an
+  email back to the Inbox, resume the brake, confirm or dismiss a whole campaign, download the CSV, or read an
+  email from Gmail (Show the email).
+  - The service refuses everything else to them (403), whatever the page shows: `MODERATOR_ROUTES` in
+    `src/server.js`. Someone in both groups is an admin. A failed check of the moderator group lets nobody in as a
+    moderator, and never keeps an admin out (`src/auth/verify.js`).
+  - Every answer names who gave it; Activity notes a moderator's sign-in "as a moderator". The weekly summary
+    still goes to the admins only.
+  - `GET /api/session`: who is signed in, as what, and what the page's frame needs (it was `/api/settings`,
+    which is for admins).
+  - `DEMO_ROLE=moderator` shows the demo as a moderator sees it.
+  - Test: `test/moderators.test.js`.
+- **Health → Retraining examples:** the export of marked emails for retraining the AI model has its own page
+  (it was at the foot of Model health). Settings → Retraining still allows it or stops it.
+- **Install level 6:** `deploy/install.sh` passes `MODERATOR_GROUP` to the dashboard and lets the group through
+  Identity-Aware Proxy (a group that doesn't exist yet is said, and the admins still get in). Install this version
+  from Cloud Shell: `bash deploy/update.sh`. Create the group in the Admin console first (it may stay empty):
+  docs/INSTALL.md, step 1.
+- **Checks level unchanged:** only wording changed in the files that judge email.
+
 ## 0.6.0: a redesigned dashboard: a menu on the left, Today, a review list with the evidence, a campaign timeline
 
 - **Roll back:** the classic design's three files are kept, unchanged from 0.5.74, in the new **`ui-classic/`**

@@ -188,7 +188,8 @@ Their data is never exported for retraining: their terms don't allow it to train
 ## Security
 
 - **Who can reach what.** The dashboard (`spruce-admin`) is behind Identity-Aware Proxy, and the server checks
-  every request's signed IAP header against `ADMIN_EMAILS` and `ADMIN_GROUP` too. The worker is private: only
+  every request's signed IAP header against `ADMIN_EMAILS` and `ADMIN_GROUP` too (`MODERATOR_GROUP`: the review
+  pages' routes only, `MODERATOR_ROUTES` in `src/server.js`). The worker is private: only
   `spruce-invoker`'s OIDC tokens (Pub/Sub, Cloud Scheduler) are accepted, their audience and account checked.
 - **No key files.** Domain-wide delegation tokens are signed by IAM (`iamcredentials.signJwt`) for
   `spruce-delegate`, last an hour and stay in memory.

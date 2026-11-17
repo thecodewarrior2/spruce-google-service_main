@@ -1,5 +1,5 @@
 {
   "checksLevel": 13,
   "fingerprint": "fafa2e32610b63925078a8907bec0f353e5af63c1fb2c83098eeda770ce368e4",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.0: the dashboard's menu paths in sign, alert and activity wording (Status → Look-alikes is Threats → Look-alikes, Email → Re-checked is Threats → Re-checked, Status → Activity is Health → Activity"
+  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.1: where the retraining export is named in a comment and in Activity's wording (Health → Retraining examples)"
 }

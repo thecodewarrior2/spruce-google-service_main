@@ -122,7 +122,9 @@ To delete what the dashboard shows sooner, all at once: `bash deploy/clear-data.
 ## Who sees it
 
 - **The dashboard:** only through Identity-Aware Proxy, and only for the addresses in `ADMIN_EMAILS` or
-  the members of `ADMIN_GROUP` (accounts in your own domains).
+  the members of `ADMIN_GROUP` (accounts in your own domains); and, for the review pages only, the members of
+  `MODERATOR_GROUP` (0.6.1). Moderators see the records (sender, recipients, subject, the checks' findings) to
+  answer them, but can't read an email from Gmail, download the CSV or the retraining file, or see Settings or Health.
   Every move back to the Inbox, mark and setting change records who did it.
 - **The service's own accounts:** in your Cloud project, under IAM. Limit project access to the people
   who run the service.
@@ -136,7 +138,7 @@ To delete what the dashboard shows sooner, all at once: `bash deploy/clear-data.
   email into their Inbox, their address and the sender's.
 - **The CSV export** (Mail → Messages → Download CSV) holds what the Messages page shows: keep the file as you
   would the dashboard.
-- **The retraining export** (Health → Model health → Download for retraining) is off until an admin allows it in
+- **The retraining export** (Health → Retraining examples → Download for retraining) is off until an admin allows it in
   Settings, and Activity notes who allowed it and every download.
   - It reads the emails admins marked from Gmail at the moment of the download: confirmed phishing, and
     false alarms only when asked.

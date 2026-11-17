@@ -206,7 +206,15 @@ dashboard service, and grant IAP to `group:spruce-admins@ORG`.
 - `ADMIN_EMAILS` and `ADMIN_GROUP` can be used together.
 
 Even someone IAP lets through is refused unless their address is in `ADMIN_EMAILS` or they are in
-`ADMIN_GROUP`.
+`ADMIN_GROUP` (or `MODERATOR_GROUP`, for the review pages only).
+
+**Moderators (0.6.1):** set `MODERATOR_GROUP=spruce-moderators@ORG` on the dashboard service (with
+`DIRECTORY_ADMIN`) and grant IAP to `group:spruce-moderators@ORG`; `deploy/install.sh` does both, with that name
+unless `deploy/settings.env` says another (`off` for none). The group is checked the same way as `ADMIN_GROUP`; a
+failed check lets nobody in as a moderator, and never keeps an admin out. A moderator can call only the review
+pages' routes (`MODERATOR_ROUTES` in `src/server.js`); every other one answers 403. Removing the group later: set
+`MODERATOR_GROUP=off`, run `install.sh`, and remove the group's IAP access in the console (Security →
+Identity-Aware Proxy → spruce-admin).
 
 Keep `MODE` the same on both services. The admin service shows the mode; the worker acts on it.
 
@@ -338,6 +346,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `UPDATE_JOB` (dashboard) | none | the job Settings → Update runs: `projects/PROJECT/locations/REGION/jobs/spruce-update`. Without it the page says to run `deploy/update.sh` once |
 | `RELEASES_REPO` (dashboard) | `thecodewarrior2/Google_service_main` | where Settings → Update reads the approved versions and their changelog (GitHub, anonymously). install.sh takes it from `SPRUCE_RELEASES` |
 | `ADMIN_EMAILS`, `ADMIN_GROUP` | none | who may use the dashboard: addresses, and/or the members of a group (needs `DIRECTORY_ADMIN` on the dashboard too); at least one |
+| `MODERATOR_GROUP` | none (install.sh: `spruce-moderators@` the first of `ORG_DOMAINS`) | 0.6.1: a group whose members may review emails on the dashboard, never Settings or Health (needs `DIRECTORY_ADMIN`); `off` for none |
 | `AI_MOVE_THRESHOLD` | `0.9` | AI score that moves (outside senders); from `AI_SUSPICIOUS_THRESHOLD` to `1` |
 | `AI_SUSPICIOUS_THRESHOLD` | `0.65` | AI score from which an email not moved is recorded as suspicious (for review); from `0.5` to `AI_MOVE_THRESHOLD` |
 | `MOVE_ON_RULES` | `true` | the extension's "flagged" verdict moves |

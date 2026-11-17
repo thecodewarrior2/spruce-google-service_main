@@ -33,6 +33,9 @@ would rather do it by hand.
 5. **For the dashboard**, create a second security group the same way, for example
    `spruce-admins@yourdomain`. Add the people who may open the dashboard. Keep it small: they see who
    received which suspicious email.
+6. **For moderators** (optional, 0.6.1), a third one the same way: `spruce-moderators@yourdomain`. Its members
+   can review and categorize emails on the dashboard, but never see Settings or Health. It may stay empty;
+   another name goes in `MODERATOR_GROUP` in `deploy/settings.env`, and `off` there means no moderators.
 
 What counts as a member:
 - **Groups inside the group count:** their members are watched too.
@@ -172,6 +175,7 @@ Paste the key with the project ID: it is tested first, then saved. An installati
    | `DIRECTORY_ADMIN` | the account from step 2 |
    | `ADMIN_GROUP` | the dashboard group from step 1 |
    | `ADMIN_EMAILS` | optional: more people who may open the dashboard, separated by semicolons |
+   | `MODERATOR_GROUP` | leave empty for `spruce-moderators@` your first domain (step 1), another group, or `off` |
    | `MODE` | leave `monitor` |
    | `BUDGET_ALERT` | leave `1`: an email at the first charge (see "Costs") |
    | `TIME_ZONE` | your time zone, for example `America/New_York`: the dashboard's days, the nightly jobs and the weekly summary use it (empty = UTC) |

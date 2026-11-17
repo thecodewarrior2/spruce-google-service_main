@@ -647,3 +647,5 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
   .mode-options { grid-template-columns: minmax(0, 1fr); }
   .toast { bottom: 84px; }
 }
+/* (0.6.1) Hidden from moderators: Health and Settings in the menu and the tab bar. */
+.nav a[hidden], .tabbar a[hidden] { display: none; }

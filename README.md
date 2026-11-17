@@ -308,10 +308,10 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     AI score from the suspicious line to under the move threshold), so neither moves them, and what admins
     marked them: whether moving such emails would be worth trying. It only measures. It names the model in use,
     and, after an upgrade, which models scored the period's emails (each keeps the score it got on arrival).
-    - Marking emails doesn't train the AI model. **Download for retraining** (allowed in Settings → Retraining, off by
-      default) gives the emails admins marked, read from Gmail at that moment with the people taken
-      out, as training examples in the extension's format. Nothing is stored. `docs/RETRAINING.md` says
-      how to check the file and train the model with it.
+  - **Retraining examples** (its own page since 0.6.1; it was on Model health): marking emails doesn't train the AI
+    model. **Download for retraining** (allowed in Settings → Retraining, off by default) gives the emails admins and
+    moderators marked, read from Gmail at that moment with the people taken out, as training examples in the
+    extension's format. Nothing is stored. `docs/RETRAINING.md` says how to check the file and train the model with it.
   - **Readiness:** whether monitor mode has shown enough to switch to enforce mode, as checks:
     - time in monitor mode, emails reviewed, false alarms;
     - staff mail failing DMARC, and the busiest hour against the brake;
@@ -347,7 +347,7 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   - **Weekly summary** (off by default): every Monday from 7 AM (`TIME_ZONE`), the week's numbers, what
     waits, and the largest campaigns go into each dashboard admin's Inbox. **Preview** and **Send one
     now** are next to it.
-  - **Retraining** (off by default): allows **Download for retraining** on Health → Model health.
+  - **Retraining** (off by default): allows **Download for retraining** on Health → Retraining examples.
   - Each service's page (Safe Browsing, Spamhaus, abuse.ch, Link clicks; Threats → Look-alikes) shows beside
     its title whether it is on: a green "Service is on", a red "Service is on, but not working", or a grey
     "Service is off" (0.5.40).
@@ -382,6 +382,14 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     from Cloud Shell, `bash deploy/update.sh`: the page says so instead of offering the button. So is
     the first version with this page (0.3.9), which sets it up.
   - **About:** the version, the AI model, what is kept, and the network checks.
+- **Moderators** (0.6.1): the members of `MODERATOR_GROUP` (`spruce-moderators@` your first domain unless set in
+  `deploy/settings.env`; `off` for none) review and categorize emails without being admins. They see **Today**,
+  **Review**, **Threats → Campaigns** and **Re-checked**, **Mail** (Messages, an email's page, Check an email, Users)
+  and **Help**, and can answer: phishing, false alarm, ignore, re-scan, one at a time or ticked together. They don't
+  see **Health** or **Settings** (nor Look-alikes), and can't move an email back to the Inbox, resume the brake,
+  confirm or dismiss a whole campaign, download the CSV, or read an email from Gmail (**Show the email**). The
+  service refuses those to them whatever the page shows. Activity names who answered, and notes a moderator's
+  sign-in "as a moderator". Someone in both groups is an admin.
 - **The browser tab's title** counts what needs you: the brake, paused campaigns, users who took flagged
   mail back.
 
@@ -485,7 +493,7 @@ training examples, and a better AI model.
 | `src/pipeline.js` | Notifications → messages → decisions → actions → records; moving back, brake, watches, retention |
 | `src/gmail/` | Keyless domain-wide delegation, Gmail and Directory API calls |
 | `src/store/` | Firestore (production) and memory (demo, tests) |
-| `src/auth/verify.js` | OIDC for Pub/Sub and Scheduler; Identity-Aware Proxy and ADMIN_EMAILS / ADMIN_GROUP for the dashboard |
+| `src/auth/verify.js` | OIDC for Pub/Sub and Scheduler; Identity-Aware Proxy and ADMIN_EMAILS / ADMIN_GROUP (admins), MODERATOR_GROUP (moderators) for the dashboard |
 | `src/scheduler.js` | Cloud Scheduler, for the dashboard's "Read the directory again now" (runs the daily re-read job) and Settings → Update (runs the spruce-update job) |
 | `src/releases.js`, `src/update.js` | Settings → Update: the newest approved version and its changelog (read from GitHub), and the request |
 | `src/training.js`, `src/names.js` | The retraining export: an email → a training example, with the people taken out |

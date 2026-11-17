@@ -1879,7 +1879,7 @@ class Service {
         return { enabled: !!enabled };
     }
 
-    // --- The retraining export (Health → Model health; off until an admin allows it in Settings) ------
+    // --- The retraining export (Health → Retraining examples; off until an admin allows it in Settings) ------
     // The emails an admin marked (confirmed phishing; with falseAlarms, false alarms too), one per
     // campaign, newest first, read from Gmail now and turned into the extension's training format with
     // the people taken out (src/training.js). Nothing of them is stored: the rows are only returned.
@@ -1927,7 +1927,7 @@ class Service {
     async setTrainingExport(enabled, by) {
         const st = (await this.store.getState('trainingExport')) || {};
         await this.store.setState('trainingExport', Object.assign({}, st, { enabled: !!enabled, updatedBy: by, updatedAt: this.now() }));
-        await this.store.addEvent({ kind: 'settings', text: `${by} ${enabled ? 'allowed' : 'turned off'} the retraining export (Health → Model health: Download for retraining).` });
+        await this.store.addEvent({ kind: 'settings', text: `${by} ${enabled ? 'allowed' : 'turned off'} the retraining export (Health → Retraining examples: Download for retraining).` });
         return { enabled: !!enabled };
     }
 

@@ -69,6 +69,7 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
       case '/api/message': { const r = recs.find(x => x.key === q.get('key')); if (!r) throw new Error('not found'); return Object.assign(base, { message: r, mode: D.settings.mode }); }
       case '/api/health': return Object.assign(base, A.modelHealth(recs, now, n, { orgDomains: D.settings.orgDomains, aiSuspicious: D.settings.aiSuspicious, aiThreshold: D.settings.aiThreshold }), { current: D.settings.model.name + ' ' + D.settings.model.version, threshold: D.settings.aiThreshold, trainingExport: !!D.settings.trainingExport.enabled });
       case '/api/settings': return Object.assign(base, D.settings);
+      case '/api/session': return Object.assign(base, { role: 'admin', mode: D.settings.mode, orgDomains: D.settings.orgDomains, retentionDays: D.settings.retentionDays, model: D.settings.model, version: D.settings.version, donateButton: true, timeZone: D.settings.timeZone });
       case '/api/release': { const r = recs.find(x => x.key === body.key); if (!r || r.state !== 'moved') throw new Error('it is not in Spam');
         Object.assign(r, { state: 'released', releasedBy: ADMIN, releasedAt: Date.now(), falseAlarm: r.falseAlarm === null ? true : r.falseAlarm, markedBy: r.markedBy || ADMIN });
         D.events.push({ at: Date.now(), kind: 'release', text: ADMIN + ' moved an email from ' + r.sender.address + ' to ' + r.user + ' back to the Inbox.' }); return Object.assign(base, { record: r }); }

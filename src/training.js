@@ -2,7 +2,7 @@
 // What abuse.ch's and Spamhaus's data found is never exported for retraining (0.5.37): their terms don't allow
 // it to train or improve an AI model. Such a link's finding is left empty.
 const NO_TRAINING_RE = /URLhaus|ThreatFox|abuse\.ch|Spamhaus/i;
-// The retraining export (Health → Model health → "Download for retraining"; off until an admin allows it in
+// The retraining export (Health → Retraining examples → "Download for retraining"; off until an admin allows it in
 // Settings). The emails an admin marked (confirmed as phishing; with a tick, false alarms too) are read
 // from Gmail at the moment of the download, one per campaign, and each becomes one line of the
 // model's own training format (TinyPhishLLM's training/data/extra/*.jsonl: { facts, label }): the facts phish-tiny

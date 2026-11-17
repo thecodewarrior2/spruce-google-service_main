@@ -21,11 +21,15 @@
     // The AI move threshold and suspicious line in force, and whether the AI alone moves inside mail (every
     // answer says them; 90%, 65% and off until the first one).
     let aiThreshold = 0.9, aiSuspicious = 0.65, aiMovesInside = false;
+    // (0.6.1) admin, or moderator (MODERATOR_GROUP: the review pages only; the service refuses the rest whatever the page shows).
+    let role = 'admin';
+    const isModerator = () => role === 'moderator';
     const api = async (path, opts) => {
         const data = await (window.SPRUCE_API || realApi)(path, opts);
         if (data && typeof data.aiThreshold === 'number') aiThreshold = data.aiThreshold;
         if (data && typeof data.aiSuspicious === 'number') aiSuspicious = data.aiSuspicious;
         if (data && typeof data.aiMovesInside === 'boolean') aiMovesInside = data.aiMovesInside;
+        if (data && (data.role === 'admin' || data.role === 'moderator')) role = data.role;
         return data;
     };
     // A POST whose answer is a file (the retraining export): saved by the browser; its headers returned.
@@ -90,9 +94,9 @@
         card.hidden = false;
         card.className = `mode-card ${mode}`;
         card.textContent = '';
-        card.append(...(mode === 'enforce'
-            ? [h('b', { text: 'Enforce mode' }), 'Mail the policy flags is moved to Spam. The brake stops all moving if too much moves in an hour.', h('br'), h('a', { href: '#/settings', text: 'The policy' })]
-            : [h('b', { text: 'Monitor mode' }), 'Nothing is moved: emails the policy would move are only recorded, so you can measure false alarms first.', h('br'), h('a', { href: '#/readiness', text: 'Ready for enforce mode?' })]));
+        card.append(...[(mode === 'enforce'
+            ? [h('b', { text: 'Enforce mode' }), 'Mail the policy flags is moved to Spam. The brake stops all moving if too much moves in an hour.', isModerator() ? null : [h('br'), h('a', { href: '#/settings', text: 'The policy' })]]
+            : [h('b', { text: 'Monitor mode' }), 'Nothing is moved: emails the policy would move are only recorded, so you can measure false alarms first.', isModerator() ? null : [h('br'), h('a', { href: '#/readiness', text: 'Ready for enforce mode?' })]])].flat(Infinity).filter(Boolean));
     }
 
     function toast(msg) {
@@ -325,8 +329,8 @@
             const held = d.brake.held || 0;
             const resume = (moveHeld) => postButton('/api/resume', () => ({ moveHeld }), (o) => (moveHeld && o.held && !o.held.monitor ? `Moving resumed: ${num(o.held.moved)} moved to Spam${o.held.left ? `; ${num(o.held.left)} to go, press again` : ''}.` : 'Moving resumed.'),
                 moveHeld ? `Resume moving, and move the ${num(held)} emails the brake left in the Inbox to Spam now?` : 'Resume moving, and leave those emails in the Inbox?');
-            item('critical', 'Moving is paused (brake).', `${num(d.brake.moves)} emails were moved within an hour (the limit is ${num(d.brake.limit || d.brake.moves)}). Since then, ${num(held)} emails that would have been moved were left in the Inbox, like any other email; resuming can move them now.`,
-                [h('button', { class: 'btn primary', type: 'button', onclick: resume(true) }, `Resume, and move those ${num(held)} to Spam`), h('button', { class: 'btn', type: 'button', onclick: resume(false) }, 'Resume, and leave them in the Inbox')]);
+            item('critical', 'Moving is paused (brake).', `${num(d.brake.moves)} emails were moved within an hour (the limit is ${num(d.brake.limit || d.brake.moves)}). Since then, ${num(held)} emails that would have been moved were left in the Inbox, like any other email; resuming can move them now${isModerator() ? ' (an administrator resumes it)' : ''}.`,
+                isModerator() ? null : [h('button', { class: 'btn primary', type: 'button', onclick: resume(true) }, `Resume, and move those ${num(held)} to Spam`), h('button', { class: 'btn', type: 'button', onclick: resume(false) }, 'Resume, and leave them in the Inbox')]);
         }
         if (d.heldCampaigns && d.heldCampaigns.length) item('warning', `Moving is paused for ${d.heldCampaigns.length} campaign${d.heldCampaigns.length === 1 ? '' : 's'}, waiting for your decision.`,
             ['Many copies were moved on evidence nothing outside the email confirms, so its other copies are left in the Inbox, like any email not moved. Open one to confirm it as phishing (every copy is moved to Spam) or dismiss it as a false alarm (the moved ones go back to the Inbox).',
@@ -335,7 +339,7 @@
         if (d.missedLists && d.missedLists.length) {
             const ml = d.missedLists, one = ml.length === 1;
             item('critical', `${one ? 'A phishing list' : `${num(ml.length)} phishing lists`} missed ${one ? 'its' : 'their'} download: ${ml.map(l => l.name).join(', ')}.`,
-                `The checks still use ${one ? 'its' : 'their'} previous copy, and ${one ? 'it is' : 'they are'} tried again every 3 hours; the admins were sent an alert.`, link('#/about?show=lists', 'Details, and Re-check'));
+                `The checks still use ${one ? 'its' : 'their'} previous copy, and ${one ? 'it is' : 'they are'} tried again every 3 hours; the admins were sent an alert.`, isModerator() ? null : link('#/about?show=lists', 'Details, and Re-check'));
         }
         if (d.rechecked) {
             const rc = d.rechecked, one = rc.emails === 1;
@@ -345,7 +349,7 @@
         }
         // New look-alikes of your domain, until an admin marks them (0.5.36).
         if (d.lookalikes && d.lookalikes.length) item('critical', `${d.lookalikes.length === 1 ? 'A domain that imitates yours was' : `${num(d.lookalikes.length)} domains that imitate yours were`} registered: ${d.lookalikes.slice(0, 5).join(', ')}${d.lookalikes.length > 5 ? '…' : ''}.`,
-            'Mail from them counts as a strong sign of phishing. The admins were sent an alert.', link('#/lookalikes', 'Details, and marking one as the district\'s own'));
+            'Mail from them counts as a strong sign of phishing. The admins were sent an alert.', isModerator() ? null : link('#/lookalikes', 'Details, and marking one as the district\'s own'));
         if (unreviewed) item('info', `${num(unreviewed)} email${unreviewed === 1 ? '' : 's'} ${unreviewed === 1 ? 'waits' : 'wait'} for review.`, 'Copies of one email are answered together. Every answer helps measure false alarms before enforce mode, and retraining.', h('a', { class: 'btn primary', href: '#/review', text: 'Start reviewing' }));
         const hour = new Date().getHours();
         const urgent = need.filter(n => n.tone !== 'info').length;
@@ -433,7 +437,7 @@
         const found = (f) => (f ? `; ${num(f.found)} more found in ${num(f.searched)} of ${num(f.of)} mailboxes${f.moved ? `, ${num(f.moved)} moved` : ''}` : '');
         return h('section', { class: `card campaign-bar${c.held && !c.decision ? ' held' : ''}` },
             h('div', {}, h('b', { text: c.label }), h('div', { class: 'small muted', text: status })),
-            h('div', { class: 'actions' },
+            isModerator() ? h('div', { class: 'small muted', text: 'Confirming or dismissing a whole campaign is for an administrator; answer its copies in Review.' }) : h('div', { class: 'actions' },
                 c.decision !== 'confirmed' ? [
                     h('button', { class: 'btn primary', type: 'button', onclick: postButton('/api/campaign/confirm', () => ({ key, search: search.checked }),
                         (o) => (o.moved && o.moved.monitor ? `Confirmed as phishing. Monitor mode: nothing moved${found(o.found)}.` : `Confirmed: ${num(o.moved.moved)} copies moved to Spam${found(o.found)}${o.moved.left ? `; ${num(o.moved.left)} left, press again` : ''}.`),
@@ -541,7 +545,7 @@
         action.addEventListener('change', apply); state.addEventListener('change', apply);
         const scope = filt.user ? `for ${filt.user}` : filt.campaign ? 'in this campaign' : '';
         const bar = filt.campaign ? await campaignBar(filt.campaign) : null;
-        const csv = MEMORY ? null : h('a', { class: 'btn', href: `/api/export.csv?${q(Object.assign({ days: String(days) }, filt))}`, download: '' }, 'Download CSV');
+        const csv = MEMORY || isModerator() ? null : h('a', { class: 'btn', href: `/api/export.csv?${q(Object.assign({ days: String(days) }, filt))}`, download: '' }, 'Download CSV');
         // Several at once: a checkbox on each row, and a bar with what to do with the selected ones.
         const selected = new Set(), boxes = [];
         const count = h('b', { text: '' });
@@ -560,7 +564,7 @@
         const bulk = (action, done, ask) => postButton('/api/bulk', () => ({ action, keys: [...selected] }),
             (o) => `${done}: ${num(o.done)}${o.skipped ? ` (${num(o.skipped)} skipped: not in Spam, or already so)` : ''}${o.failed ? `, ${num(o.failed)} failed` : ''}.`, ask);
         bulkBar.append(count,
-            h('button', { class: 'btn', type: 'button', onclick: bulk('release', 'Moved back to the Inbox', 'Move the selected emails that are in Spam back to the Inbox?') }, 'Move back to Inbox'),
+            isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: bulk('release', 'Moved back to the Inbox', 'Move the selected emails that are in Spam back to the Inbox?') }, 'Move back to Inbox'),
             h('button', { class: 'btn', type: 'button', onclick: bulk('false-alarm', 'Marked as false alarms') }, 'Mark false alarm'),
             h('button', { class: 'btn', type: 'button', onclick: bulk('phishing', 'Confirmed as phishing') }, 'Confirm phishing'),
             h('button', { class: 'linkbtn', type: 'button', onclick: () => { selected.clear(); all.checked = false; for (const [, c] of boxes) c.checked = false; changed(); } }, 'Clear'));
@@ -693,7 +697,7 @@
             : ai >= aiSuspicious ? `over the suspicious line (${pct(aiSuspicious)}), under the move line (${pct(aiThreshold)}): recorded as suspicious, not moved`
             : ai >= 0.5 ? `50% or more, so it leans toward phishing, but under the suspicious line (${pct(aiSuspicious)}): the AI alone does nothing`
             : `under 50%: the AI reads it as genuine`;
-        const canRead = !m.pasted && !!m.key;
+        const canRead = !m.pasted && !!m.key && !isModerator();
         const more = canRead ? h('button', { class: 'linkbtn', type: 'button', text: '…show more' }) : null;
         if (more) more.addEventListener('click', () => showAiReading(m));
         return [
@@ -765,7 +769,7 @@
         const moves = opts.mode === 'enforce' && m.state === 'inbox' && m.action !== 'move';
         const actions = quiet ? null : h('div', { class: 'actions' },
             rescanButton(m, 'btn'),
-            m.state === 'moved' ? h('button', { class: 'btn primary', type: 'button', onclick: () => act('/api/release', { key: m.key }, 'Moved back to the Inbox.') }, 'Move back to Inbox') : null,
+            m.state === 'moved' && !isModerator() ? h('button', { class: 'btn primary', type: 'button', onclick: () => act('/api/release', { key: m.key }, 'Moved back to the Inbox.') }, 'Move back to Inbox') : null,
             m.falseAlarm !== true ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: true }, notMoved ? 'Marked as not phishing.' : 'Marked as a false alarm.') }, notMoved ? 'Mark not phishing' : 'Mark false alarm') : null,
             m.falseAlarm !== false || moves ? h('button', { class: `btn${moves ? ' primary' : ''}`, type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, move: moves }, (out) => phishedText(out.moved)) }, moves ? 'Confirm phishing: move to Spam' : 'Confirm phishing') : null,
             !(m.unclear && m.markedBy) ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/unclear', { key: m.key }, 'Set aside: left as it is for the reader to decide, and not used for retraining.'), title: 'Neither clearly phishing nor clearly safe' }, 'Ignore, treat as suspicious') : null);
@@ -860,7 +864,7 @@
                     dataTable([{ name: 'Trigger', get: r => r.label }, { name: 'Moved', num: true, get: r => num(r.moved) }, { name: 'Moved back', num: true, get: r => num(r.released) }, { name: 'By users', num: true, get: r => num(r.byUser || 0) }, { name: 'Rate', num: true, get: r => pct(r.rate, 1) }], d.byTrigger),
                     h('p', { class: 'small muted', text: modelLine(d) }))),
             togetherCard(d),
-            trainingCard(d)];
+            h('p', { class: 'small muted' }, 'Examples for retraining the AI model: ', h('a', { href: '#/trainingexport', text: 'Health → Retraining examples' }), '.')];
     }
     // Rules and AI together: measured only. Emails from outside senders that scored in between on both
     // (neither alone moves them), and what admins marked them: whether moving such emails would be worth
@@ -882,10 +886,18 @@
             h('p', { class: 'small muted', text: verdict }));
     }
 
-    // --- Model health: examples for retraining the model (off until an admin allows it in Settings) ----
+    // --- Health → Retraining examples (0.6.1, its own page; was on Model health): off until an admin allows it in
+    // Settings → Retraining.
+    async function trainingPage() {
+        const d = await api(`/api/health?days=${days}`);
+        return [h('h1', { text: 'Retraining examples' }),
+            h('p', { class: 'sub' }, 'The emails admins and moderators marked, as training examples for the AI model. Marking emails doesn\'t train the model by itself: this file, checked by hand (docs/RETRAINING.md), does. ',
+                h('a', { href: '#/retraining', text: 'Settings → Retraining' }), ' allows or stops it.'),
+            trainingCard(d)];
+    }
     function trainingCard(d) {
         const title = h('h2', { text: 'Examples for retraining the model' });
-        const intro = h('div', { class: 'sub', text: `The emails an admin confirmed as phishing in the last ${days} days (and, if you tick it, the false alarms), one per campaign, newest first, up to 100, as training examples for the AI model. Each is read from Gmail when you download, with the people in it taken out. The file is the only copy: nothing is stored, and Activity notes who downloaded it.` });
+        const intro = h('div', { class: 'sub', text: `The emails an admin or moderator confirmed as phishing in the last ${days} days (and, if you tick it, the false alarms), one per campaign, newest first, up to 100, as training examples for the AI model. Each is read from Gmail when you download, with the people in it taken out. The file is the only copy: nothing is stored, and Activity notes who downloaded it.` });
         const guide = h('p', { class: 'small muted', text: 'Before the file goes anywhere, follow docs/RETRAINING.md: check every example (words marked ⟦like this⟧ may be names), run tools/check-training-file.js, then train.' });
         if (!d.trainingExport) return h('section', { class: 'card spaced' }, title, intro, h('p', { class: 'small muted', text: 'Off. A dashboard admin can allow it in Settings → Retraining.' }));
         if (MEMORY) return h('section', { class: 'card spaced' }, title, intro, h('p', { class: 'small muted', text: 'The clickable mockup has no emails to read: in the real dashboard, the download is here.' }), guide);
@@ -1466,7 +1478,7 @@
             h('div', { class: 'small', text: `AI ${pct(ai)} (moves at ${pct(aiThreshold)}) · rules score ${m.score === null || m.score === undefined ? '–' : m.score} (flagged at 5) · ${num(against.length)} sign${against.length === 1 ? '' : 's'} against, ${num(pro.length)} for` }));
         const users = g.users.length ? g.users : [m.user].filter(Boolean);
         const quotes = m.ai && m.ai.reasons && m.ai.reasons.length ? m.ai.reasons.slice(0, 3).map(r => h('div', { class: 'quote', text: r.facts ? 'Who sent it, the sender check and where its links go' : `“${r.sentence}”` })) : null;
-        const canRead = !!m.key && !m.pasted;
+        const canRead = !!m.key && !m.pasted && !isModerator();
         return h('div', { class: 'rv-open' },
             h('div', { class: 'rv-head' },
                 h('div', { class: 'rv-who' }, 'From ', m.sender.address ? addr(m.sender.address, m.sender.name ? `${m.sender.name} <${m.sender.address}>` : m.sender.address) : (m.sender.name || 'an unknown sender'),
@@ -1489,7 +1501,7 @@
                 canRead ? h('button', { class: 'rv-link', type: 'button', onclick: () => showAiReading(m), title: 'Read from Gmail now, as the AI reads it (nothing is kept)' }, 'Show the email') : null,
                 rescanButton(m, 'rv-link review-rescan'),
                 g.campaign ? h('a', { class: 'rv-link', href: `#/messages?${q({ campaign: g.campaign })}` }, 'Every copy') : null),
-            h('p', { class: 'small muted rv-help', text: `${g.keys.length > 1 ? `One answer covers all ${num(g.keys.length)} copies. ` : ''}Ignore takes it out of the queue and keeps it out of retraining; Skip leaves it here, undecided. Show the email reads it from Gmail now, as the AI reads it: nothing is kept.${st.mode === 'enforce' ? '' : ' Monitor mode: nothing is moved.'}` }));
+            h('p', { class: 'small muted rv-help', text: `${g.keys.length > 1 ? `One answer covers all ${num(g.keys.length)} copies. ` : ''}Ignore takes it out of the queue and keeps it out of retraining; Skip leaves it here, undecided.${canRead ? ' Show the email reads it from Gmail now, as the AI reads it: nothing is kept.' : ''}${st.mode === 'enforce' ? '' : ' Monitor mode: nothing is moved.'}` }));
     }
 
     // --- Health → Service status (0.6.0, as a status page): one line on how it is, each check with what to do,
@@ -1961,12 +1973,12 @@
         const toggle = h('input', { type: 'checkbox', role: 'switch', checked: !!g.enabled, 'aria-label': 'Allow the retraining export' });
         toggle.addEventListener('change', async () => {
             acting++;
-            try { await api('/api/training-export/allow', { method: 'POST', body: { enabled: toggle.checked } }); toast(toggle.checked ? 'The retraining export is allowed (Health → Model health).' : 'The retraining export is off.'); render(); }
+            try { await api('/api/training-export/allow', { method: 'POST', body: { enabled: toggle.checked } }); toast(toggle.checked ? 'The retraining export is allowed (Health → Retraining examples).' : 'The retraining export is off.'); render(); }
             catch (e) { toggle.checked = !toggle.checked; toast(`Couldn't change it: ${e.message}`); } finally { acting--; }
         });
         const facts = g.updatedBy ? `${g.enabled ? 'Allowed' : 'Turned off'} by ${g.updatedBy}, ${when(g.updatedAt)}.` : 'Off: nobody has allowed it.';
         return h('section', { class: 'card spaced' }, h('h2', { text: 'Retraining export' }),
-            h('div', { class: 'sub', text: 'Lets dashboard admins download the emails an admin marked, with the people in them taken out, to retrain the AI model (Health → Model health → Download for retraining; docs/RETRAINING.md). Each download reads those emails from Gmail at that moment: the file is the only copy, and Activity notes who downloaded it. Turn it on only while someone is preparing training examples.' }),
+            h('div', { class: 'sub', text: 'Lets dashboard admins download the emails an admin marked, with the people in them taken out, to retrain the AI model (Health → Retraining examples → Download for retraining; docs/RETRAINING.md). Each download reads those emails from Gmail at that moment: the file is the only copy, and Activity notes who downloaded it. Turn it on only while someone is preparing training examples.' }),
             h('label', { class: 'switch' }, toggle, h('span', { text: 'Allow the retraining export' })),
             h('div', { class: 'small muted', text: facts }));
     }
@@ -2054,7 +2066,7 @@
                 { name: 'Re-checked', get: c => (c.recheckAt ? when(c.recheckAt) : '–') },
                 { name: 'What happened', get: c => pill(outcomeOf(c)) }
             ], g.copies, c => go(`#/message?${q({ key: c.key })}`), 'No copies.', c => (c.clicked ? 'row-alert' : '')));
-        const seen = d.groups.length ? postButton('/api/rechecked/seen', () => ({}), () => 'Marked as seen: the banners on Today and Messages are gone until something new is found.') : null;
+        const seen = d.groups.length && !isModerator() ? postButton('/api/rechecked/seen', () => ({}), () => 'Marked as seen: the banners on Today and Messages are gone until something new is found.') : null;
         return [h('h1', { text: 'Re-checked mail' }),
             h('p', { class: 'sub', text: 'Emails already delivered to an Inbox and found later to be phishing or suspicious: when a phishing list added one of their sites or senders, when the look-alike watch found a domain imitating yours that they came from, reply to or link to (or an admin marked one a threat), after an update that changed how email is checked, or on a second look an hour and a day after they arrived. Each is checked again in full, and moved as it would have been on arrival.' }),
             h('section', { class: 'card' }, h('dl', { class: 'kv' },
@@ -2379,7 +2391,7 @@
     }
     const DONATE_URL = 'https://www.paypal.com/donate/?hosted_button_id=NA8SK5RBLWGW6';
     async function creditsPage() {
-        const d = await settingsData();
+        const d = await api('/api/session');
         const link = (text, href) => h('a', { href, target: '_blank', rel: 'noopener noreferrer', text });
         const item = (name, href, what) => h('li', {}, link(name, href), ` ${what}`);
         return [h('h1', { text: 'About & credits' }),
@@ -2420,7 +2432,7 @@
     }
 
     // --- Routing ---------------------------------------------------------------------------------
-    const ROUTES = { overview, review, campaigns, users, messages, message, check, rechecked, lookalikes, health, readiness, activity, status, settings, allowlist, mailboxes, summary, retraining, safebrowsing: safeBrowsingPage, spamhaus: spamhausPage, abusech: abusechPage, clicks: clicksPage, phishtraining: phishTrainingPage, update: updatePage, about,
+    const ROUTES = { trainingexport: trainingPage, overview, review, campaigns, users, messages, message, check, rechecked, lookalikes, health, readiness, activity, status, settings, allowlist, mailboxes, summary, retraining, safebrowsing: safeBrowsingPage, spamhaus: spamhausPage, abusech: abusechPage, clicks: clicksPage, phishtraining: phishTrainingPage, update: updatePage, about,
         // Help (0.5.46)
         help: () => helpDocPage('howitworks'), helpdashboard: () => helpDocPage('dashboard'), helpalerts: () => helpDocPage('alerts'), helpprivacy: () => helpDocPage('privacy'),
         helpworkspace: () => helpDocPage('workspace'), helpinstall: () => helpDocPage('install'), helpsettings: () => helpDocPage('settings'), helpcosts: () => helpDocPage('costs'),
@@ -2432,7 +2444,7 @@
     const SECTIONS = {
         threats: { label: 'Threats', groups: [[null, [['campaigns', 'Campaigns'], ['rechecked', 'Re-checked'], ['lookalikes', 'Look-alikes']]]] },
         mail: { label: 'Mail', groups: [[null, [['messages', 'Messages'], ['check', 'Check an email'], ['users', 'Users']]]] },
-        health: { label: 'Health', groups: [[null, [['status', 'Service status'], ['readiness', 'Readiness'], ['health', 'Model health'], ['activity', 'Activity']]]] },
+        health: { label: 'Health', groups: [[null, [['status', 'Service status'], ['readiness', 'Readiness'], ['health', 'Model health'], ['trainingexport', 'Retraining examples'], ['activity', 'Activity']]]] },
         settings: { label: 'Settings', groups: [['Protection', [['settings', 'Policy'], ['allowlist', 'Allowlist']]],
             ['Threat feeds', [['safebrowsing', 'Safe Browsing'], ['spamhaus', 'Spamhaus'], ['abusech', 'abuse.ch']]],
             ['Organization', [['mailboxes', 'Mailboxes'], ['summary', 'Weekly summary'], ['clicks', 'Link clicks'], ['phishtraining', 'Phishing training']]],
@@ -2441,6 +2453,14 @@
             ['helpinstall', 'Install & troubleshooting'], ['helpsettings', 'Settings reference'], ['helpcosts', 'Costs'], ['helparchitecture', 'Architecture deep dive'], ['credits', 'About & credits']]]] }
     };
     const pagesOf = (section) => SECTIONS[section].groups.flatMap(([, pages]) => pages);
+    // (0.6.1) What a moderator doesn't see: Health and Settings, and Threats → Look-alikes (the service refuses them too).
+    const ADMIN_ONLY_SECTIONS = ['health', 'settings'], ADMIN_ONLY_PAGES = ['lookalikes'];
+    const adminOnly = (place) => ADMIN_ONLY_SECTIONS.includes(place.section) || ADMIN_ONLY_PAGES.includes(place.page);
+    function applyRole() {
+        const mod = isModerator();
+        for (const a of document.querySelectorAll('.nav a, .tabbar a')) if (ADMIN_ONLY_SECTIONS.includes(a.dataset.tab)) a.hidden = mod;
+        document.body.classList.toggle('moderator', mod);
+    }
     const PAGE_OF = { message: 'messages' };
     function placeOf(name) {
         const page = PAGE_OF[name] || name;
@@ -2451,7 +2471,7 @@
         const s = SECTIONS[section];
         const menu = h('nav', { class: 'side', 'aria-label': s.label },
             s.groups.map(([title, pages]) => [title ? h('div', { class: 'side-group', text: title }) : null,
-                pages.map(([p, label]) => h('a', { href: `#/${p}`, 'data-page': p, 'aria-current': p === page ? 'page' : null, text: label }))]));
+                pages.filter(([p]) => !(isModerator() && ADMIN_ONLY_PAGES.includes(p))).map(([p, label]) => h('a', { href: `#/${p}`, 'data-page': p, 'aria-current': p === page ? 'page' : null, text: label }))]));
         return h('div', { class: 'with-side' }, menu, h('div', { class: 'side-page' }, nodes));
     }
     // The phone's menu: a drawer over the page (the menu button, or More in the tab bar), closed by a choice,
@@ -2479,7 +2499,10 @@
         pageBusy = () => false;
         const scrollY = window.scrollY;
         try {
-            let nodes = [].concat(await ROUTES[name](new URLSearchParams(query || ''))).flat(Infinity).filter(Boolean);
+            let nodes = isModerator() && adminOnly(place)
+                ? [h('h1', { text: 'For administrators' }), h('div', { class: 'alert warning', role: 'status' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '!' }),
+                    h('div', { class: 'grow' }, h('b', { text: 'This page is for the service\'s administrators.' }), ' As a moderator you can review emails: ', h('a', { href: '#/review', text: 'go to Review' }), '.'))]
+                : [].concat(await ROUTES[name](new URLSearchParams(query || ''))).flat(Infinity).filter(Boolean);
             if (id !== rendering) return;
             if (place.section) nodes = [withSideMenu(place.section, place.page, nodes)];
             view().textContent = '';
@@ -2542,7 +2565,8 @@
             showLive();
         }
         try {
-            const st = await api('/api/settings');
+            const st = await api('/api/session');
+            applyRole();
             $('#who').textContent = st.admin || '';
             $('#orgLine').textContent = `Google Workspace · ${st.orgDomains.join(', ') || 'your organization'}`;
             showMode(st.mode);

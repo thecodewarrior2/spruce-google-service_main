@@ -160,6 +160,12 @@ function loadConfig(env = process.env) {
         adminEmails: list(env.ADMIN_EMAILS),
         // A group whose members may use the dashboard too (read as DIRECTORY_ADMIN; groups inside it count).
         adminGroups: list(env.ADMIN_GROUP),
+        // (0.6.1) Moderators: the members of this group (spruce-moderators@ORG by default, set by deploy/install.sh;
+        // off = none) may use Today, Review, Threats → Campaigns and Re-checked, Mail and Help, and answer the review
+        // queue; never Health, Settings, or what moves or releases a whole campaign (src/server.js, MODERATOR_ROUTES).
+        moderatorGroups: String(env.MODERATOR_GROUP || '').trim().toLowerCase() === 'off' ? [] : list(env.MODERATOR_GROUP),
+        // Demo mode only: DEMO_ROLE=moderator shows the dashboard as a moderator sees it.
+        demoRole: env.DEMO_ROLE === 'moderator' ? 'moderator' : 'admin',
         // The Cloud Scheduler job the dashboard's "Read the directory again now" runs
         // (projects/PROJECT/locations/REGION/jobs/spruce-renew-watches; deploy/install.sh sets it).
         renewJob: env.RENEW_JOB || '',
@@ -189,6 +195,7 @@ function configProblems(c) {
         if (!c.iapAudience) p.push('IAP_AUDIENCE is not set: the dashboard must sit behind Identity-Aware Proxy.');
         if (!c.adminEmails.length && !c.adminGroups.length) p.push('Neither ADMIN_EMAILS nor ADMIN_GROUP is set: nobody could use the dashboard.');
         if (c.adminGroups.length && !c.directoryAdmin) p.push('ADMIN_GROUP needs DIRECTORY_ADMIN (an admin the service may act as to check who is in the group).');
+        if (c.moderatorGroups.length && !c.directoryAdmin) p.push('MODERATOR_GROUP needs DIRECTORY_ADMIN (an admin the service may act as to check who is in the group), or MODERATOR_GROUP=off.');
     }
     if (!(Number.isInteger(c.retentionDays) && c.retentionDays >= 14 && c.retentionDays <= 365)) p.push('RETENTION_DAYS must be a whole number of days from 14 to 365.');
     if (!(c.aiSuspicious >= 0.5 && c.aiSuspicious <= 1)) p.push('AI_SUSPICIOUS_THRESHOLD must be between 0.5 and 1.');

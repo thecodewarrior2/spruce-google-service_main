@@ -85,6 +85,18 @@ const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' &
 // is), each with its keys, recipients and senders (at most 2000 of each), and what the list shows of it
 // (src/dashboard/aggregate.js, shared with the clickable mockup).
 const reviewGroups = A.reviewGroups;
+// (0.6.1) What a moderator (MODERATOR_GROUP) may use: Today, Review, Threats → Campaigns and Re-checked, Mail
+// (Messages, an email's page, Check an email, Users) and Help, and the review answers: phishing, false alarm, ignore
+// and re-scan, one at a time or ticked together. Never Health, Settings, Look-alikes, the CSV export, reading an
+// email from Gmail, moving an email back, the brake, or what moves, releases or searches for a whole campaign.
+const MODERATOR_ROUTES = new Set(['GET /api/session', 'GET /api/overview', 'GET /api/pending', 'GET /api/review', 'GET /api/message', 'GET /api/messages',
+    'GET /api/campaigns', 'GET /api/campaign', 'GET /api/users', 'GET /api/rechecked', 'GET /api/help',
+    'POST /api/mark', 'POST /api/unclear', 'POST /api/rescan', 'POST /api/check', 'POST /api/bulk']);
+const MODERATOR_BULK = ['false-alarm', 'phishing', 'unclear'];
+function moderatorMay(route, action) {
+    if (!MODERATOR_ROUTES.has(route)) return false;
+    return route !== 'POST /api/bulk' || MODERATOR_BULK.includes(action);
+}
 // A user took back an email the checks flagged, and no admin has looked yet.
 const rescueToCheck = (r) => r.state === 'released' && r.releasedByUser && !r.markedBy && r.score >= 5 && r.trigger !== 'ai';
 
@@ -187,6 +199,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         return renewStatus;
     }
     const groupCheck = cfg.adminGroups.length && service.gmail && service.gmail.hasMember ? adminGroupCheck(cfg, service.gmail) : null;
+    const moderatorCheck = (cfg.moderatorGroups || []).length && service.gmail && service.gmail.hasMember ? adminGroupCheck(cfg, service.gmail, () => Date.now(), cfg.moderatorGroups) : null;
     const since = (q) => Date.now() - Math.min(90, Math.max(1, Number(q.get('days')) || 30)) * A.DAY;
     // Activity's period: up to how long it is kept (AUDIT_DAYS); its kind and words to look for.
     const activityFor = async (q) => {
@@ -334,13 +347,13 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     };
     // Who opened the dashboard (0.5.29): once a day per admin (the organization's day), in What admins did.
     const opened = new Map();
-    async function noteOpened(email) {
+    async function noteOpened(email, role = 'admin') {
         const day = A.dayIn(Date.now(), cfg.timeZone);
         if (!email || opened.get(email) === day) return;
         opened.set(email, day);
         const today = await store.listEvents(Date.now() - 26 * 3600 * 1000, { limit: 2000 });
         if (today.some(e => e.kind === 'signin' && e.by === email && A.dayIn(e.at, cfg.timeZone) === day)) return;
-        await store.addEvent({ kind: 'signin', by: email, admin: true, text: `${email} opened the dashboard.` });
+        await store.addEvent({ kind: 'signin', by: email, admin: true, text: `${email} opened the dashboard${role === 'moderator' ? ' (as a moderator)' : ''}.` });
     }
     const once = (key, gap = ACTIONS_GAP_MS) => { const t = lastAction.get(key) || 0; if (Date.now() - t < gap) return false; lastAction.set(key, Date.now()); return true; };
     // Google Safe Browsing (0.5.23): the key's state (src/intel/sbkey.js), never the key itself.
@@ -499,6 +512,12 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const mb = await mailboxes();
             return { mailboxes: page.items.map(u => ({ email: u.email, lastNotification: u.lastNotification || null, watchExpiration: u.watchExpiration || null })), next: page.next, watched: mb.watched,
                      ending: mb.ending == null ? null : mb.ending, scope: cfg.watchScope, left: ((await store.getState('watchLeft')) || {}).left || 0 };
+        },
+        // (0.6.1) Who is signed in, as what, and what every page's frame needs (the menu, the footer, About & credits):
+        // the only settings a moderator reads.
+        'GET /api/session': async () => {
+            const E = spruce.load();
+            return { mode: cfg.mode, orgDomains: cfg.orgDomains, retentionDays: cfg.retentionDays, model: E.modelInfo, version: VERSION, donateButton: cfg.donateButton, timeZone: cfg.timeZone };
         },
         'GET /api/settings': async (q) => {
             const E = spruce.load();
@@ -841,15 +860,19 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 return send(res, 200, await TASKS[route]());
             }
             // Everything else is the dashboard: admins only.
-            const admin = await verifyAdmin(req, cfg, groupCheck);
+            const admin = await verifyAdmin(req, cfg, groupCheck, moderatorCheck);
             if (!admin.ok) return send(res, admin.status || 403, { error: admin.why });
-            await noteOpened(admin.email).catch(() => {});
+            await noteOpened(admin.email, admin.role).catch(() => {});
             if (api[route]) {
+                // (0.6.1) A moderator may use only the review pages' routes; the rest is refused here, whatever the page shows.
+                const forModerators = { error: 'This is for the service\'s administrators: moderators can review emails, not change settings or see Health.', role: admin.role };
+                if (admin.role === 'moderator' && !MODERATOR_ROUTES.has(route)) return send(res, 403, forModerators);
                 if (req.method === 'POST' && req.headers['x-requested-with'] !== 'spruce-dashboard') return send(res, 403, { error: 'missing request header' });
                 // The policy settings changed on the dashboard (at most every 30 s), before anything reads them.
                 if (service.refreshPolicy) await service.refreshPolicy();
                 // (a pasted email for "Check an email" can be large: its attachments come with it)
                 const body = req.method === 'POST' ? await readBody(req, route === 'POST /api/check' ? CHECK_MAX_BYTES * 2 : 64 * 1024) : {};
+                if (admin.role === 'moderator' && !moderatorMay(route, body && body.action)) return send(res, 403, forModerators);
                 const out = await api[route](url.searchParams, body, admin);
                 if (req.method === 'POST') cache.stale();
                 if (out && typeof out.csv === 'string') return send(res, 200, out.csv, 'text/csv; charset=utf-8', { 'content-disposition': `attachment; filename="${out.filename}"` });
@@ -857,7 +880,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 // A route's status is the HTTP status code only when it is one (a field of that name holding
                 // anything else, such as an update's progress, broke Settings → Update in 0.3.9 to 0.3.11).
                 const code = out && Number.isInteger(out.status) && out.status >= 100 && out.status <= 599 ? out.status : (out && out.error ? 400 : 200);
-                return send(res, code, Object.assign({ admin: admin.email, demo: cfg.demo, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, aiMovesInside: cfg.aiMovesInside }, out));
+                return send(res, code, Object.assign({ admin: admin.email, role: admin.role || 'admin', demo: cfg.demo, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, aiMovesInside: cfg.aiMovesInside }, out));
             }
             if (req.method === 'GET') {
                 const rel = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
@@ -941,4 +964,4 @@ async function reportEngine({ cfg, store }) {
 }
 
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
-module.exports = { reviewGroups, createApp, expectedProject, reportEngine };
+module.exports = { reviewGroups, createApp, expectedProject, reportEngine, moderatorMay, MODERATOR_ROUTES };

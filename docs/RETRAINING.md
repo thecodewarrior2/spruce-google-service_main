@@ -11,7 +11,7 @@ model, without any person's details reaching a repository or an outside service.
 
 **In short:**
 
-1. **Allow and download.** An admin downloads the marked emails from Health → Model health. They arrive with
+1. **Allow and download.** An admin downloads the marked emails from Health → Retraining examples. They arrive with
    the people already taken out. Emails not in English are left out (the model reads English only).
 2. **Review.** A person reads every example and decides on each word marked ⟦like this⟧.
 3. **Replace the placeholders.** [NAME] and the others become made-up names, by hand or with claude.ai
@@ -49,7 +49,7 @@ model, without any person's details reaching a repository or an outside service.
 
 1. **Settings → Retraining → Allow the retraining export.** It is off by default. Activity
    notes who turned it on, and every download.
-2. **Health → Model health → Examples for retraining the model.** Choose the period at the top (7, 30 or 90
+2. **Health → Retraining examples.** Choose the period at the top (7, 30 or 90
    days).
 3. **Include false alarms** if you want genuine examples. They are worth the most, because they teach
    the model what not to flag, but they are real people's mail: check them with the most care (step 2).
