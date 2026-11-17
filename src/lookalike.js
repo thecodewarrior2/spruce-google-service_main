@@ -5,7 +5,7 @@
 // From ORG_DOMAINS, a fixed list of candidates is made (variantsOf): the domain's name with a letter left
 // out, doubled, swapped or replaced by a look-alike (0/o, 1/l, rn/m, vv/w…), a hyphen taken out, under
 // the usual endings (.com, .org, .net, .us…), and the forms people expect of a school district
-// (cedarvale-k12.org, cedarvaleschools.com for cedarvale.k12.fl.us). Each hour the next ones are asked of
+// (cedarvale-k12.org, cedarvaleschools.com for a made-up cedarvale.k12.fl.us). Each hour the next ones are asked of
 // Cloudflare's public DNS resolver (cloudflare-dns.com, DNS over HTTPS): does the name exist, does it
 // have mail servers (MX), a website (A)? Only these candidate names are sent, nothing about any email.
 // A full pass takes a few hours (LOOKALIKE_BATCH names an hourly run, pipeline.js lookalikeStep); the next

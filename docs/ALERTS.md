@@ -218,7 +218,7 @@ Mail is still checked; one source of evidence is missing until it comes back.
 ### A look-alike of your domain (`lookalike`)
 - **When:** the look-alike watch (0.5.36) finds a newly registered domain that imitates yours: a letter left
   out, doubled, swapped or replaced (`maple-schoo1s.org`), another ending, or a district's usual forms
-  (`cedarvale-k12.org`, `cedarvaleschools.com`). One alert per hourly run, for every one found in it. Not for those
+  (`maple-k12.org`, `mapleschools.com` for a district at `maple.k12.fl.us`, made up). One alert per hourly run, for every one found in it. Not for those
   that existed before the watch's first pass (listed, no alert), unless registered in the last 30 days.
 - **What it means:** someone may be preparing payroll, vendor or "the superintendent asks" fraud. From now
   on, mail from it, replies sent to it and links to it are strong signs of phishing (they move mail with the

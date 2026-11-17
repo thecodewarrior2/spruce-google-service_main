@@ -103,7 +103,7 @@ brought up to date with 0.5.59 to 0.6.7.
 
 ## 0.6.3: no DMARC result from Gmail is worked out from its SPF and DKIM results; your own sent copy isn't judged
 
-- **False alarm:** mail between two staff accounts of the district's second domain (cedarvaleschools.com) was judged
+- **False alarm:** mail between two staff accounts of the district's second domain was judged
   "outside" and read by the AI (98%, "would move"): "the address is the organization's, but DMARC didn't pass".
   Gmail's verification line on that copy had no DMARC result at all ("dkim=pass header.i=@…; spf=pass
   smtp.mailfrom=…", no "dmarc="), while another email between the same two accounts had "dmarc=pass": Gmail leaves it
@@ -218,7 +218,7 @@ brought up to date with 0.5.59 to 0.6.7.
 
 ## 0.5.74: "Business via QuickBooks" is no false alarm
 
-- **False alarm:** "LAKESIDE INK LLC via QuickBooks" <sales@…> was flagged (score 6: "isn't Intuit's address", 5).
+- **False alarm:** "Lakeside Ink LLC via QuickBooks" (made up here) was flagged (score 6: "isn't Intuit's address", 5).
   QuickBooks sends a business's invoices through the business's own mailbox and names it "Business via QuickBooks";
   Docusign, Dropbox and others name senders the same way. A brand named only after "via" is now a note with no weight
   when the address is the sender's own: Gmail's DMARC check passed for its domain, and the domain doesn't carry or

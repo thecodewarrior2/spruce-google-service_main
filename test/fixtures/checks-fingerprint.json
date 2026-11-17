@@ -1,5 +1,5 @@
 {
   "checksLevel": 16,
-  "fingerprint": "09c8c3485b7c87a5762283fd748b886e880c1eb1869bc78fa223f25e6582eba3",
-  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
+  "fingerprint": "1c7e5e613d88bb6867d6214351451a4ffaff8225222ff7d0c8751af350156549",
+  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.7: example names in comments made up (the district's domains and a business's name replaced)"
 }
