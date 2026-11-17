@@ -892,18 +892,35 @@
         ['sp', 'Subdomains', (v) => v || null], ['pct', 'Applies to', (v) => `${v}% of failing mail`], ['adkim', 'DKIM alignment', (v) => (String(v).toLowerCase() === 's' ? 'strict' : 'relaxed')],
         ['aspf', 'SPF alignment', (v) => (String(v).toLowerCase() === 's' ? 'strict' : 'relaxed')], ['rua', 'Aggregate reports to', (v) => v], ['ruf', 'Failure reports to', (v) => v]];
     const LEVEL_WORDS = { good: 'Strong', warn: 'Can be stronger', bad: 'Needs attention' };
+    // A domain's reputation (src/dashboard/reputation.js): each blocklist service, and the downloaded lists' entries on it.
+    const REP_STATE = { clean: ['Clean', 'good'], listed: ['Listed', 'bad'], off: ['Off', 'off'], unknown: ['Not checked', 'warn'] };
+    function reputationPart(r, error) {
+        const head = (lvl) => h('h3', {}, 'Reputation and blocklists ', lvl ? h('span', { class: `dns-level ${lvl}` }, h('span', { class: 'dot', 'aria-hidden': 'true' }), { good: 'Clean', warn: 'Partly checked', bad: 'Listed' }[lvl]) : null);
+        if (!r) return h('div', { class: 'dns-part' }, head(null), h('div', { class: 'small muted', text: error ? `Couldn't check (${error}).` : 'Not checked.' }));
+        return h('div', { class: 'dns-part' }, head(r.level),
+            h('ul', { class: 'rep-list' }, r.services.map(sv => { const [w, c] = REP_STATE[sv.state] || [sv.state, 'warn'];
+                return h('li', {}, h('span', { class: 'rep-name', text: sv.name }), h('span', { class: `dns-level ${c}` }, h('span', { class: 'dot', 'aria-hidden': 'true' }), w), h('span', { class: 'rep-detail small muted', text: sv.detail })); })),
+            h('h3', {}, 'In the downloaded phishing lists'),
+            r.lists.length ? r.lists.map(l => h('div', { class: 'rep-hit' },
+                h('div', {}, h('b', { text: l.list }), ` has ${num(l.count)} ${l.kind === 'address' ? 'sender address' : l.kind === 'url' ? 'link' : 'site'}${l.count === 1 ? '' : 's'} on this domain${l.count > l.entries.length ? ` (the first ${num(l.entries.length)} shown)` : ''}:`),
+                l.entries.map(e => h('code', { class: 'rep-entry', text: e }))))
+                : h('div', { class: 'small muted', text: r.listsChecked ? `Nothing on this domain or under it in the ${num(r.listsChecked)} lists downloaded (Settings → About).` : `Not checked${r.listsError ? ` (${r.listsError})` : ': the phishing lists are off or not downloaded yet'}.` }),
+            r.lists.length ? h('p', { class: 'small muted', text: 'A listed site or link on your own domain usually means a hacked page or a compromised account: find and fix it, then ask the list to remove it. Mail is still judged as before: your own domains count only as exact listed links and addresses, never as a whole site.' }) : null);
+    }
     async function dmarcPage(params) {
-        const d = await api(`/api/dmarc${params.get('fresh') ? '?fresh=1' : ''}`);
+        const fresh = params.get('fresh') ? '?fresh=1' : '';
+        const [d, rep] = await Promise.all([api(`/api/dmarc${fresh}`), api(`/api/reputation${fresh}`).catch(e => ({ error: e.message, domains: [] }))]);
+        const repOf = (domain) => (rep.domains || []).find(r => r.domain === domain);
         if (params.get('fresh')) { if (MEMORY) memRoute = '#/dmarc'; else history.replaceState(null, '', '#/dmarc'); }
         const recordBox = (text) => h('div', { class: 'dns-record' }, h('code', { text }), copyButton(text, 'DNS record', 'Copy'));
-        const level = (x) => h('span', { class: `dns-level ${x.level}` }, h('span', { class: 'dot', 'aria-hidden': 'true' }), LEVEL_WORDS[x.level] || x.level);
+        const level = (x, what = '') => h('span', { class: `dns-level ${x.level}` }, h('span', { class: 'dot', 'aria-hidden': 'true' }), `${what}${LEVEL_WORDS[x.level] || x.level}`);
         const notes = (list) => (list && list.length ? h('ul', { class: 'dns-notes' }, list.map(n => h('li', { text: n }))) : null);
         const card = (x) => {
             if (x.error) return h('section', { class: 'card dns-card' }, h('div', { class: 'dns-head' }, h('h2', { text: x.domain }), h('span', { class: 'dns-level bad' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), 'Couldn\'t read')),
                 h('p', { class: 'small muted', text: `The DNS lookup failed (${x.error}). Check again in a minute.` }));
             const tags = x.dmarc.tags || (x.dmarc.inherited && x.dmarc.inherited.tags);
             return h('section', { class: 'card dns-card' },
-                h('div', { class: 'dns-head' }, h('h2', { text: x.domain }), level(x.dmarc)),
+                h('div', { class: 'dns-head' }, h('h2', { text: x.domain }), level(x.dmarc, 'DMARC: ')),
                 h('div', { class: 'dns-part' },
                     h('h3', {}, 'DMARC ', h('span', { class: 'small muted', text: `_dmarc.${x.domain}` })),
                     h('div', { class: 'dns-words', text: x.dmarc.words }),
@@ -915,15 +932,18 @@
                     h('div', { class: 'dns-words', text: x.spf.words }),
                     x.spf.records.length ? x.spf.records.map(recordBox) : h('div', { class: 'small muted', text: 'No TXT record starting v=spf1 was found.' }),
                     notes(x.spf.notes)),
+                reputationPart(repOf(x.domain), rep.error),
                 h('div', { class: 'small muted', text: `Read ${when(x.checkedAt)}.` }));
         };
         const counts = { good: 0, warn: 0, bad: 0 };
         for (const x of d.domains) counts[x.error ? 'bad' : x.dmarc.level]++;
-        return [h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: 'DMARC' }),
-                h('p', { class: 'sub', text: 'Your domains\' DMARC and SPF records, as published in DNS (ORG_DOMAINS), what they tell other mail servers to do with mail that pretends to come from you, and what would make them stronger. Read through Cloudflare\'s public resolver: only the domain names are sent. Changing them is done where your domains\' DNS is managed.' })),
+        const listed = (rep.domains || []).filter(r => r.level === 'bad').length;
+        return [h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: 'DMARC & reputation' }),
+                h('p', { class: 'sub', text: 'Your domains (ORG_DOMAINS): their DMARC and SPF records as published in DNS, what they tell other mail servers to do with mail that pretends to come from you, and what would make them stronger; whether a blocklist lists them; and whether the phishing lists the service downloads have anything on them or under them. Only the domain names are sent (to Cloudflare\'s resolver, and to Safe Browsing and Spamhaus when they are on). Changing the records is done where your domains\' DNS is managed.' })),
                 h('a', { class: 'btn', href: '#/dmarc?fresh=1' }, 'Check again')),
             h('div', { class: 'kpi-strip' }, h('span', {}, h('b', { text: num(d.domains.length) }), ` domain${d.domains.length === 1 ? '' : 's'}`),
-                h('span', {}, h('b', { text: num(counts.good) }), ' strong'), h('span', {}, h('b', { text: num(counts.warn) }), ' can be stronger'), h('span', {}, h('b', { text: num(counts.bad) }), ' need attention')),
+                h('span', {}, 'DMARC: ', h('b', { text: num(counts.good) }), ' strong, ', h('b', { text: num(counts.warn) }), ' can be stronger, ', h('b', { text: num(counts.bad) }), ' need attention'),
+                h('span', {}, h('b', { text: num(listed) }), ` listed on a blocklist or in a downloaded list`)),
             d.domains.length ? h('div', { class: 'dns-grid' }, d.domains.map(card)) : h('div', { class: 'empty', text: 'No domains in ORG_DOMAINS.' })];
     }
     // --- Health → Retraining examples (0.6.1, its own page; was on Model health): off until an admin allows it in
@@ -2498,7 +2518,7 @@
     const SECTIONS = {
         threats: { label: 'Threats', groups: [[null, [['campaigns', 'Campaigns'], ['rechecked', 'Re-checked'], ['lookalikes', 'Look-alikes']]]] },
         mail: { label: 'Mail', groups: [[null, [['messages', 'Messages'], ['check', 'Check an email'], ['users', 'Users']]]] },
-        health: { label: 'Health', groups: [[null, [['status', 'Service status'], ['readiness', 'Readiness'], ['health', 'Model health'], ['dmarc', 'DMARC'], ['trainingexport', 'Retraining examples'], ['activity', 'Activity']]]] },
+        health: { label: 'Health', groups: [[null, [['status', 'Service status'], ['readiness', 'Readiness'], ['health', 'Model health'], ['dmarc', 'DMARC & reputation'], ['trainingexport', 'Retraining examples'], ['activity', 'Activity']]]] },
         settings: { label: 'Settings', groups: [['Protection', [['settings', 'Policy'], ['allowlist', 'Allowlist']]],
             ['Threat feeds', [['safebrowsing', 'Safe Browsing'], ['spamhaus', 'Spamhaus'], ['abusech', 'abuse.ch']]],
             ['Organization', [['mailboxes', 'Mailboxes'], ['summary', 'Weekly summary'], ['clicks', 'Link clicks'], ['phishtraining', 'Phishing training']]],

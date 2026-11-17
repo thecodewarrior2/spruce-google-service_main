@@ -672,3 +672,13 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .dns-tags { font-size: 13px; }
 .dns-notes { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text-2); }
 .dns-notes li { margin: 3px 0; overflow-wrap: anywhere; }
+/* (0.6.1) Reputation and the downloaded lists, on each domain's card. */
+.rep-list { list-style: none; margin: 0; padding: 0; }
+.rep-list li { display: grid; grid-template-columns: minmax(150px, 190px) auto minmax(0, 1fr); gap: 4px 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13.5px; }
+.rep-list li:first-child { border-top: 0; }
+.rep-name { font-weight: 600; }
+.rep-detail { overflow-wrap: anywhere; }
+.dns-level.off { background: var(--surface-2); color: var(--text-2); } .dns-level.off .dot { background: var(--axis); }
+.rep-hit { display: grid; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--critical-soft); font-size: 13.5px; overflow-wrap: anywhere; }
+.rep-entry { font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .rep-list li { grid-template-columns: minmax(0, 1fr) auto; } .rep-detail { grid-column: 1 / -1; } }

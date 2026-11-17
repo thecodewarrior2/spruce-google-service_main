@@ -308,12 +308,19 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     AI score from the suspicious line to under the move threshold), so neither moves them, and what admins
     marked them: whether moving such emails would be worth trying. It only measures. It names the model in use,
     and, after an upgrade, which models scored the period's emails (each keeps the score it got on arrival).
-  - **DMARC** (0.6.1): for each of your domains (`ORG_DOMAINS`), its DMARC record and SPF record exactly as published
+  - **DMARC & reputation** (0.6.1): for each of your domains (`ORG_DOMAINS`), its DMARC record and SPF record exactly as published
     (with a Copy button), what they tell other mail servers to do with mail that pretends to come from you (policy,
     subdomains, the share it applies to, alignment, where reports go), a grade (strong, can be stronger, needs
     attention), and what would make them stronger. A subdomain with no record of its own shows its parent's. Read
     through Cloudflare's public resolver when the page is opened (only the domain names are sent), kept 10 minutes;
     **Check again** reads them now. Admins only. Changing them is done where the domains' DNS is managed.
+    - **Reputation and blocklists:** whether Cloudflare Security DNS blocks the domain, whether Google Safe Browsing
+      lists its home page (with Settings → Safe Browsing on), and whether the Spamhaus Domain Blocklist lists it (with
+      Settings → Spamhaus on; 2 lookups a domain, counted against the day's limit). Each says clean, listed, off or
+      not checked; a lookup that fails is never "clean".
+    - **In the downloaded phishing lists:** every entry the lists the service downloads (Settings → About) have for
+      the domain or any name under it: a link on a hacked school page, a listed site, a sender address, the first 5 of
+      each shown. Mail is still judged as before (your own domains count only as exact listed links and addresses).
   - **Retraining examples** (its own page since 0.6.1; it was on Model health): marking emails doesn't train the AI
     model. **Download for retraining** (allowed in Settings → Retraining, off by default) gives the emails admins and
     moderators marked, read from Gmail at that moment with the people taken out, as training examples in the
@@ -509,7 +516,8 @@ training examples, and a better AI model.
 | `src/digest.js` | The weekly summary email (put in admins' Inboxes; never judged by the service) |
 | `src/cloudrun.js` | Cloud Run, read-only, for the Service status page |
 | `src/dashboard/cache.js` | The dashboard's copy of the records: the last 32 days first, older ones when a page shows them, then only what changed |
-| `src/dashboard/dmarc.js` | Health → DMARC: the domains' DMARC and SPF records, read and graded (not a judging file) |
+| `src/dashboard/dmarc.js` | Health → DMARC & reputation: the domains' DMARC and SPF records, read and graded (not a judging file) |
+| `src/dashboard/reputation.js` | Health → DMARC & reputation: the domains on Cloudflare Security, Safe Browsing and Spamhaus, and in the downloaded lists (not a judging file) |
 | `src/server.js` | The HTTP service (`ROLE=worker` / `admin`) |
 | `public/` | The dashboard (plain HTML, CSS and JavaScript; no build step) |
 | `src/demo/seed.js` | Made-up demo data, judged by the real engine |

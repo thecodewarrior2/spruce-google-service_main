@@ -24,11 +24,16 @@
   so nothing moves back.
 - **The brake banner:** while the brake holds, a red banner across the top of every page, for admins and
   moderators, says moving is paused and to contact an administrator (an admin resumes it on Today).
-- **Health → DMARC:** each of your domains' DMARC and SPF records as published in DNS, what they say (policy,
+- **Health → DMARC & reputation:** each of your domains' DMARC and SPF records as published in DNS, what they say (policy,
   subdomains, pct, alignment, report addresses), a grade, and what would make them stronger; a subdomain without a
   record shows its parent's. Read through Cloudflare's public resolver when an admin opens the page (only the domain
   names are sent; kept 10 minutes; Check again reads them now). `src/dashboard/dmarc.js`, `GET /api/dmarc` (admins
   only); made-up records in demo mode. Test: `test/dmarc.test.js`.
+  - **Reputation:** whether Cloudflare Security DNS blocks each domain, Google Safe Browsing lists its home page and
+    the Spamhaus DBL lists it (the last two when they are on), each clean, listed, off or not checked; and every
+    entry the downloaded phishing lists have on the domain or under it (links, sites, sender addresses), read from
+    the lists' stored copies. `src/dashboard/reputation.js`, `GET /api/reputation` (admins only), the service's own
+    lookups (no judging file changed). Test: `test/reputation.test.js`.
 - **Health → Retraining examples:** the export of marked emails for retraining the AI model has its own page
   (it was at the foot of Model health). Settings → Retraining still allows it or stops it.
 - **Install level 6:** `deploy/install.sh` passes `MODERATOR_GROUP` to the dashboard and lets the group through
