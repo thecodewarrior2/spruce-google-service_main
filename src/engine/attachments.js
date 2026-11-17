@@ -1,4 +1,5 @@
 'use strict';
+const crypto = require('crypto');
 // Attachments and pictures, read in the service (0.5.34). Before, only their names and types were seen.
 //
 // - QR codes ("quishing": a QR code hides its link from every link check) in pictures (PNG, JPEG; attached,
@@ -38,6 +39,21 @@ async function heavy(fn) {
     if (running >= HEAVY_AT_ONCE) await new Promise(r => waiting.push(r));
     running++;
     try { return await fn(); } finally { running--; const next = waiting.shift(); if (next) next(); }
+}
+
+// (0.6.7) What a picture, PDF or Office file gave (its QR codes, links and signs), kept by its content's hash: the
+// same logo in every newsletter, the same attachment in every copy of a campaign, is decoded once per instance
+// (a large picture took up to seconds, holding up the instance's other emails). The same bytes always give the same
+// answer; a file read only in part (the time budget ran out) isn't kept.
+const READ_MEMO_MAX = 2000;
+const readMemo = new Map();
+const memoKey = (kind, name, buf) => `${kind}|${name}|${crypto.createHash('sha256').update(buf).digest('hex')}`;
+function memoGet(k) { const v = readMemo.get(k); if (v) { readMemo.delete(k); readMemo.set(k, v); } return v; }
+function memoSet(k, calls) { if (readMemo.size >= READ_MEMO_MAX) readMemo.delete(readMemo.keys().next().value); readMemo.set(k, calls); }
+// out's calls, recorded to be replayed for the same file.
+function recording(out) {
+    const calls = [];
+    return { calls, out: { link: (...a) => { calls.push(['link', a]); out.link(...a); }, qr: (...a) => { calls.push(['qr', a]); out.qr(...a); }, sign: (...a) => { calls.push(['sign', a]); out.sign(...a); } } };
 }
 
 const extOf = (name) => (/\.([a-z0-9]{1,8})$/i.exec(String(name || '')) || [])[1]?.toLowerCase() || '';
@@ -271,14 +287,20 @@ async function readAttachments(files, { outside = true, budgetMs = LIMITS.budget
         if (buf.length > LIMITS.fileBytes || Date.now() > deadline) { skipped++; continue; }
         const kind = kindOf(f);
         try {
+            const decoded = kind === 'png' || kind === 'jpeg' || kind === 'pdf' || kind === 'office';
+            const key = decoded ? memoKey(kind, `${name}|${f.inline ? 1 : 0}`, buf) : '';
+            const hit = decoded ? memoGet(key) : null;
+            if (hit) { for (const [m, a] of hit) out[m](...a); continue; }
+            const rec = decoded ? recording(out) : null;
             if (kind === 'png' || kind === 'jpeg') {
                 const code = await heavy(async () => qrInImage(kind, buf));
-                if (code) out.qr(code, f.inline ? 'a QR code in a picture in the email' : `a QR code in ${name}`);
-            } else if (kind === 'pdf') await heavy(() => readPdf(Object.assign({}, f, { name }), out, deadline));
-            else if (kind === 'office') await heavy(async () => readOffice(Object.assign({}, f, { name }), out));
+                if (code) rec.out.qr(code, f.inline ? 'a QR code in a picture in the email' : `a QR code in ${name}`);
+            } else if (kind === 'pdf') await heavy(() => readPdf(Object.assign({}, f, { name }), rec.out, deadline));
+            else if (kind === 'office') await heavy(async () => readOffice(Object.assign({}, f, { name }), rec.out));
             else if (kind === 'html') readPage(Object.assign({}, f, { name }), out, false);
             else if (kind === 'svg') readPage(Object.assign({}, f, { name }), out, true);
             else if (kind === 'zip') readZip(Object.assign({}, f, { name }), out);
+            if (rec && Date.now() <= deadline) memoSet(key, rec.calls);
         } catch (e) { skipped++; }
     }
     // A QR code from outside is a sign on its own (small): its link is judged like the others.

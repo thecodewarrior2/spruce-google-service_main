@@ -704,3 +704,26 @@ test('0.5.53: the watched mailboxes, a page at a time by address, and by the sta
     const found = await store.listWatchedPage({ prefix: 'u12', limit: 100 });
     assert.deepEqual(found.items.map(u => u.email.slice(0, 4)), Array.from({ length: 10 }, (_, i) => `u12${i}`));
 });
+
+// (0.6.7) The off switch at scale: every mailbox switched off at once (notifications ignored, PILOT_USERS too), Gmail
+// told 10 at a time within the time limit, the rest by the hourly job, which never renews while switched off; a
+// renewal switches it on again.
+test('stop.sh at scale: all switched off at once, Gmail told within the time limit, the hourly job finishes and never renews', async () => {
+    const { store, gmail, svc } = await setup({ PILOT_USERS: USER });
+    const staff = Array.from({ length: 60 }, (_, i) => `staff${String(i).padStart(2, '0')}@maple-schools.example`);
+    for (const u of [USER, ...staff]) await store.putUser(u, { watched: true, historyId: '7', watchExpiration: Date.now() + 5 * DAY });
+    await store.setState('watchLeft', { left: 40, at: Date.now() });
+    let running = 0, most = 0;
+    const told = [];
+    gmail.stop = async (u) => { running++; most = Math.max(most, running); await new Promise(r => setTimeout(r, 25)); running--; told.push(u); };
+    const r = await svc.stopAll({ budgetMs: 60 });
+    assert.equal(r.stopped, 61); assert.ok(r.left > 0 && r.gmailStopped < 61, JSON.stringify(r)); assert.equal(most, 10);
+    assert.equal(await store.getState('watchLeft'), null, 'the unfinished renewal is dropped');
+    assert.ok((await store.listUsers()).every(u => u.watched === false), 'every mailbox switched off at once');
+    assert.deepEqual(await svc.handleNotification({ emailAddress: USER, historyId: '9' }), { ignored: 'not watched' }, 'a PILOT_USERS mailbox too');
+    // The hourly job: tells Gmail for the rest, watches nothing.
+    gmail.watch = async () => { throw new Error('must not renew while switched off'); };
+    const st = await svc.finishStopping({ budgetMs: 10000 });
+    assert.equal(st.left, 0); assert.equal(new Set(told).size, 61);
+    assert.equal((await store.getState('stopped')).left, 0);
+});

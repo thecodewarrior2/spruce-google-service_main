@@ -140,3 +140,22 @@ test('dashboard: the overview names the lists that missed their download; Re-che
         assert.ok((await store.listEvents(0)).some(e => e.kind === 'lists' && /re-checked the phishing lists: HaGeZi Threat Intelligence Feeds downloaded\./.test(e.text)));
     } finally { await new Promise(r => srv.close(r)); }
 });
+
+// (0.6.7) A download with the same entries as the copy kept isn't written again (each write made every instance
+// reload every list); the list still counts as downloaded then (not "stale").
+test('a list downloaded again with the same entries is not rewritten, and isn\'t stale', async () => {
+    const store = new MemoryStore();
+    let now = Date.UTC(2026, 10, 10, 6);
+    const feeds = createFeeds({ http: createHttp({ fetch: net(new Set()).fetch }), store, engine: E, now: () => now, log: silent });
+    await feeds.sync();
+    let writes = 0;
+    const put = store.putBlob.bind(store);
+    store.putBlob = async (...a) => { writes++; return put(...a); };
+    now += DAY;
+    const r = await feeds.sync();
+    assert.equal(writes, 0, 'nothing changed: nothing written');
+    assert.ok(r.feeds.every(f => f.error === undefined), JSON.stringify(r.feeds));
+    assert.ok((await feeds.status()).every(l => l.updated === now && !l.missed));
+    now += 2 * HOUR;
+    assert.ok((await feeds.sync()).feeds.every(f => f.skipped === 'recent'), 'and not downloaded again within the day');
+});

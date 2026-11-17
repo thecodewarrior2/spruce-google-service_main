@@ -23,7 +23,7 @@
 // Queries use only single-field indexes (processedAt), which Firestore creates by itself; filtering
 // by user, action or campaign is done on the (bounded) result. That is enough for a pilot and a
 // mid-sized district; a large one would add composite indexes (docs/ROADMAP.md).
-const { Firestore, FieldValue, Timestamp } = require('@google-cloud/firestore');
+const { Firestore, FieldValue, FieldPath, Timestamp } = require('@google-cloud/firestore');
 const { movesForward } = require('./history');
 
 const safeId = (s) => String(s).replace(/[/\s]/g, '_').slice(0, 1400);
@@ -144,9 +144,12 @@ class FirestoreStore {
     }
     async saveRecord(rec) { await this.col('records').doc(safeId(rec.key)).set(Object.assign({}, rec, { updatedAt: Date.now(), expireAt: this.expiry(Number(rec.processedAt) || Date.now()) })); }
     // Records saved or changed after a time, oldest change first (the dashboard's cache).
-    async listRecordsChangedSince(ms, limit = 5000) {
-        const q = await this.col('records').where('updatedAt', '>', ms).orderBy('updatedAt').limit(limit).get();
-        return q.docs.map(d => clean(d.data()));
+    // after (0.6.7): { updatedAt, id } of the last record of the page before (its key): the page after it, in
+    // (updatedAt, document id) order, so a page boundary inside one millisecond loses nothing.
+    async listRecordsChangedSince(ms, limit = 5000, after = null) {
+        let q = this.col('records').where('updatedAt', '>', ms).orderBy('updatedAt').orderBy(FieldPath.documentId());
+        if (after) q = q.startAfter(after.updatedAt, safeId(after.id));
+        return (await q.limit(limit).get()).docs.map(d => clean(d.data()));
     }
     // A campaign's records since sinceMs (Firestore's own single-field index on campaign).
     async listCampaignRecords(key, sinceMs = 0, limit = 50000) {
@@ -286,8 +289,10 @@ class FirestoreStore {
     async setState(name, value) { await this.col('state').doc(name).set({ value }); }
     // Activity is kept AUDIT_DAYS (0.5.29; a year by default), not RETENTION_DAYS like the email records.
     async addEvent(ev) { const e = Object.assign({ at: Date.now() }, ev); await this.col('events').add(Object.assign(e, { expireAt: this.expiry(Number(e.at) || Date.now(), (Number(this.cfg.auditDays) || 365) * DAY) })); if (this.onEvent) this.onEvent(e); }
-    async listEvents(sinceMs = 0, { limit = 500 } = {}) {
-        const q = await this.col('events').where('at', '>=', sinceMs).orderBy('at', 'desc').limit(limit).get();
+    async listEvents(sinceMs = 0, { limit = 500, untilMs = null } = {}) {
+        let q = this.col('events').where('at', '>=', sinceMs);
+        if (untilMs !== null && untilMs !== undefined) q = q.where('at', '<', untilMs);
+        q = await q.orderBy('at', 'desc').limit(limit).get();
         return q.docs.map(d => clean(d.data()));
     }
     // Files shared by every instance (the phishing lists), split into chunks under Firestore's 1 MiB

@@ -153,3 +153,20 @@ test('a PDF whose picture is a JPEG (how scanners save them): its QR code is rea
     const r = await readAttachments([file('Scan_0042.pdf', Buffer.from(await doc.save()))]);
     assert.deepEqual(hosts(r), ['pdf-jpeg-qr.example']);
 });
+
+// (0.6.7) The same file again (the same logo in every newsletter, the same attachment in every copy of a campaign):
+// the same answer, read once per instance.
+test('a picture or PDF seen before gives the same answer without being decoded again', async () => {
+    const { readAttachments } = require('../src/engine/attachments');
+    const png = await qrPng('https://qr-memo-site.example/pay');
+    const pdf = await qrPdf('https://qr-memo-pdf.example/a', 'https://qr-memo-link.example/b');
+    const files = () => [{ name: 'scan.png', type: 'image/png', size: png.length, content: png }, { name: 'invoice.pdf', type: 'application/pdf', size: pdf.length, content: pdf }];
+    const t0 = Date.now();
+    const a = await readAttachments(files());
+    const t1 = Date.now();
+    const b = await readAttachments(files());
+    const t2 = Date.now();
+    assert.deepEqual(b, a);
+    assert.ok(a.links.some(l => /qr-memo-site/.test(l.href)) && a.links.some(l => /qr-memo-pdf|qr-memo-link/.test(l.href)), JSON.stringify(a.links));
+    assert.ok(t2 - t1 <= Math.max(5, (t1 - t0) / 3), `the second read was quicker (${t1 - t0} ms, then ${t2 - t1} ms)`);
+});

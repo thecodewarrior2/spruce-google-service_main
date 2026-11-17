@@ -1365,6 +1365,20 @@
     // selected, an action under way), and taken as soon as they stop. Pausing is remembered per browser.
     const LIVE_MS = Number(window.SPRUCE_LIVE_MS) || 30000;   // (a test page may set it shorter)
     let live = true, updatedAt = 0, liveError = null, acting = 0;
+    // (0.6.7) Pages whose content changes only when someone changes it (Help, Settings but Mailboxes, About,
+    // Update): updated every STILL_MS, not every LIVE_MS. And after IDLE_MS with no key, click, touch or scroll,
+    // nothing is fetched (a dashboard left open on a screen or overnight) until the person is back.
+    const STILL_MS = 5 * 60 * 1000, IDLE_MS = 15 * 60 * 1000;
+    const STILL_PAGES = /^#\/?(help\w*|credits|about|update|settings|allowlist|safebrowsing|spamhaus|abusech|summary|clicks|phishtraining|retraining)(\?|$)/;
+    let lastInput = Date.now();
+    const away = () => Date.now() - lastInput > IDLE_MS;
+    for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+        window.addEventListener(ev, () => {
+            const was = away();
+            lastInput = Date.now();
+            if (was && live && !document.hidden) { showLive(); refreshPending(); if (!inUse() && !/^#\/?(check|review)/.test(currentHash())) render({ quiet: true }); }
+        }, { passive: true, capture: true });
+    }
     try { live = localStorage.getItem('spruce.live') !== 'off'; } catch (e) { /* storage blocked */ }
     const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
     function inUse() {
@@ -1379,6 +1393,7 @@
         box.classList.toggle('paused', !live);
         box.classList.toggle('stale', live && !!liveError);
         $('#liveState').textContent = !live ? 'Updates paused'
+            : away() ? 'Updates paused while you are away: back as soon as you click or press a key'
             : liveError ? `Couldn't update (${liveError.message}); trying again`
             : updatedAt ? `Live · updated ${clock(updatedAt)}` : 'Live';
         const b = $('#liveToggle');
@@ -1388,8 +1403,10 @@
     function liveDone(err) { liveError = err; updatedAt = Date.now(); showLive(); }
     function liveTick() {
         // (not on Check an email: its answer isn't fetched again)
+        if (away()) { showLive(); return; }
         if (!document.hidden) refreshPending();
-        if (live && !document.hidden && Date.now() - updatedAt >= LIVE_MS && !inUse() && !/^#\/?(check|review)/.test(currentHash())) render({ quiet: true });
+        const every = STILL_PAGES.test(currentHash()) ? STILL_MS : LIVE_MS;
+        if (live && !document.hidden && Date.now() - updatedAt >= every && !inUse() && !/^#\/?(check|review)/.test(currentHash())) render({ quiet: true });
     }
 
     // --- Activity: alerts, what admins did, errors, the watching of mailboxes ---------------------

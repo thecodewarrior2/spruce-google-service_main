@@ -82,16 +82,32 @@ class GmailClient {
         const r = await this.call(user, 'GET', `/threads/${encodeURIComponent(threadId)}`, { query: { format: 'minimal', fields: 'messages(id)' } });
         return (r.messages || []).length;
     }
-    modify(user, id, add = [], remove = []) { return this.call(user, 'POST', `/messages/${encodeURIComponent(id)}/modify`, { body: { addLabelIds: add, removeLabelIds: remove } }); }
-    // The id of a label of ours ("SPRUCE/Moved"), made if the mailbox doesn't have it yet.
-    async labelId(user, name) {
+    // (0.6.7) A label refused (400/404: its owner deleted our label) makes this mailbox's label ids be asked again
+    // at the next try; before, every move in that mailbox failed until the instance restarted.
+    modify(user, id, add = [], remove = []) {
+        return this.call(user, 'POST', `/messages/${encodeURIComponent(id)}/modify`, { body: { addLabelIds: add, removeLabelIds: remove } }).catch((e) => {
+            if (e && (e.status === 400 || e.status === 404)) for (const k of [...this.labelIds.keys()]) if (k.startsWith(`${user}|`)) this.labelIds.delete(k);
+            throw e;
+        });
+    }
+    // The id of a label of ours ("SPRUCE/Moved"), made if the mailbox doesn't have it yet. (0.6.7) Asked once at a
+    // time per mailbox and label (two emails at once both made it: one failed), and found again if another
+    // instance made it meanwhile (409).
+    labelId(user, name) {
         const key = `${user}|${name}`;
         if (this.labelIds.has(key)) return this.labelIds.get(key);
-        const list = await this.call(user, 'GET', '/labels');
-        let l = (list.labels || []).find(x => x.name === name);
-        if (!l) l = await this.call(user, 'POST', '/labels', { body: { name, labelListVisibility: 'labelShow', messageListVisibility: 'show' } });
-        this.labelIds.set(key, l.id);
-        return l.id;
+        const p = (async () => {
+            const find = async () => ((await this.call(user, 'GET', '/labels')).labels || []).find(x => x.name === name);
+            let l = await find();
+            if (!l) {
+                try { l = await this.call(user, 'POST', '/labels', { body: { name, labelListVisibility: 'labelShow', messageListVisibility: 'show' } }); }
+                catch (e) { if (e && e.status === 409) l = await find(); if (!l) throw e; }
+            }
+            return l.id;
+        })();
+        this.labelIds.set(key, p);
+        p.catch(() => { if (this.labelIds.get(key) === p) this.labelIds.delete(key); });
+        return p;
     }
     watch(user, topicName) { return this.call(user, 'POST', '/watch', { body: { topicName, labelIds: ['INBOX'], labelFilterBehavior: 'INCLUDE' } }); }
     stop(user) { return this.call(user, 'POST', '/stop'); }

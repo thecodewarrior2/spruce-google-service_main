@@ -12,13 +12,14 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { loadConfig, configProblems } = require('./config');
 const { createStore } = require('./store');
 const { Service, POLICY_KEYS, STAT_FLUSH_MS } = require('./pipeline');
 const { verifyPush, verifyTask, verifyAdmin, adminGroupCheck } = require('./auth/verify');
 const { createDmarcCheck } = require('./dashboard/dmarc');
 const { createReputation } = require('./dashboard/reputation');
-const { RecordCache } = require('./dashboard/cache');
+const { RecordCache, EventCache } = require('./dashboard/cache');
 const VERSION = require('../package.json').version;
 const A = require('./dashboard/aggregate');
 const spruce = require('./engine/spruce');
@@ -34,9 +35,19 @@ const SECURITY_HEADERS = {
     'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY', 'cache-control': 'no-store'
 };
 
+// (0.6.7) A text answer over GZIP_FROM bytes is sent compressed when the browser accepts it (Messages' list was
+// about 85 KB at every refresh; the dashboard's script about 200 KB at every load).
+const GZIP_FROM = 8 * 1024;
 function send(res, status, body, type = 'application/json', extra = {}) {
-    res.writeHead(status, Object.assign({ 'content-type': type }, SECURITY_HEADERS, extra));
-    res.end(type === 'application/json' ? JSON.stringify(body) : body);
+    let out = type === 'application/json' ? JSON.stringify(body) : body;
+    const headers = Object.assign({ 'content-type': type }, SECURITY_HEADERS, extra);
+    const accepts = /\bgzip\b/.test(String((res.req && res.req.headers && res.req.headers['accept-encoding']) || ''));
+    if (accepts && /^(application\/json|text\/|image\/svg)/.test(type) && out && Buffer.byteLength(out) >= GZIP_FROM) {
+        out = zlib.gzipSync(out, { level: 6 });
+        Object.assign(headers, { 'content-encoding': 'gzip', vary: 'accept-encoding' });
+    }
+    res.writeHead(status, headers);
+    res.end(out);
 }
 async function readBody(req, max = 1024 * 1024) {
     let size = 0; const chunks = [];
@@ -161,6 +172,20 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     // The last 32 days at first, older records when a page shows them (Last 90 days), never past how long
     // records are kept (RETENTION_DAYS, or Settings → Policy: the copy forgets them too).
     const cache = new RecordCache(store, { keepDays: () => Math.min(92, cfg.retentionDays || 35) });
+    const events = new EventCache(store);   // (0.6.7) Activity's events, read once and then only the new ones
+    const eventsSince = (sinceMs, limit) => events.list(sinceMs, { limit });
+    // (0.6.7) Answers shared by every open dashboard for a few seconds (what several pages and the pending badge
+    // ask in the same refresh); a change made on the dashboard (any POST) clears them.
+    const shortCache = new Map();
+    const shortLived = (key, ms, fn) => {
+        const hit = shortCache.get(key);
+        if (hit && Date.now() - hit.at < ms) return hit.p;
+        const p = Promise.resolve().then(fn);
+        shortCache.set(key, { at: Date.now(), p });
+        p.catch(() => { if (shortCache.get(key) && shortCache.get(key).p === p) shortCache.delete(key); });
+        return p;
+    };
+    let statusCache = null; const STATUS_CACHE_MS = 60 * 1000;   // (Service status: see GET /api/status)
     // The daily counters (stats/{day}~{shard}): a past day no longer changes, so each instance reads it
     // once; today is read again after STATS_TODAY_MS. (Ten minutes after midnight yesterday still counts as
     // today: instances write what they added up every few seconds. clear-data.sh restarts the dashboard.)
@@ -213,7 +238,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     const activityFor = async (q) => {
         const days = Math.min(cfg.auditDays || 365, Math.max(1, Math.round(Number(q.get('days')) || 30)));
         const words = String(q.get('q') || '').trim().toLowerCase().slice(0, 200);
-        let events = A.activity(await store.listEvents(Date.now() - days * A.DAY, { limit: 10000 }), String(q.get('kind') || ''));
+        let events = A.activity(await eventsSince(Date.now() - days * A.DAY, 10000), String(q.get('kind') || ''));
         if (words) events = events.filter(e => `${e.text || ''} ${e.user || ''} ${e.kind || ''} ${e.by || ''}`.toLowerCase().includes(words));
         return { events, days };
     };
@@ -223,13 +248,13 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
 
     // The brake, and how many emails it holds (still in the Inbox, recorded since it came on).
     async function brakeInfo(records) {
-        const b = await store.getState('brake');
+        const b = await shortLived('brake', 15000, () => store.getState('brake'));
         if (!b) return null;
         return Object.assign({}, b, { held: records.filter(r => r.held === 'brake' && r.state === 'inbox' && r.processedAt >= b.at).length });
     }
     // Campaigns held on weak evidence, waiting for an admin's decision.
     async function heldCampaigns(records) {
-        const held = (await store.listHeldCampaigns()).filter(c => !c.decision);
+        const held = (await shortLived('held', 15000, () => store.listHeldCampaigns())).filter(c => !c.decision);
         return held.map(c => ({ campaign: c.key, label: c.label, heldAt: c.heldAt, held: records.filter(r => r.campaign === c.key && r.held === 'campaign' && r.state === 'inbox').length }))
             .sort((a, b) => b.held - a.held).slice(0, 20);
     }
@@ -331,7 +356,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         }
         // (install.sh always sets it, to the admin group by default: empty means ALERT_EMAIL=off, a choice)
         add('alerts', true, cfg.alertEmail ? `Alerts are emailed to ${cfg.alertEmail}.` : 'Alerts aren\'t emailed (ALERT_EMAIL=off): they show in Health → Activity.');
-        const errors = (await store.listEvents(now - 24 * 3600 * 1000)).filter(e => e.kind === 'error').length;
+        const errors = (await eventsSince(now - 24 * 3600 * 1000, 50000)).filter(e => e.kind === 'error').length;
         add('errors', errors === 0, errors ? `${errors} errors in the last day.` : 'No errors in the last day.', 'Health → Activity → Errors and gaps.');
         const brake = await store.getState('brake');
         add('brake', !brake, brake ? 'The domain-wide brake is on: nothing is moved.' : 'The domain-wide brake is off.', 'Today → Resume.');
@@ -372,7 +397,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         const day = A.dayIn(Date.now(), cfg.timeZone);
         if (!email || opened.get(email) === day) return;
         opened.set(email, day);
-        const today = await store.listEvents(Date.now() - 26 * 3600 * 1000, { limit: 2000 });
+        const today = await eventsSince(Date.now() - 26 * 3600 * 1000, 2000);
         if (today.some(e => e.kind === 'signin' && e.by === email && A.dayIn(e.at, cfg.timeZone) === day)) return;
         await store.addEvent({ kind: 'signin', by: email, admin: true, text: `${email} opened the dashboard${role === 'moderator' ? ' (as a moderator)' : ''}.` });
     }
@@ -420,7 +445,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const { records, stats } = await load(q);
             const n = nDays(q), now = Date.now();
             return { summary: A.summary(records, stats, now, n), trend: A.trend(records, stats, now, n), topReasons: A.topReasons(records, now, n).slice(0, 8),
-                     campaigns: A.campaigns(records, now, n).slice(0, 5), alerts: (await store.listEvents(now - 7 * A.DAY)).slice(0, 10),
+                     campaigns: A.campaigns(records, now, n).slice(0, 5), alerts: await eventsSince(now - 7 * A.DAY, 10),
                      brake: await brakeInfo(records), heldCampaigns: await heldCampaigns(records), mode: cfg.mode, aiThreshold: cfg.aiThreshold,
                      // The phishing lists that missed their download (0.5.22): the overview's banner.
                      missedLists: await missedLists(),
@@ -667,7 +692,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // A campaign: what the brakes and admins decided, and how many copies are where.
         'GET /api/campaign': async (q) => {
             const key = String(q.get('key') || '');
-            const recs = await service.campaignRecords(key);
+            // (0.6.7) From the dashboard's copy of the records (every page of Messages filtered to a campaign asks this
+            // at each refresh; it read every copy from Firestore, 10,000 reads for a 10,000-copy campaign).
+            const recs = (await cache.list(Date.now() - 90 * A.DAY)).filter(r => r.campaign === key);
             if (!recs.length) return { error: 'not found', status: 404 };
             const st = (await store.getCampaign(key)) || {};
             const count = (f) => recs.filter(f).length;
@@ -733,15 +760,22 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // who took flagged mail back; and how many emails wait for review.
         'GET /api/pending': async () => {
             const records = await cache.list(Date.now() - 30 * A.DAY);
-            const brake = !!(await store.getState('brake'));
-            const held = (await store.listHeldCampaigns()).filter(c => !c.decision).length;
+            const brake = !!(await shortLived('brake', 15000, () => store.getState('brake')));
+            const held = (await shortLived('held', 15000, () => store.listHeldCampaigns())).filter(c => !c.decision).length;
             const rescues = records.filter(rescueToCheck).length;
             return { brake, held, rescues, unreviewed: records.filter(unreviewed).length, total: (brake ? 1 : 0) + held + rescues };
         },
         // The Status page: what this week's troubleshooting needed, checked in one place.
-        'GET /api/status': async () => ({ checks: await statusChecks() }),
+        // (0.6.7) Shared by every open dashboard for a minute: each look asks Cloud Run, Cloud Scheduler and the lists.
+        // ?fresh=1 checks again now (at most every 5 s).
+        'GET /api/status': async (q) => {
+            const fresh = q.get('fresh') === '1' && once('status-fresh', 5000);
+            if (fresh || !statusCache || Date.now() - statusCache.at > STATUS_CACHE_MS) statusCache = { at: Date.now(), p: statusChecks().catch((e) => { statusCache = null; throw e; }) };
+            return { checks: await statusCache.p };
+        },
         // The weekly summary email: on or off (off by default), a preview, and one now.
-        'GET /api/digest/preview': async () => ({ preview: await service.digestContent() }),
+        // (0.6.7) At most one preview a minute, shared: each reads the week's records and every mailbox.
+        'GET /api/digest/preview': async () => ({ preview: await shortLived('digest-preview', 60 * 1000, () => service.digestContent()) }),
         'POST /api/digest': async (q, body, admin) => service.setDigest(body.enabled === true, admin.email),
         'POST /api/digest/send': async (q, body, admin) => {
             if (Date.now() - digestSentAt < 60 * 1000) return { error: 'Sent less than a minute ago.', status: 429 };
@@ -904,7 +938,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 const body = req.method === 'POST' ? await readBody(req, route === 'POST /api/check' ? CHECK_MAX_BYTES * 2 : 64 * 1024) : {};
                 if (admin.role === 'moderator' && !moderatorMay(route, body && body.action)) return send(res, 403, forModerators);
                 const out = await api[route](url.searchParams, body, admin);
-                if (req.method === 'POST') cache.stale();
+                if (req.method === 'POST') { cache.stale(); events.stale(); statusCache = null; shortCache.clear(); }
                 if (out && typeof out.csv === 'string') return send(res, 200, out.csv, 'text/csv; charset=utf-8', { 'content-disposition': `attachment; filename="${out.filename}"` });
                 if (out && out.download) return send(res, 200, out.download.body, out.download.type, Object.assign({ 'content-disposition': `attachment; filename="${out.download.filename}"` }, out.download.headers));
                 // A route's status is the HTTP status code only when it is one (a field of that name holding

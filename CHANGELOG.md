@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.6.7: a code review: less load on the server, faster emails, three bugs fixed, the docs brought up to date
+
+A review of the whole service for speed and unneeded load. Nothing changes how an email is judged (the checks
+level stays 15; the judging files' changes are recorded as speed only).
+
+**Bugs fixed**
+- **The dashboard's copy of the records got stuck** after more than 5,000 records changed within a minute (a campaign
+  to most of a district, a whole campaign released): every refresh read the same 5,000 again (about 20,000 reads a
+  minute) and the newer ones never arrived, so Today, Review and the counts went stale until the instance restarted.
+  The changes are now read page after page from exactly where the last page ended (`src/dashboard/cache.js`,
+  `listRecordsChangedSince` with `after`). Test: `test/qol.test.js`.
+- **`deploy/stop.sh` didn't stop a large district:** the mailboxes were stopped one at a time with no time limit
+  (10,000 took about 50 minutes, past the request's 2), and the hourly job then continued an unfinished renewal,
+  watching them again; `PILOT_USERS` mailboxes were judged even when switched off. Now every mailbox stops counting
+  as watched at once (its notifications are ignored, `PILOT_USERS` too), the unfinished renewal is dropped, Gmail is
+  told to stop 10 at a time within the request's time, and the hourly job finishes the rest without ever renewing
+  while switched off; any renewal (install.sh, the daily job, "Read the directory again now") switches it on again
+  (`stopAll`/`finishStopping` in `src/pipeline.js`). Test: `test/pipeline.test.js`.
+- **A deleted SPRUCE label** made every move in that mailbox fail until the instance restarted; two emails at once could
+  both try to make the label. The mailbox's label ids are now asked again after a refusal, one request at a time, and a
+  label another instance just made is found (`src/gmail/client.js`).
+
+**The dashboard (less load)**
+- **Activity's events** are read once and then only the new ones (`EventCache`): Activity read up to 10,000 events at
+  every 30-second refresh, Today 500 to show 10, Service status 500 to count the errors, the sign-in note 2,000.
+- **Service status** is checked at most once a minute, shared by every open dashboard (each look called Cloud Run and
+  Cloud Scheduler); the brake and the held campaigns are kept 15 s; a campaign's bar comes from the dashboard's copy of
+  the records (it read every copy from Firestore at each refresh); the weekly summary's preview at most once a minute.
+  Any change made on the dashboard clears them.
+- **Live refresh:** every 5 minutes, not 30 s, on pages that change only when someone changes them (Help, Settings but
+  Mailboxes, About, Update); paused after 15 minutes with no key, click, touch or scroll, and back at the next one.
+- **Compressed answers:** text over 8 KB is sent gzip-compressed (Messages: 85 KB → 6 KB at each refresh).
+
+**Each email (faster)**
+- The lookups the checks need (who sent it before, shares, the thread, colleagues' names, look-alikes) are asked at
+  once, not one after another; the sender's brand ownership is looked up beside the other lookups (it waited for them,
+  up to 6 s more); the brake is read only when an email would be moved (it was read for every email).
+- A picture, PDF or Office file seen before (the same logo in every newsletter, the same attachment in every copy of a
+  campaign) gives its answer without being decoded again (a large picture took up to seconds, holding up the
+  instance); one DNS lookup per site at a time, shared by the copies arriving together, and a site with no address
+  records kept 10 minutes; the look-alike list and the phishing-training settings read once at a time per instance.
+
+**Scheduled work**
+- **Phishing lists:** a download with the same entries as the copy kept isn't written again (every instance reloaded
+  every list after each daily download, up to 1.5 million entries each); it still counts as downloaded.
+- **Suspicious mail looked at again** an hour later (looked for up to 6 h) and a day later (up to 30 h), each window
+  read on its own: one read of 50 hours, at most 3,000 records, never reached the day-old ones in a busy district.
+
+**Documentation:** README, PRIVACY (Show the email shows the real email to admins and moderators; attachments are read
+in memory), DEPLOY, INSTALL, ARCHITECTURE, RETRAINING, ROADMAP, COSTS, SCALING, WORKSPACE and DASHBOARD-ROLLBACK
+brought up to date with 0.5.59 to 0.6.7.
+
 ## 0.6.6: Re-scan can't be repeated on one email; "Show the email" shows the whole email
 
 - **Re-scan limits** (each re-scan reads the email from Gmail and runs every check and the AI again): one email is

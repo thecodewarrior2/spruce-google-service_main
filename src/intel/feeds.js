@@ -84,7 +84,8 @@ function createFeeds({ http, store, engine, now = () => Date.now(), log = consol
             const name = `feed_${feed.id}`;
             const info = await store.blobInfo(name);
             const prev = health[feed.id] || {};
-            if (!force && !(retryFailed && prev.error) && info && now() - info.updated < SYNC_MIN_INTERVAL_MS) { results.push({ id: feed.id, name: feed.name, skipped: 'recent' }); continue; }
+            // (checkedAt: the last download that found the same entries, 0.6.7)
+            if (!force && !(retryFailed && prev.error) && info && now() - Math.max(info.updated, prev.error ? 0 : prev.checkedAt || 0) < SYNC_MIN_INTERVAL_MS) { results.push({ id: feed.id, name: feed.name, skipped: 'recent' }); continue; }
             try {
                 // (a keyed list makes its own request: fetchWith, src/intel/abusech.js)
                 const res = feed.fetchWith ? await feed.fetchWith() : await http.request(feed.url, {}, 60000);
@@ -107,14 +108,19 @@ function createFeeds({ http, store, engine, now = () => Date.now(), log = consol
                         }
                     } catch (e) { added = null; log.error && log.error(`${feed.name}, the previous copy:`, e); }
                 }
-                const gz = zlib.gzipSync([...entries].sort().join('\n'));
-                await store.putBlob(name, gz, { updated: now(), count: entries.size, name: feed.name, kind: feed.kind });
+                // (0.6.7) The same entries as the copy kept: not written again (every instance reloaded every list after
+                // each daily download, up to 1.5 million entries each, holding two copies in memory while it did).
+                const same = !!(info && added && added.length === 0 && info.count === entries.size);
+                if (!same) {
+                    const gz = zlib.gzipSync([...entries].sort().join('\n'));
+                    await store.putBlob(name, gz, { updated: now(), count: entries.size, name: feed.name, kind: feed.kind });
+                }
                 results.push(Object.assign({ id: feed.id, name: feed.name, count: entries.size }, added ? { kind: feed.kind, added } : {}));
                 if (prev.error) {
                     recovered.push(feed.name);
                     await store.addEvent({ kind: 'lists', text: `${feed.name} downloaded again (${entries.size.toLocaleString('en-US')} entries), after missing its download since ${new Date(prev.failedSince || prev.lastAttempt || now()).toISOString().slice(0, 16).replace('T', ' ')} UTC.` });
                 }
-                health[feed.id] = { lastAttempt: now() };
+                health[feed.id] = { lastAttempt: now(), checkedAt: now() };
             } catch (e) {
                 // (never an address: a keyed list's has its key in it)
                 const error = String(e.message || e).replace(/https?:\/\/\S+/g, '(its address)').slice(0, 160);
@@ -188,7 +194,7 @@ function createFeeds({ http, store, engine, now = () => Date.now(), log = consol
             const on = await isOn(feed);
             const i = await store.blobInfo(`feed_${feed.id}`);
             const hl = on ? health[feed.id] || {} : {};
-            const updated = i ? i.updated : null;
+            const updated = i ? Math.max(i.updated, (!hl.error && hl.checkedAt) || 0) : null;   // (0.6.7: or the last download that found the same entries)
             const missed = !on ? null : hl.error ? 'failed' : updated && now() - updated > STALE_MS ? 'stale' : null;
             out.push({ id: feed.id, name: feed.name, kind: feed.kind, confidence: feed.confidence || 'list', home: feed.home || null, updated, count: i ? i.count : 0, off: !on || undefined, optional: !!feed.enabled || undefined,
                 lastAttempt: hl.lastAttempt || null, error: hl.error || null, failedSince: hl.error ? (hl.failedSince || hl.lastAttempt || null) : null, failures: hl.error ? (hl.failures || 1) : 0, missed });

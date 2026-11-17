@@ -100,6 +100,8 @@ const EMAIL_SLOTS = 12, LARGE_SLOTS = 2, LARGE_BYTES = 4 * 1024 * 1024;
 // RESCAN_SLOTS at once per instance, at most RESCAN_QUEUE_MAX more waiting, and one email again only
 // RESCAN_COOLDOWN_MS after its last re-scan (kept on its record, so every instance knows).
 const RESCAN_SLOTS = 2, RESCAN_QUEUE_MAX = 8, RESCAN_COOLDOWN_MS = 30 * 1000;
+// (0.6.7) Switching the service off (stopAll): Gmail told STOP_PARALLEL mailboxes at a time, within STOP_BUDGET_MS.
+const STOP_PARALLEL = 10, STOP_BUDGET_MS = 80 * 1000;
 // Runs fn over items, n at a time, until stop() says so.
 async function pool(items, n, fn, stop = () => false) {
     let i = 0;
@@ -416,7 +418,7 @@ class Service {
         if (!user || !historyId) return { ignored: 'malformed' };
         // The mailbox's state, read once (whether it is watched, and where its history was read up to).
         const u = (await this.store.getUser(user)) || {};
-        if (!this.cfg.pilotUsers.includes(user) && !u.watched) return { ignored: 'not watched' };
+        if (!u.watched && (u.stoppedAt || !this.cfg.pilotUsers.includes(user))) return { ignored: 'not watched' };
         // When Gmail last notified: written with the sync position (one write, not two); when that doesn't
         // move, at most every NOTED_EVERY_MS.
         const noted = { lastNotification: this.now() };
@@ -770,17 +772,19 @@ class Service {
         // address, not the platform's, which every share comes from (0.5.16).
         const relay = platformNotification(facts, this.cfg.orgDomains);
         const who = relay ? relay.address : facts.senderAddress;
-        const first = who ? await this.firstSeen(senderHash(who), now) : now;
+        // (0.6.7) What the checks need from elsewhere, asked at once (they were asked one after another).
+        const [first, shareReach, threadSize, colleagues, lookalikes] = await Promise.all([who ? this.firstSeen(senderHash(who), now) : now,
+            alreadyMoved ? 0 : this.countShare(facts, user, now), this.threadSizeOf(user, msg.threadId, facts), this.colleagueNames(), this.lookalikeMap()]);
         const learning = now - installedAt < this.cfg.firstSeenLearningDays * DAY;
-        const shareReach = alreadyMoved ? 0 : await this.countShare(facts, user, now);
         // Allowlisted only with DMARC passing for the address (policy.js).
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
-        const threadSize = await this.threadSizeOf(user, msg.threadId, facts);
         const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
-            colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), threadSize });
+            colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize });
         result.allowlistedUnverified = allowlisted && !verified;
-        const brake = alreadyMoved ? false : await this.brakeOn(now);
-        let decision = decide(result, this.cfg, { brake });
+        // (0.6.7) The brake is read only when it matters: when the email would be moved (enforce mode). It was read
+        // for every email; the decision is the same.
+        let decision = decide(result, this.cfg, { brake: false });
+        if (!alreadyMoved && decision.action === 'move' && await this.brakeOn(now)) decision = decide(result, this.cfg, { brake: true });
         if (alreadyMoved) decision = { action: 'move', trigger: decision.trigger, why: `${decision.why || 'moved'} (moved by an earlier try)` };
         if (userPlaced && (decision.action === 'move' || decision.action === 'would-move')) {
             decision = { action: 'flag', trigger: decision.trigger, why: `${decision.why}; the user moved it into the Inbox themselves (out of Spam or another folder), so it isn't moved` };
@@ -1185,6 +1189,7 @@ class Service {
     // mailboxes that left the pilot.
     async renewWatches({ budgetMs = RENEW_BUDGET_MS, parallel = RENEW_PARALLEL } = {}) {
         const started = Date.now();
+        if (await this.store.getState('stopped')) await this.store.setState('stopped', null);   // (0.6.7) switched on again
         await this.refreshPolicy();
         const users = new Set(this.cfg.pilotUsers);
         const groups = [];
@@ -1221,7 +1226,7 @@ class Service {
                 const w = await this.gmail.watch(user, this.cfg.pubsubTopic);
                 const k = known.get(user);
                 const exp = Number(w.expiration) || null;
-                await this.store.putUser(user, Object.assign({ watched: true, watchExpiration: exp }, k && k.historyId ? {} : { historyId: String(w.historyId) }));
+                await this.store.putUser(user, Object.assign({ watched: true, watchExpiration: exp, stoppedAt: null, stopPending: false }, k && k.historyId ? {} : { historyId: String(w.historyId) }));
                 out.set(user, exp || now + WATCH_MS);
             } catch (e) {
                 failed++;
@@ -1277,16 +1282,37 @@ class Service {
 
     // Switching the service off: Gmail stops notifying for every watched mailbox. (Also remove the
     // Scheduler job that renews watches, or it starts them again; docs/DEPLOY.md.)
-    async stopAll() {
+    // (0.6.7) The off switch (deploy/stop.sh). First every mailbox stops counting as watched (its notifications are
+    // ignored from then on, PILOT_USERS too), and an unfinished renewal is dropped (the hourly job continued it,
+    // watching them again); then Gmail is told to stop notifying, STOP_PARALLEL at a time within budgetMs, and
+    // the hourly job finishes what is left (it never renews while stopped). Before, one mailbox at a time with no
+    // time limit: a district's 10,000 took about 50 minutes, past the request's 2. Any renewal (the daily job,
+    // which stop.sh pauses; install.sh; the dashboard's "Read the directory again now") starts it again.
+    async stopAll({ budgetMs = STOP_BUDGET_MS, parallel = STOP_PARALLEL } = {}) {
+        const started = Date.now(), at = this.now();
+        await this.store.setState('watchLeft', null);
+        await this.store.setState('stopped', { at, left: null });
+        const todo = (await this.store.listUsers()).filter(u => u.watched || u.stopPending);
+        await pool(todo, 25, (u) => this.store.putUser(u.email, { watched: false, watchExpiration: null, stopPending: true, stoppedAt: at }));
+        const out = await this.finishStopping({ users: todo, budgetMs: Math.max(0, budgetMs - (Date.now() - started)), parallel });
+        await this.store.addEvent({ kind: 'mode', text: out.left ? `All ${todo.length} mailbox watches were switched off: their notifications are ignored. Gmail was told to stop notifying for ${out.stopped}; the hourly job tells it for the other ${out.left}.`
+            : `All ${todo.length} mailbox watches were stopped.` });
+        return { stopped: todo.length, gmailStopped: out.stopped, left: out.left };
+    }
+    // Gmail told to stop notifying for the mailboxes switched off (stopPending), within budgetMs.
+    async finishStopping({ users = null, budgetMs = STOP_BUDGET_MS, parallel = STOP_PARALLEL } = {}) {
+        const started = Date.now();
+        const todo = (users || (await this.store.listUsers())).filter(u => u.stopPending || users);
         let stopped = 0;
-        for (const u of await this.store.listUsers()) {
-            if (!u.watched) continue;
-            try { await this.gmail.stop(u.email); } catch (e) { /* already stopped */ }
-            await this.store.putUser(u.email, { watched: false, watchExpiration: null });
+        await pool(todo, parallel, async (u) => {
+            try { await this.gmail.stop(u.email); } catch (e) { /* already stopped, or not a mailbox */ }
+            await this.store.putUser(u.email, { stopPending: false });
             stopped++;
-        }
-        await this.store.addEvent({ kind: 'mode', text: `All ${stopped} mailbox watches were stopped.` });
-        return { stopped };
+        }, () => Date.now() - started > budgetMs);
+        const left = todo.length - stopped;
+        const st = (await this.store.getState('stopped')) || {};
+        await this.store.setState('stopped', Object.assign({}, st, { at: st.at || this.now(), left }));
+        return { stopped, left };
     }
 
     // Cloud Scheduler, daily: records older than RETENTION_DAYS are deleted.
@@ -1350,9 +1376,10 @@ class Service {
         // (0.5.53) Watches the daily renewal didn't get to (a whole domain of 10,000 mailboxes, just switched to, or
         // back): continued here each hour, with what is left of the request's time.
         try {
-            const wl = await this.store.getState('watchLeft');
+            const wl = await this.store.getState('watchLeft'), off = await this.store.getState('stopped');
             const budget = Math.min(45 * 1000, 95 * 1000 - (Date.now() - started));
-            if (wl && wl.left > 0 && budget >= 15 * 1000) out.watches = await this.renewWatches({ budgetMs: budget });
+            if (off) { if (off.left && budget >= 15 * 1000) out.stopping = await this.finishStopping({ budgetMs: budget }); }   // (0.6.7) switched off: never renewed here
+            else if (wl && wl.left > 0 && budget >= 15 * 1000) out.watches = await this.renewWatches({ budgetMs: budget });
         } catch (e) { out.watches = { error: String(e.message || e).slice(0, 200) }; this.log.error('watches, continued:', e); }
         const budgetMs = Math.min(30 * 1000, 105 * 1000 - (Date.now() - started));
         if (budgetMs > 0) { try { out.purged = await this.purge({ budgetMs }); } catch (e) { out.purged = { error: String(e.message || e).slice(0, 200) }; } }
@@ -1453,9 +1480,13 @@ class Service {
     async queueLaterChecks() {
         if (!this.cfg.recheck) return 0;
         const now = this.now();
-        const recs = await this.store.listRecords({ sinceMs: now - 50 * HOUR, untilMs: now - HOUR, limit: 3000 });
-        const due = recs.filter(r => r.action === 'flag' && r.state === 'inbox' && r.falseAlarm == null && !r.unclear && !r.userPlaced && !r.recheck
-            && ((r.laterChecks || 0) === 0 || ((r.laterChecks || 0) === 1 && now - r.processedAt >= DAY)));
+        // (0.6.7) Two short windows, each read on its own: an hour old (up to 6 h, for runs missed) and a day old (up to
+        // 30 h). Before, one read of the last 50 hours, newest first, at most 3,000: past that, the day-old round was
+        // never reached, and a gone email was asked for again every hour for two days.
+        const [hourOld, dayOld] = await Promise.all([this.store.listRecords({ sinceMs: now - 6 * HOUR, untilMs: now - HOUR, limit: 3000 }),
+            this.store.listRecords({ sinceMs: now - 30 * HOUR, untilMs: now - DAY, limit: 3000 })]);
+        const open = (r) => r.action === 'flag' && r.state === 'inbox' && r.falseAlarm == null && !r.unclear && !r.userPlaced && !r.recheck;
+        const due = [...hourOld.filter(r => open(r) && (r.laterChecks || 0) === 0), ...dayOld.filter(r => open(r) && (r.laterChecks || 0) <= 1)];
         return this.queueRechecks(due.slice(0, 1000).map(r => ({ user: r.user, id: r.messageId, receivedAt: r.receivedAt || null, source: 'later', round: (r.laterChecks || 0) + 1 })));
     }
     // (0.5.51) After an update that changes how email is checked. state/checksLevel: the level last run
@@ -1710,8 +1741,13 @@ class Service {
     // baselineDone, lastPassAt, found: { domain: { domain, first, last, mx, web, ageDays, status, gone,
     // by, at } } }. status: 'baseline' (there before the watch), 'new' (appeared since, or registered in the
     // last 30 days), 'threat', 'ours', 'harmless' (an admin's marks).
-    async lookalikeMap() {
-        if (this.lookalikeCache && Date.now() - this.lookalikeCache.at < 5 * 60 * 1000) return this.lookalikeCache.map;
+    // (0.6.7) One read at a time per instance: when the copy expires, the emails being checked at that moment wait
+    // for the same read (each read the document before).
+    lookalikeMap() {
+        if (this.lookalikeCache && Date.now() - this.lookalikeCache.at < 5 * 60 * 1000) return Promise.resolve(this.lookalikeCache.map);
+        return this.lookalikeLoading || (this.lookalikeLoading = this.loadLookalikeMap().finally(() => { this.lookalikeLoading = null; }));
+    }
+    async loadLookalikeMap() {
         const map = new Map();
         try {
             const w = await this.store.getState('lookalikeWatch');
@@ -1801,8 +1837,11 @@ class Service {
     // src/simulations.js says how they are recognized. state/phishTraining: { rules: [{ id, name, header,
     // headerShown, valueHash, ips }], domains: [], by, at } (a secret value only as a one-way hash);
     // state/phishTrainingSeen: { [name]: lastSeen } (each instance writes it at most every 10 minutes).
-    async trainingSettings() {
-        if (this.trainingCache && Date.now() - this.trainingCache.at < 60 * 1000) return this.trainingCache.v;
+    trainingSettings() {
+        if (this.trainingCache && Date.now() - this.trainingCache.at < 60 * 1000) return Promise.resolve(this.trainingCache.v);
+        return this.trainingLoading || (this.trainingLoading = this.loadTrainingSettings().finally(() => { this.trainingLoading = null; }));   // (0.6.7) one read at a time
+    }
+    async loadTrainingSettings() {
         let v = null;
         try { v = await this.store.getState('phishTraining'); } catch (e) { v = (this.trainingCache && this.trainingCache.v) || null; }
         this.trainingCache = { at: Date.now(), v };

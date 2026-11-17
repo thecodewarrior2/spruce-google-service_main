@@ -97,6 +97,11 @@ async function analyze(facts, ctx = {}) {
     // A notification's note (the sharer's own message) can be set apart as a quotation: the text checks read it.
     const bodyText = relay ? `${facts.visibleText}\n${facts.quotedText || ''}` : facts.visibleText;
     // Attachments and pictures (0.5.34): QR codes and links in them are checked like the email's own links.
+    // (0.5.64) A sender's name claiming a brand whose domain list doesn't have the sender's domain ("Xoom, a PayPal
+    // Service" from service.xoom.com): whose the domain is comes from public records (src/intel/ownership.js), as in
+    // the extension; at most OWNERSHIP_WAIT_MS, else judged as before. (0.6.7) Started now, beside the other lookups
+    // (it needs only the sender): it waited for them first, up to 6 s more for an email whose name claims a brand.
+    const ownershipP = relay ? Promise.resolve(null) : senderOwnership(E, facts, ctx.trusted ? null : (ctx.intel || null)).catch(() => null);
     const att = ctx.readAttachments === false ? { links: [], signals: [], found: [], skipped: 0 }
         : await readAttachments(facts.attachmentFiles || [], { outside: !inside }).catch(() => ({ links: [], signals: [], found: [], skipped: 0 }));
     const judged = await judgeLinks(E, [...(facts.links || []), ...att.links]);
@@ -105,10 +110,7 @@ async function analyze(facts, ctx = {}) {
     const net = await networkChecks(E, ctx.trusted ? null : (ctx.intel || null), facts, judged, Object.assign({}, ctx, { orgDomains: ctx.orgDomains || [] }))
         .catch(() => ({ signals: [], checks: { failed: true } }));
     const allText = `${facts.subject}\n${facts.visibleText}\n${facts.hiddenText}`;
-    // (0.5.64) A sender's name claiming a brand whose domain list doesn't have the sender's domain ("Xoom, a PayPal
-    // Service" from service.xoom.com): whose the domain is comes from public records (src/intel/ownership.js), as in
-    // the extension; at most OWNERSHIP_WAIT_MS, else judged as before.
-    const ownership = relay ? null : await senderOwnership(E, facts, ctx.trusted ? null : (ctx.intel || null));
+    const ownership = await ownershipP;
     const safe = (f) => { try { return f() || []; } catch (e) { return []; } };
     const safeOne = (f) => { try { return f(); } catch (e) { return null; } };
     const headerSigns = safe(() => E.headerAnomalies(facts.rawForHeaders, mailbox, E.gmailReceiver));

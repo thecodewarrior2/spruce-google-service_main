@@ -84,9 +84,11 @@ class MemoryStore {
     }
     async saveRecord(rec) { this.records.set(rec.key, JSON.parse(JSON.stringify(Object.assign({}, rec, { updatedAt: Date.now() })))); }
     // Records saved or changed after a time (the dashboard's cache: src/dashboard/cache.js).
-    async listRecordsChangedSince(ms, limit = 5000) {
-        return [...this.records.values()].filter(r => (r.updatedAt || r.processedAt) > ms).sort((a, b) => (a.updatedAt || a.processedAt) - (b.updatedAt || b.processedAt))
-            .slice(0, limit).map(r => JSON.parse(JSON.stringify(r)));
+    async listRecordsChangedSince(ms, limit = 5000, after = null) {
+        const at = (r) => r.updatedAt || r.processedAt;
+        const cmp = (a, b) => at(a) - at(b) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+        return [...this.records.values()].filter(r => at(r) > ms && (!after || at(r) > after.updatedAt || (at(r) === after.updatedAt && r.key > after.id)))
+            .sort(cmp).slice(0, limit).map(r => JSON.parse(JSON.stringify(r)));
     }
     async getRecord(key) { const r = this.records.get(key); return r ? JSON.parse(JSON.stringify(r)) : null; }
     async updateRecord(key, patch) {
@@ -161,7 +163,7 @@ class MemoryStore {
     async getState(name) { return this.state.has(name) ? JSON.parse(JSON.stringify(this.state.get(name))) : null; }
     async setState(name, value) { this.state.set(name, value === null ? null : JSON.parse(JSON.stringify(value))); }
     async addEvent(ev) { const e = Object.assign({ at: Date.now() }, ev); this.events.push(e); if (this.events.length > 5000) this.events.shift(); if (this.onEvent) this.onEvent(e); }
-    async listEvents(sinceMs = 0, { limit = 500 } = {}) { return this.events.filter(e => e.at >= sinceMs).sort((a, b) => b.at - a.at).slice(0, limit); }
+    async listEvents(sinceMs = 0, { limit = 500, untilMs = null } = {}) { return this.events.filter(e => e.at >= sinceMs && (untilMs === null || untilMs === undefined || e.at < untilMs)).sort((a, b) => b.at - a.at).slice(0, limit); }
     // Files shared by every instance (the phishing lists): bytes plus a little information.
     async putBlob(name, bytes, info) { this.blobs = this.blobs || new Map(); this.blobs.set(name, { bytes: Buffer.from(bytes), info: Object.assign({}, info) }); }
     async getBlob(name) { const b = this.blobs && this.blobs.get(name); return b ? { bytes: Buffer.from(b.bytes), info: Object.assign({}, b.info) } : null; }

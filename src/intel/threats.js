@@ -66,6 +66,23 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, now = (
         }
         return { verdict: 'unknown', by: 'Cloudflare Security' };
     }
+    // (0.6.7) One lookup of a host at a time per instance: the copies of a campaign arriving together share it (each
+    // asked Cloudflare itself). A host with no address records (unknown) is kept UNKNOWN_TTL, with the same verdict.
+    const UNKNOWN_TTL = 10 * 60 * 1000;
+    const hostLookups = new Map();
+    function lookHost(h) {
+        let p = hostLookups.get(h);
+        if (!p) {
+            p = (async () => {
+                const r = await cloudflare(h);
+                hostCache.set(h, r, r.verdict === 'unsafe' ? BAD_TTL : r.verdict === 'unknown' ? UNKNOWN_TTL : CLEAN_TTL);
+                await outcome('cloudflare', true);
+                return r;
+            })().finally(() => hostLookups.delete(h));
+            hostLookups.set(h, p);
+        }
+        return p;
+    }
     // hosts → Map(host → { verdict: 'unsafe'|'clean'|'nonexistent'|'unknown', by, reason })
     async function checkHosts(hosts) {
         const out = new Map();
@@ -75,10 +92,7 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, now = (
             const hit = hostCache.get(h);
             if (hit) { out.set(h, hit); return; }
             try {
-                const r = await cloudflare(h);
-                if (r.verdict !== 'unknown') hostCache.set(h, r, r.verdict === 'unsafe' ? BAD_TTL : CLEAN_TTL);
-                out.set(h, r);
-                await outcome('cloudflare', true);
+                out.set(h, await lookHost(h));
             } catch (e) {
                 out.set(h, { verdict: 'unknown', by: 'Cloudflare Security', reason: `not checked (${e.name === 'ServiceBusyError' ? 'service busy' : 'lookup failed'})` });
                 if (e.name !== 'ServiceBusyError') await outcome('cloudflare', false);

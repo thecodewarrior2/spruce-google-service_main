@@ -10,6 +10,11 @@
 // read up to 20,000 records from Firestore, which a district's dashboard left open would pay for.
 const DAY = 24 * 60 * 60 * 1000;
 const OVERLAP_MS = 60 * 1000;
+// (0.6.7) The records changed since the last look, read CHANGED_PAGE at a time from exactly where the last page
+// ended (by updatedAt, then the document's id), at most CHANGED_PAGES pages per look. Before, a minute with more
+// than 5,000 changes (a campaign to most of a district, or a whole campaign released) left the cache reading the
+// same 5,000 records every 15 s, the newer ones never.
+const CHANGED_PAGE = 5000, CHANGED_PAGES = 20;
 const PAGE = 10000;                       // records read at a time when the cache starts
 const OLDER_KEPT_MS = 60 * 60 * 1000;     // records older than startDays, kept this long after a page last used them
 const INTERNED = 200000;                  // distinct strings shared between records (then started again)
@@ -70,6 +75,19 @@ class RecordCache {
             until = last + 1;                        // (the last millisecond is read again; kept once, by key)
         }
     }
+    // The records changed since sinceMs (oldest first), every page of them.
+    async readChanged(sinceMs) {
+        const rows = [];
+        let after = null;
+        for (let i = 0; i < CHANGED_PAGES; i++) {
+            const page = await this.store.listRecordsChangedSince(sinceMs, CHANGED_PAGE, after);
+            rows.push(...page);
+            if (page.length < CHANGED_PAGE) break;
+            const last = page[page.length - 1];
+            after = { updatedAt: last.updatedAt || last.processedAt || 0, id: last.key };
+        }
+        return rows;
+    }
     async refresh(force = false) {
         if (this.loading) return this.loading;
         if (!force && this.loadedAt && this.now() - this.loadedAt < this.refreshMs) return;
@@ -78,7 +96,7 @@ class RecordCache {
             const at = this.now(), keepMs = this.keepMs;
             const from = at - Math.min(this.startMs, keepMs);
             const rows = first ? await this.readAll(from)
-                : await this.store.listRecordsChangedSince(this.cursor - OVERLAP_MS, 5000);
+                : await this.readChanged(this.cursor - OVERLAP_MS);
             if (first) this.from = from;
             for (const r of rows) {
                 if (r.processedAt >= this.from) this.byKey.set(r.key, this.slim(r));   // (an older one changed: read when a page needs it)
@@ -125,4 +143,64 @@ class RecordCache {
     stale() { this.loadedAt = Math.min(this.loadedAt, 1); }
 }
 
-module.exports = { RecordCache, slimmer, OLDER_KEPT_MS };
+// (0.6.7) The dashboard's copy of Activity's events (they are only ever added, never changed): read once for the
+// period a page first asks for, then only the newer ones, at most every refreshMs. Before, Activity read up to
+// 10,000 events on every live refresh of every open dashboard (every 30 s), Today 500 to show 10, Service
+// status 500 to count the errors, and each admin's first visit of the day 2,000.
+const EVENT_OVERLAP_MS = 30 * 1000;
+class EventCache {
+    constructor(store, { refreshMs = 15000, maxEvents = 50000, now = () => Date.now() } = {}) {
+        this.store = store; this.refreshMs = refreshMs; this.maxEvents = maxEvents; this.now = now;
+        this.events = []; this.seen = new Set(); this.from = Infinity; this.newest = 0; this.loadedAt = 0;
+        this.loading = null; this.extending = null;
+    }
+    static sig(e) { return `${e.at}|${e.kind || ''}|${e.by || ''}|${e.user || ''}|${e.text || ''}`; }
+    add(rows) {
+        let added = 0;
+        for (const e of rows) {
+            const k = EventCache.sig(e);
+            if (this.seen.has(k)) continue;
+            this.seen.add(k); this.events.push(Object.freeze(e)); added++;
+            if (e.at > this.newest) this.newest = e.at;
+        }
+        if (!added) return;
+        this.events.sort((a, b) => b.at - a.at);
+        if (this.events.length > this.maxEvents) {
+            for (const e of this.events.splice(this.maxEvents)) this.seen.delete(EventCache.sig(e));
+            this.from = this.events[this.events.length - 1].at;
+        }
+    }
+    async refresh(force = false) {
+        if (this.loading) return this.loading;
+        if (this.from === Infinity || (!force && this.now() - this.loadedAt < this.refreshMs)) return;
+        this.loading = (async () => {
+            const at = this.now();
+            this.add(await this.store.listEvents(Math.max(this.from, this.newest - EVENT_OVERLAP_MS), { limit: 5000 }));
+            this.loadedAt = at;
+        })().finally(() => { this.loading = null; });
+        return this.loading;
+    }
+    async extend(sinceMs) {
+        while (this.extending) await this.extending;
+        if (sinceMs >= this.from) return;
+        this.extending = (async () => {
+            const at = this.now(), first = this.from === Infinity;
+            this.add(await this.store.listEvents(sinceMs, first ? { limit: this.maxEvents } : { limit: this.maxEvents, untilMs: this.from }));
+            if (this.events.length < this.maxEvents) this.from = Math.min(this.from, sinceMs);
+            if (first) this.loadedAt = at;
+        })().finally(() => { this.extending = null; });
+        return this.extending;
+    }
+    // The events since sinceMs, newest first, at most limit (as store.listEvents; the cache's own frozen events).
+    async list(sinceMs = 0, { limit = Infinity } = {}) {
+        if (sinceMs < this.from) await this.extend(sinceMs);
+        await this.refresh();
+        const out = [];
+        for (const e of this.events) { if (e.at < sinceMs || out.length >= limit) break; out.push(e); }
+        return out;
+    }
+    // After the dashboard itself added events: seen at the next look.
+    stale() { this.loadedAt = 0; }
+}
+
+module.exports = { RecordCache, EventCache, slimmer, OLDER_KEPT_MS };

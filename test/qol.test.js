@@ -128,6 +128,8 @@ test('dashboard: the review list, what needs an admin, the summary\'s switch and
         assert.equal(s.find(c => c.id === 'iap').ok, true); assert.equal(s.find(c => c.id === 'version').ok, true); assert.equal(s.find(c => c.id === 'invoker').ok, true);
         iap = true;
         s = (await get('/api/status')).checks;
+        assert.equal(s.find(x => x.id === 'iap').ok, true, '(0.6.7) the same answer for a minute, shared');
+        s = (await get('/api/status?fresh=1')).checks;
         const c = s.find(x => x.id === 'iap');
         assert.equal(c.ok, false); assert.match(c.fix, /--no-iap/);
     } finally { await close(); }
@@ -138,7 +140,7 @@ test('the dashboard\'s record cache: one full read, then only what changed', asy
     let full = 0, changed = 0;
     const listRecords = store.listRecords.bind(store), listChanged = store.listRecordsChangedSince.bind(store);
     store.listRecords = async (o) => { full++; return listRecords(o); };
-    store.listRecordsChangedSince = async (ms, n) => { changed++; return listChanged(ms, n); };
+    store.listRecordsChangedSince = async (...a) => { changed++; return listChanged(...a); };
     let now = Date.now();
     const cache = new RecordCache(store, { refreshMs: 1000, now: () => now });
     const week = now - 7 * 24 * 3600 * 1000;   // (within the 32 days read first: test/retention.test.js has the longer periods)
@@ -153,6 +155,24 @@ test('the dashboard\'s record cache: one full read, then only what changed', asy
     cache.stale();
     assert.equal((await cache.list(week)).find(r => r.key === 'a').action, 'move', 'changed records too');
     assert.equal(full, 1, 'read in full once'); assert.ok(changed >= 2);
+});
+
+// (0.6.7) More than a page of changes within the overlap minute (a campaign to most of a district, a campaign released):
+// every one reaches the cache, page after page, also those sharing a millisecond across a page boundary.
+test('the dashboard\'s record cache: a burst of 12,000 changed records, many in one millisecond, all arrive', async () => {
+    const store = new MemoryStore();
+    let now = Date.now();
+    const cache = new RecordCache(store, { refreshMs: 1000, now: () => now });
+    await store.saveRecord({ key: 'first', processedAt: now - 1000, action: 'flag' });
+    await cache.list(now - 86400000);
+    const t = now + 10;
+    for (let i = 0; i < 12000; i++) store.records.set(`k${String(i).padStart(5, '0')}`, { key: `k${String(i).padStart(5, '0')}`, processedAt: t, updatedAt: t + Math.floor(i / 3000), action: 'move' });
+    now += 2000;
+    assert.equal((await cache.list(now - 86400000)).length, 12001);
+    for (let i = 0; i < 12000; i += 7) store.records.get(`k${String(i).padStart(5, '0')}`).updatedAt = t + 100;
+    store.records.get('k00007').action = 'released'; store.records.get('k00007').updatedAt = t + 100;
+    now += 2000;
+    assert.equal((await cache.list(now - 86400000)).find(r => r.key === 'k00007').action, 'released', 'and the next change after the burst');
 });
 
 test('review, suspicious queue: Phishing moves a suspicious email still in the Inbox to Spam in enforce mode only; not phishing, gone or monitor mode: nothing moved', async () => {
@@ -276,4 +296,26 @@ test('dashboard: Review\'s "Ignore, treat as suspicious": out of the queue, left
         const p = await post('/api/mark', { key: one, falseAlarm: false });
         assert.equal(p.record.falseAlarm, false); assert.equal(p.record.unclear, false);
     } finally { await close(); }
+});
+
+// (0.6.7) Activity's events: read once for the period asked, then only the newer ones; an older period is read once more.
+test('the dashboard\'s event cache: one read per period, then only new events', async () => {
+    const { EventCache } = require('../src/dashboard/cache');
+    const store = new MemoryStore();
+    const calls = [];
+    const list = store.listEvents.bind(store);
+    store.listEvents = async (since, o = {}) => { calls.push([since, o.untilMs || null]); return list(since, o); };
+    let now = Date.now();
+    const ev = new EventCache(store, { refreshMs: 1000, now: () => now });
+    for (let i = 0; i < 5; i++) await store.addEvent({ at: now - i * 86400000, kind: 'info', text: `day ${i}` });
+    assert.equal((await ev.list(now - 2.5 * 86400000)).length, 3);
+    assert.equal((await ev.list(now - 2.5 * 86400000, { limit: 2 })).length, 2);
+    assert.equal(calls.length, 1, 'held: not read again within refreshMs');
+    await store.addEvent({ at: now + 500, kind: 'error', text: 'new' });
+    now += 2000;
+    const after = await ev.list(now - 2.5 * 86400000);
+    assert.equal(after[0].text, 'new'); assert.equal(after.length, 4, 'each event once');
+    assert.equal(calls.length, 2); assert.ok(calls[1][0] > now - 60000, 'only the newest part');
+    assert.equal((await ev.list(now - 10 * 86400000)).length, 6, 'an older period');
+    assert.equal(calls[2][1], now - 2000 - 2.5 * 86400000, 'read up to where it held them');
 });
