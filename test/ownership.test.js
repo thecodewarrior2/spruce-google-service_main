@@ -116,3 +116,19 @@ test('an agency\'s bulletin through GovDelivery is no sign; failed, forged; a co
     assert.deepEqual(sign(await judge('PayPal', 'service@service.govdelivery.com')), [[5, false]]);
     assert.deepEqual(sign(await judge('IRS Newswire', 'irs@refund-help.example')), [[5, false]]);
 });
+
+// (0.5.74) "Lakeside Ink LLC via QuickBooks" from the business's own address (QuickBooks sends invoices through it), its
+// DMARC passing: no claim to be Intuit. Without the pass, with a brand before "via", or from a domain carrying the brand's
+// name, the sign stays. Made-up businesses and domains.
+test('"Business via QuickBooks" from its own verified address is no sign; forged, branded or look-alike, it still is', async () => {
+    const raw = (name, from, dmarc) => Buffer.from([`From: "${name}" <${from}>`, 'To: pat@maple-schools.example', 'Subject: Reminder: Invoice 1042 from Lakeside Ink', 'Message-ID: <q1@mail.gmail.com>',
+        `Authentication-Results: mx.google.com; dkim=pass header.i=@${from.split('@')[1]}; spf=pass; dmarc=${dmarc} header.from=${from.split('@')[1]}`, 'Content-Type: text/plain; charset=utf-8', '', 'Your invoice is attached. Thank you for your business.'].join('\r\n'));
+    const judge = async (name, from, dmarc = 'pass') => analyze(await readMessage(raw(name, from, dmarc)), { mailbox: 'pat@maple-schools.example', orgDomains: ['maple-schools.example'], readAttachments: false });
+    const sign = (r) => r.signals.filter(s => /The sender's name says/.test(s.text || '')).map(s => s.weight);
+    const ok = await judge('Lakeside Ink LLC via QuickBooks', 'sales@lakeside-ink.example');
+    assert.deepEqual(sign(ok), [0]);
+    assert.notEqual(ok.status, 'flagged');
+    assert.deepEqual(sign(await judge('Lakeside Ink LLC via QuickBooks', 'sales@lakeside-ink.example', 'fail')), [5]);
+    assert.deepEqual(sign(await judge('Intuit via QuickBooks', 'sales@lakeside-ink.example')), [5]);
+    assert.deepEqual(sign(await judge('Billing via QuickBooks', 'billing@quickbooks-billing.example')), [5]);
+});

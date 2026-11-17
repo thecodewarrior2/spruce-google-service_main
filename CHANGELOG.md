@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.74: "Business via QuickBooks" is no false alarm
+
+- **False alarm:** "LAKESIDE INK LLC via QuickBooks" <sales@…> was flagged (score 6: "isn't Intuit's address", 5).
+  QuickBooks sends a business's invoices through the business's own mailbox and names it "Business via QuickBooks";
+  Docusign, Dropbox and others name senders the same way. A brand named only after "via" is now a note with no weight
+  when the address is the sender's own: Gmail's DMARC check passed for its domain, and the domain doesn't carry or
+  imitate the brand's name (quickbooks-billing…, intuit-invoices…). From a personal mailbox (gmail.com…), which anyone
+  can open, it is a caution. The name before "via" naming a brand itself ("Intuit via QuickBooks"), no DMARC pass, or
+  no "via" at all: judged as before (`viaPlatformSign` in `vendor/spruce/shared.js`, as in the S.P.R.U.C.E+ extension
+  5.94.41; `src/engine/analyze.js` gives it the domain DMARC passed for). No list of platforms. Test:
+  `test/ownership.test.js`.
+- **Checks level 13:** after this update, recent delivered mail is checked again.
+
 ## 0.5.73: allowed link domains, for a link site a phishing list flagged by mistake
 
 - **False alarm:** a restaurant chain's newsletter was "would move" because HaGeZi Threat Intelligence Feeds lists its click
