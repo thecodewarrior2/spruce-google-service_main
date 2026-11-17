@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.10: Health → DMARC & reputation lines up side by side
+
+- **Side by side, each domain's sections line up:** the cards in a row share their rows (the head, DMARC, SPF,
+  reputation, when it was read; CSS subgrid), so every divider is at the same height, whatever each record holds.
+  The domain names line up at the top. Stacked in one column, each card keeps its own height.
+- **In a narrow card** (a medium screen, a phone), each blocklist service's words go under its name instead of a
+  thin column beside it.
+- Dashboard only: no install or checks change (Settings → Update installs it).
+
 ## 0.6.9: each installation names the two repositories it downloads from
 
 - **`RELEASES_REPO` and `MODEL_REPO`** (`deploy/settings.env`, and on the dashboard: Settings → Update →

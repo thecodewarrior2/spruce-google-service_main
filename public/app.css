@@ -715,3 +715,17 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .repo-form .wide-input { width: 100%; box-sizing: border-box; }
 .repo-form .inline-fields { display: flex; gap: 8px; flex-wrap: wrap; }
 .repo-form .inline-fields input { flex: 1 1 200px; min-width: 0; }
+/* (0.6.10) Health → DMARC & reputation, side by side: the cards in a row share their rows (head, DMARC, SPF,
+   reputation, when read), so every divider is at the same height. Stacked (one column), each card keeps its own. */
+@supports (grid-template-rows: subgrid) {
+  .dns-grid { row-gap: 0; }
+  .dns-card { grid-row: span 5; grid-template-rows: subgrid; row-gap: 14px; margin-bottom: 16px; }
+  .dns-part { align-content: start; }
+}
+.dns-head { align-items: flex-start; align-self: start; }
+/* A narrow card (stacked on a medium screen, or a phone): each service's words go under its name. */
+.dns-part { container-type: inline-size; }   /* (the section, not the card: a container card couldn't share the row's subgrid) */
+@container (max-width: 560px) {
+  .rep-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .rep-detail { grid-column: 1 / -1; }
+}
