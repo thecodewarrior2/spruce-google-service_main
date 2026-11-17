@@ -80,13 +80,16 @@ test('asked once: the answer is kept (also an unknown one, for a day); personal 
 });
 
 test('in the email\'s verdict: "Xoom, a PayPal Service" from a domain shown to be PayPal\'s is no sign; unproven, the sign stays', async () => {
-    const raw = (from) => Buffer.from([`From: "Xoom, a PayPal Service" <${from}>`, 'To: pat@maple-schools.example', 'Subject: Your transfer is complete', 'Message-ID: <x1@xoom.example>',
-        'Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass', 'Content-Type: text/plain; charset=utf-8', '', 'Your money transfer was delivered.'].join('\r\n'));
+    const raw = (from, body = 'Your money transfer was delivered.') => Buffer.from([`From: "Xoom, a PayPal Service" <${from}>`, 'To: pat@maple-schools.example', 'Subject: Your transfer is complete', 'Message-ID: <x1@xoom.example>',
+        'Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass', 'Content-Type: text/plain; charset=utf-8', '', body].join('\r\n'));
     const intelWith = (state, how = '') => ({ ownership: { of: async () => ({ state, how }) } });
-    const judge = async (from, intel) => analyze(await readMessage(raw(from)), { mailbox: 'pat@maple-schools.example', orgDomains: ['maple-schools.example'], intel, readAttachments: false });
+    const judge = async (from, intel, body) => analyze(await readMessage(raw(from, body)), { mailbox: 'pat@maple-schools.example', orgDomains: ['maple-schools.example'], intel, readAttachments: false });
     const brandSign = (r) => r.signals.filter(s => /PayPal/.test(s.text || '')).map(s => s.weight);
     assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', intelWith('owned', 'its name servers are PayPal\'s (ns1-pchnet.paypal.com)'))), [0]);
-    assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', intelWith('likely', 'registered through MarkMonitor Inc., a corporate registrar; registered 20 years ago'))), [E.SIGNAL_CAUTION_SCORE]);
+    const likely = intelWith('likely', 'registered through MarkMonitor Inc., a corporate registrar; registered 20 years ago');
+    // (0.6.20) An established company's domain, its DMARC passing, no link anywhere else: no sign; a link elsewhere: 3.
+    assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', likely)), [0]);
+    assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', likely, 'Your money transfer was delivered. Review it: https://transfer-review.example/login')), [E.SIGNAL_CAUTION_SCORE]);
     assert.deepEqual(brandSign(await judge('noreply@xoom-transfers.example', intelWith('unknown'))), [5]);
     assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', null)), [5], 'without the lookups: as before');
 });

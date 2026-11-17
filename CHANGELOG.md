@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.20: a brand's name from the established company that runs its product
+
+- **A card issuer's mail under the brand's name:** "Brand Credit" mail from the bank that issues the brand's card,
+  from the bank's own long-held domain, was flagged. The ownership lookup ran and found an established company (a
+  corporate registrar, registered decades ago: "likely"), but not the brand's, since the domain is the bank's; that
+  "likely" counted 3, and with "from outside" and "first time" the email was flagged. Now it is a note of no weight
+  when Gmail's DMARC check passed for the sender's domain, every link the reader sees goes back to the sender's own
+  domain, no link is flagged, and the domain isn't new or on a list (`establishedSenderInContext` in
+  `src/engine/analyze.js`). A link anywhere else, DMARC not passing, a new domain or nothing in the public records:
+  judged as before.
+- Tests: `test/established-sender.test.js` (made-up bank and emails).
+- **Checks level 20:** delivered mail of the last hours is checked again after this update.
+
 ## 0.6.19: signs that need another sign; padded list mail is spam; a brand's partner; one brand's text on another's link
 
 - **Hidden filler alone:** text hidden far below the message after a blank space (3) made ordinary newsletters

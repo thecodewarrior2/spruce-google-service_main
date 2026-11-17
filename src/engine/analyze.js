@@ -176,6 +176,8 @@ async function analyze(facts, ctx = {}) {
     // (0.6.19) A partner's name for a brand's program counts again when the sender's domain is new; signs that count
     // only together with others; and padded list mail, which is spam rather than phishing.
     safe(() => partnerNameInContext(signals));
+    // (0.6.20) A brand's name on an established company's own domain that sends about the brand's product it runs.
+    safe(() => establishedSenderInContext(E, facts, judged, signals, verified));
     const spam = safeOne(() => signsNeedingCompany(signals, facts, inside));
     const base = { status: ctx.trusted ? 'trusted' : 'clean', reasons: [], move: false };
     const verdict = E.applyEmailSignals(base, signals) || base;
@@ -346,6 +348,24 @@ function partnerNameInContext(signals) {
     const i = signals.findIndex(s => s && s.kind === 'brand-partner-name');
     if (i < 0 || !signals.some(s => s && YOUNG_OR_LISTED.has(s.kind))) return;
     signals[i] = Object.assign({}, signals[i], { weight: 5, text: signals[i].text.replace(/, not ([^.]+) itself\.$/, ', but the sender\'s domain is new or listed, so it counts as $1\'s name on another address.') });
+}
+
+// (0.6.20) A brand's name from a domain whose public records show an established company (a corporate registrar
+// and one more link: ownership.js 'likely') that isn't the brand's own: the company that runs a product carrying the
+// brand's name (a bank issuing a card in the brand's name, "Brand Credit" from the bank's mail domain). Not counted
+// when Gmail's DMARC check passed for that domain, every link the reader sees goes back to the sender's own domain,
+// no link is flagged, and the domain isn't new or on a list: whoever it is, it is the company writing from and
+// linking to its own long-held domain, not someone borrowing the brand to send the reader elsewhere.
+function establishedSenderInContext(E, facts, judged, signals, verified) {
+    const i = signals.findIndex(s => s && s.kind === 'brand-name-likely');
+    if (i < 0 || !verified || signals.some(s => s && YOUNG_OR_LISTED.has(s.kind))) return;
+    const regOf = (h) => { const x = String(h || '').toLowerCase(); try { return E.registrableDomain(x) || x; } catch (e) { return x; } };
+    const sender = regOf(String(facts.senderAddress || '').split('@').pop());
+    const hostOf = (u) => { try { return new URL(u).hostname; } catch (e) { return ''; } };
+    const web = (judged || []).filter(j => !j.hidden && /^https?:/i.test(String(j.finalUrl || j.url || '')));
+    if (!sender || web.some(j => j.severity || regOf(hostOf(j.finalUrl || j.url)) !== sender)) return;
+    const s = signals[i];
+    signals[i] = Object.assign({}, s, { weight: 0, text: s.text.replace(/\. Make sure it's really who you expect\.$/, `. It passed its sender check and every link goes back to ${sender}, so it counts as that company writing about a product it runs, not an imitation.`) });
 }
 
 // Mail from, replying to, or linking to a domain the look-alike watch found (src/lookalike.js): new or
