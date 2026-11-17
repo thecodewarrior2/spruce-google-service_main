@@ -85,7 +85,8 @@ For each new Inbox message:
    - dangerous links;
    - claims to be safe, and requests for passwords, codes, money or remote access;
    - a new sender from outside the organization;
-   - a fake reply chain ("RE:" answering nothing this mailbox has, 0.5.33);
+   - a fake reply chain ("RE:" answering nothing this mailbox has, 0.5.33): 2 when its headers name no earlier email,
+     1 (0.6.23) when they do but the mailbox doesn't have it (copied in partway, or the earlier mail deleted);
    - a QR code, a sign-in page or script sent as a file, a risky attachment (0.5.34).
    - "call this number" scams: a phone number to call about a purchase you didn't make (also "if this looks
      unfamiliar"), and (0.6.18) a bill or renewal for security software or a tech-support plan (McAfee, Norton,

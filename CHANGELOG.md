@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.23: a colleague's name from a personal email account alone counts 2
+## 0.6.23: a colleague's name from a personal email account alone counts 2; a "RE:" the mailbox has no start of, 1
 
 - **"The sender uses the name of someone in your organization… from a personal email account"** counted 3; with
   "from outside" (1) and "the first email from this sender" (1.5) that moved the email, though staff and people who
@@ -8,7 +8,12 @@
   2 (suspicious with those two, not moved). With any other reason (a request impersonators make, replies going
   elsewhere, a title or the organization's name in the sender's name, a failed sender check, a new or look-alike
   domain) it is 3, as before (`colleagueInContext` in `src/engine/analyze.js`).
-- Tests: `test/colleague-context.test.js` (made-up names).
+- **"RE:" with no earlier email in this mailbox:** a reply whose headers name an earlier email that this mailbox's
+  conversation doesn't hold counted 2. It was wrong too often: the reader was copied into a conversation partway, or
+  the earlier emails were deleted or removed by a retention policy. (Sent mail is in the conversation: Gmail counts
+  it.) It now counts 1. A "RE:" whose headers name no earlier email at all, which real mail programs never write,
+  stays 2 (`src/engine/replychain.js`).
+- Tests: `test/colleague-context.test.js` (made-up names), `test/replychain.test.js`.
 - **Checks level 23:** delivered mail of the last hours is checked again after this update.
 
 ## 0.6.22: a mail provider's delivery report isn't scored by the AI

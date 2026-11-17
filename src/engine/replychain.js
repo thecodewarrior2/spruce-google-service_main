@@ -2,7 +2,8 @@
 // A fake reply chain (0.5.33): an email whose subject says it is a reply ("RE: Invoice 4471"), from outside
 // the organization or from a sender never seen before, that isn't a reply to anything this mailbox has. A
 // common invoice and payroll trick: the "RE:" makes it look like an ongoing conversation. Counted in the
-// rules' score (2: with a first-time outside sender it is amber; with anything more, flagged).
+// rules' score (2: with a first-time outside sender it is amber; with anything more, flagged; 1 since 0.6.23 when
+// only the mailbox lacks the earlier email).
 //
 // Two ways to tell, the headers first (no Gmail call): a real reply names the email it answers
 // (In-Reply-To, References). One that names nothing is made up. One that names an earlier email is checked
@@ -24,8 +25,10 @@ function fakeReplySigns(facts, { threadSize = null, outside = true, firstTime = 
     if (!names.length) {
         return [{ weight: 2, kind: 'fake-reply', text: 'Its subject says it is a reply ("RE:"), but it doesn\'t answer any email: none is named in its headers. A made-up conversation is a common invoice and payroll trick.' }];
     }
+    // (0.6.23) 1, not 2: a real reply chain the reader was copied into partway, or whose earlier emails were deleted or
+    // removed by a retention policy, holds only this email too. A reply naming nothing (above) stays 2.
     if (threadSize === 1) {
-        return [{ weight: 2, kind: 'fake-reply', text: 'Its subject says it is a reply ("RE:"), but this mailbox has no earlier email in that conversation. A made-up conversation is a common invoice and payroll trick.' }];
+        return [{ weight: 1, kind: 'fake-reply', text: 'Its subject says it is a reply ("RE:"), but this mailbox has no earlier email in that conversation. A made-up conversation is a common invoice and payroll trick.' }];
     }
     return [];
 }

@@ -28,7 +28,7 @@ test('a reply naming no earlier email, or one this mailbox doesn\'t have, from o
     assert.deepEqual(fakeReplySigns(facts(), { outside: true }).map(s => [s.kind, s.weight]), [['fake-reply', 2]]);
     assert.match(fakeReplySigns(facts(), { outside: true })[0].text, /doesn't answer any email: none is named in its headers/);
     const named = facts({ inReplyTo: '<a1@harbor-supply.example>' });
-    assert.deepEqual(fakeReplySigns(named, { outside: true, threadSize: 1 }).map(s => s.kind), ['fake-reply']);
+    assert.deepEqual(fakeReplySigns(named, { outside: true, threadSize: 1 }).map(s => [s.kind, s.weight]), [['fake-reply', 1]], '0.6.23: 1 when only the mailbox lacks the earlier email');
     assert.match(fakeReplySigns(named, { outside: true, threadSize: 1 })[0].text, /this mailbox has no earlier email in that conversation/);
     assert.deepEqual(fakeReplySigns(named, { outside: true, threadSize: 3 }), [], 'a real conversation');
     assert.deepEqual(fakeReplySigns(named, { outside: true, threadSize: null }), [], 'not known (Check an email): nothing said');
