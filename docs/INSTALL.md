@@ -73,7 +73,7 @@ hashes):
    https://www.googleapis.com/auth/admin.directory.user.readonly
    ```
 
-Without them the check is off and **Status** says so; nothing else changes. To turn it off on purpose,
+Without them the check is off and **Health → Service status** says so; nothing else changes. To turn it off on purpose,
 set `COLLEAGUE_NAMES=off` on both services (docs/DEPLOY.md, the settings table).
 
 ### The whole domain (optional; Settings → Mailboxes, 0.5.53)
@@ -247,8 +247,11 @@ When it finishes, it prints the **dashboard address**.
 - **Changing a setting:** edit `deploy/settings.env` and run `bash deploy/install.sh`. It doesn't rebuild
   when the files are the same as last time (about a minute). `FORCE_BUILD=1 bash deploy/install.sh`
   rebuilds anyway.
-- **Mode, AI move threshold, AI suspicious line, brake and time zone** can also be changed on the
-  dashboard: **Settings → Policy → Change** (and the allowlist on **Settings → Allowlist**).
+- **The policy settings** can also be changed on the dashboard: the mode, the AI move threshold and
+  suspicious line, the AI on inside mail and "AI alone moves inside mail", the brake, the time zone, how long
+  records are kept, the Suspicious label and re-checking delivered mail on **Settings → Policy → Change**; the
+  allowlist and allowed link domains on **Settings → Allowlist**; Safe Browsing, Spamhaus and abuse.ch on their
+  own Settings pages; who is checked on **Settings → Mailboxes** (`POLICY_KEYS` in `src/config.js`).
   - Each change needs the Google Cloud project ID, and switching to enforce mode also needs **I agree**.
   - A change applies everywhere within 30 seconds and is noted in Health → Activity → What admins did.
   - The next `install.sh` (or `upgrade.sh`, `update.sh`) compares the dashboard with
@@ -378,6 +381,10 @@ and **Update to …** installs it like `update.sh` does, without Cloud Shell:
 
   From the folder you installed or last upgraded from. The admins get an alert once per such version (the
   hourly job notices it too). Once it is installed, the page installs updates again by itself.
+- **From before 0.6.1:** 0.6.1 raised `installLevel` to 6 (the moderator group: `install.sh` passes
+  `MODERATOR_GROUP` to the dashboard and lets the group through Identity-Aware Proxy). Settings → Update can't
+  install it: create the group first (step 1; it may stay empty), then from Cloud Shell `bash deploy/update.sh`
+  once it is approved, or `bash deploy/upgrade.sh` from an unzipped copy. Both run `install.sh`.
 - **What it uses:** a Cloud Scheduler job, `spruce-update`, which starts a Cloud Build as the
   `spruce-updater` service account. The dashboard can only record the request and run that job; it
   can't build or deploy anything itself. The build checks the request again: asked for in the last
@@ -434,7 +441,7 @@ bash deploy/rollback.sh
 | How | What it does |
 |---|---|
 | `MODE=monitor` in `deploy/settings.env`, then `bash deploy/install.sh` | Nothing is moved from then on. Emails are still checked and recorded |
-| `bash deploy/stop.sh` | Stops watching every mailbox: no email is read from then on. Running `install.sh` starts it again |
+| `bash deploy/stop.sh` | Stops watching every mailbox: no email is read from then on. Since 0.6.7 every mailbox stops counting as watched at once (its notifications, `PILOT_USERS` too, are ignored); Gmail is told to stop notifying 10 mailboxes at a time within the request's time, and the hourly job finishes the rest (it never renews watches while stopped). Running `install.sh`, or Settings → Mailboxes → **Read the directory again now**, starts it again |
 | Remove the domain-wide delegation entry in the Admin console | All access to mail ends at once |
 | Delete the Cloud project | Removes the service and every record |
 
@@ -613,8 +620,8 @@ Details).
   1. Open **Cloud Run → spruce-admin → Security** and tick **Identity-Aware Proxy (IAP)**. Only on
      `spruce-admin`, **never on `spruce-worker`**: Gmail's notifications and the daily jobs can't sign
      in through IAP, so nothing would reach the worker (see "The jobs and notifications are refused").
-  2. In **Security → Identity-Aware Proxy**, give the admin group (or each admin) the **IAP-secured Web
-     App User** role on `spruce-admin`.
+  2. In **Security → Identity-Aware Proxy**, give the admin group (or each admin) and, if you use one, the
+     moderator group (`MODERATOR_GROUP`) the **IAP-secured Web App User** role on `spruce-admin`.
 
   IAP needs the project to be inside your Google Cloud organization.
 - **The jobs and notifications are refused.** `install.sh` stops with "spruce-renew-watches couldn't
@@ -633,12 +640,12 @@ Details).
 
   Gmail's notifications refused meanwhile are delivered again by Pub/Sub (it keeps them 7 days), so the
   mail in between is checked once they get through.
-- **The dashboard says you are not an admin.** IAP let you in, but you aren't in `ADMIN_GROUP` or
-  `ADMIN_EMAILS`.
+- **The dashboard says you are not an administrator or moderator.** IAP let you in, but you aren't in
+  `ADMIN_GROUP`, `ADMIN_EMAILS` or `MODERATOR_GROUP`.
   - Someone just added to the group gets in within a minute.
   - Accounts outside your domain never get in through the group.
-- **"Couldn't check the admin group".** Check:
-  - the group address in `ADMIN_GROUP`;
+- **"Couldn't check the admin group"** (or the moderator group). Check:
+  - the group address in `ADMIN_GROUP` (or `MODERATOR_GROUP`);
   - the directory admin's **Groups → Read** role;
   - the delegation entry's second scope (the same ones the pilot group needs).
 - **Firestore: unsupported location.** Pick another `REGION` that Firestore supports (for example

@@ -50,8 +50,9 @@ Run's processor speed. A load test on a spare project is what settles them (belo
 | How long records are kept | 60 days, in settings.env | 35 days by default, also in Settings → Policy |
 
 **At 100,000 emails a day** (estimates from the numbers above):
-- **Processor time:** about 1,000 vCPU-seconds a day with 0.5.0 (10,000–20,000 with 0.4.0). One
-  instance handles the busiest hour (about 15,000 emails, 4 a second, against 28 a second it can take);
+- **Processor time:** about 1,000 vCPU-seconds a day with 0.5.0 (10,000–20,000 with 0.4.0); about 5 times
+  that since 0.5.50's larger model (about 50 ms an email, below). One instance handles the busiest hour (about
+  15,000 emails, 4 a second, against roughly 15 a second it can take since 0.5.50; 28 with 0.5.0);
   a campaign to every mailbox is checked within a minute or two, as Cloud Run adds instances (up to 30).
 - **Gmail API:** about 67 units per email and 2 per notification, about 8 million a day: a tenth of the
   80 million below which there is no charge, and a tenth of the 1.2 million a minute in a campaign.
@@ -60,6 +61,10 @@ Run's processor speed. A load test on a spare project is what settles them (belo
 ## What it costs (0.5.0)
 
 (The summary, for budgeting: `docs/COSTS.md`.)
+
+These were measured with 0.5.0's model. Since 0.5.50 (ELECTRA-small, below) the model takes about 5 times the
+processor time per email (about 50 ms, and about 420 ms for an email it flags; roughly 15 emails a second per
+instance). The worker's cost was not measured again with it: measure again before you budget.
 
 Estimates, at about 10 emails a mailbox a day, three notifications an email, with Google's free
 allowances (Firestore: 50,000 reads, 20,000 writes and 20,000 deletes a day; Cloud Run: 180,000
@@ -111,6 +116,11 @@ about 10 ms of processor time (about 50 ms since 0.5.50's larger model); 67 Gmai
 reads $0.06, writes $0.18, deletes $0.02; `us-central1`, `us-west1`, `us-east5`, `us-west8` $0.03,
 $0.09, $0.01; the other US regions $0.033–0.036, $0.099–0.108, $0.011–0.012. `us-east1` is the only US
 region at twice the price.
+
+**What 0.6.7 changed for the dashboard:** pages that rarely change (Help, the Settings pages except
+Mailboxes, About, Update) are fetched again every 5 minutes, not every 30 seconds; after 15 minutes with no
+key, click, touch or scroll, nothing is fetched until the person is back; Service status is checked at most
+once a minute, shared by every open dashboard; large answers are sent compressed. Not measured here.
 
 **What 0.4.1 changed for cost:**
 - **The dashboard no longer reads every mailbox** for Status, Readiness and Settings (each refreshes
@@ -167,7 +177,7 @@ region at twice the price.
 
 1. ~~**Run the model natively.**~~ Done in 0.5.0 (ONNX Runtime, measured above): about 10 ms of
    processor time per email, 28 emails a second per instance, one instance for the district outside
-   campaigns. The JavaScript pass was removed; its answers stay in the tests
+   campaigns (since 0.5.50's larger model: about 50 ms and roughly 15 a second, still one instance). The JavaScript pass was removed; its answers stay in the tests
    (`test/fixtures/model-reference.json`), and TinyPhishLLM_Private_Training's `training/export-onnx.py` computes a new
    model's on its own (numpy, from `model.bin`).
 2. **Dashboard rollups instead of every record in memory.** Today the dashboard reads every record of the

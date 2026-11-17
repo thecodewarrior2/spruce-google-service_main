@@ -6,10 +6,12 @@ protect.
 
 ## What it reads
 
-- **Every new message in the Inbox of each watched mailbox** (the pilot group or unit), through the Gmail API,
+- **Every new message in the Inbox of each watched mailbox** (the pilot group or unit, or, with Settings →
+  Mailboxes set to the whole domain, every active mailbox of `ORG_DOMAINS`: 0.5.53), through the Gmail API,
   within seconds of delivery.
   - The whole raw message is read **in memory only** while it is judged, then discarded.
-  - Attachments are listed by name and type only; their contents are not read.
+  - Attachments and pictures are read in memory too (0.5.34): QR codes, links, forms and scripts in pictures,
+    PDFs, Office files and archives. Then they are dropped; they are never stored.
 - **Also read, the same way:**
   - an email a user moves into their Inbox themselves that the service never checked (from Spam, within 7
     days of arrival). It is checked and recorded, never moved;
@@ -18,7 +20,8 @@ protect.
 - **When an admin confirms a campaign and asks for a search:** each watched mailbox's Inbox of the last 7
   days is searched for mail from the campaign's senders. Only the From and Subject of the matching emails
   are read, to tell whether they are copies.
-- **Not read:** sent mail, drafts, mail already in Spam, and mailboxes outside the pilot.
+- **Not read:** sent mail (a mailbox owner's own sent copy is never judged, 0.6.3), drafts, mail already in
+  Spam, and mailboxes that aren't watched.
 - **Who is in the pilot:**
   - read through the Admin SDK by an admin account with only read access (to groups, or to users for a
     unit);
@@ -33,11 +36,15 @@ protect.
   name is stored; Firestore keeps only how many there are and when they were read (`state/colleagueNames`).
 - **Shares from outside, counted:** for the mass-share sign and alert, one counter per outside account and
   hour (in `moveCounts`, deleted after 2 days), holding only one-way hashes of the recipients' addresses.
-- **An email again, when an admin asks:** Re-scan, and **…show more** on an email's AI opinion, read that
-  one email from Gmail again. "…show more" shows the admin what the AI model reads of it (addresses
-  reduced to their domain, phone numbers and long numbers replaced), sentence by sentence, with each
-  sentence that weighed most between the one before and after it; nothing of it is stored, and Activity
-  notes who looked at which email.
+- **An email again, when an admin or moderator asks:** Re-scan, and **Show the email** (also **…show more** on
+  an email's AI opinion), read that one email from Gmail again.
+  - Show the email (0.6.6) shows the email itself, as text only: the addresses (From, To, Cc, Reply-To), the
+    date and subject, all its text (the earlier messages quoted in it and any text hidden from the reader
+    included), its links with where they really go, and its attachments' names, types and sizes. Its HTML is
+    never rendered, its pictures never loaded, its links not clickable.
+  - Then what the AI model reads of it (addresses reduced to their domain, phone numbers and long numbers
+    replaced), sentence by sentence, with each sentence that weighed most between the one before and after it.
+  - Nothing of it is stored, and Activity notes who looked at which email.
 
 ## What it keeps (Firestore, in your own project and region)
 
@@ -88,8 +95,9 @@ It also keeps, shared by every instance:
 - **the look-alike watch** (0.5.36): the look-alikes of your domains that exist (name, when found, mail
   servers and website yes or no, registry age, an admin's mark and who made it), and how far the day's pass
   has got (`state/lookalikeWatch`);
-- **the phishing lists:** gzipped in Firestore, replaced daily, with each list's last download (when, and the error if it failed: `state/feedHealth`);
-- **registry dates of domains:** 30 days; an unknown one, a day.
+- **the phishing lists:** gzipped in Firestore, replaced daily (a download with the same entries isn't written again, 0.6.7), with each list's last download (when, and the error if it failed: `state/feedHealth`);
+- **registry dates of domains:** 30 days; an unknown one, a day;
+- **brand-ownership answers** (whose a domain is, 0.5.64): 30 days; an unknown one, a day.
 
 And:
 - **an update from the dashboard:** who asked for which version and when, and how it went
@@ -100,8 +108,9 @@ And:
   scores, the AI opinion and model, the rule findings' descriptions), with when and by whom, and keeps its
   scores from arrival beside them. The email is read again from Gmail for it, like on arrival, and its
   body isn't kept;
-- **the worker's AI engine:** the model, engine version and self-check of the newest worker instance
-  (`state/engine-worker`), for Status. Nothing about any email.
+- **the worker's AI engine:** the model, engine version and self-check of the newest worker instance, and the
+  domains it counts as the organization's (0.6.2) (`state/engine-worker`), for Health → Service status. Nothing
+  about any email.
 
 **Conversations:** for an email whose subject says it is a reply and that names an earlier email, the service asks
 Gmail how many emails its conversation (thread) holds in that mailbox (0.5.33: a fake reply chain). Only the
@@ -124,8 +133,9 @@ To delete what the dashboard shows sooner, all at once: `bash deploy/clear-data.
 - **The dashboard:** only through Identity-Aware Proxy, and only for the addresses in `ADMIN_EMAILS` or
   the members of `ADMIN_GROUP` (accounts in your own domains); and, for the review pages only, the members of
   `MODERATOR_GROUP` (0.6.1). Moderators see the records (sender, recipients, subject, the checks' findings) and
-  can read an email from Gmail to answer it (Show the email: nothing is kept, and Activity notes who looked), but
-  can't download the CSV or the retraining file, or see Settings or Health.
+  can read an email from Gmail to answer it: Show the email shows them the whole email (addresses, text, links,
+  attachment names; nothing is kept, and Activity notes who looked). They can't download the CSV or the
+  retraining file, or see Settings or Health.
   Every move back to the Inbox, mark and setting change records who did it.
 - **The service's own accounts:** in your Cloud project, under IAM. Limit project access to the people
   who run the service.
@@ -224,8 +234,11 @@ Cloud Scheduler, Cloud Build; with Settings → Link clicks on, the Admin SDK's 
 Domain-wide delegation with `gmail.modify` can read and change every mailbox in the domain. The
 deployment keeps it as narrow as Google allows:
 - no key file exists (IAM signs for the service account, and only the Cloud Run identity may ask);
-- only two scopes are granted;
-- only the pilot group's (or unit's) mailboxes are watched.
+- two scopes are required (`gmail.modify` and `admin.directory.group.member.readonly`); each optional feature
+  adds one read-only scope: `admin.directory.user.readonly` for the colleague-name check and the whole domain,
+  `admin.reports.audit.readonly` for Link clicks (docs/INSTALL.md);
+- only the pilot group's (or unit's) mailboxes are watched, or, when an admin switches Settings → Mailboxes to
+  the whole domain (0.5.53), every active mailbox of `ORG_DOMAINS`.
 
 Gmail API use by the service shows in the Workspace audit logs. Removing the delegation entry in the
 Admin console switches all access off at once.

@@ -109,7 +109,7 @@ It also looks things up (`src/intel/`; `docs/PRIVACY.md` says exactly what is se
 |---|---|---|
 | **Cloudflare Security DNS** | host names of link sites, the sender's domain and its organization's domain | a blocked link is dangerous; a blocked or nonexistent sender domain is a sign (a sender subdomain with no DNS records of its own, common for newsletters and no-reply addresses, is judged by its organization's domain, and is never "made up" when that domain exists or Gmail verified the sender: 0.5.62) |
 | **Google Safe Browsing**: optional, off by default. An admin adds the API key (kept in Secret Manager) and turns it on in Settings → Safe Browsing | link addresses (no `#…`; one-time links without their query) | a listed link is dangerous |
-| **Phishing lists** (OpenPhish, Phishing Army, HaGeZi Threat Intelligence Feeds, TweetFeed, Sefinek) | nothing: downloaded once a day (a list that misses its download: tried again every 3 hours, a red banner on Today, an alert to the admins, and Settings → About shows it with a Re-check button), matched in the service | listed links are dangerous; a listed sender address or domain is a sign. TweetFeed (domains researchers reported in the last 30 days) is a community report: a reported link is amber and a sign of 2, never dangerous on its own. Your own domains count only as exact listed links and addresses, never as a whole site or domain |
+| **Phishing lists** (OpenPhish, Phishing Army, HaGeZi Threat Intelligence Feeds, TweetFeed, Sefinek) | nothing: downloaded once a day (a list that misses its download: tried again every 3 hours, a red banner on Today, an alert to the admins, and Settings → About shows it with a Re-check button), matched in the service. A download with the same entries as the day before isn't written again, and still counts as downloaded (0.6.7) | listed links are dangerous; a listed sender address or domain is a sign. TweetFeed (domains researchers reported in the last 30 days) is a community report: a reported link is amber and a sign of 2, never dangerous on its own. Your own domains count only as exact listed links and addresses, never as a whole site or domain |
 | **Site age** (registries, RDAP) | domain names, to their own registry | brand-new link sites and sender domains are signs (stronger with sign-in or payment wording) |
 | **Brand ownership** (0.5.64; DNS over HTTPS and RDAP) | when a sender's name claims a brand its domain isn't known to be: the domain names | whose the domain is, from public records (its name servers, DMARC reports, a corporate registrar and registrant), as in the extension: "Xoom, a PayPal Service" from xoom.com (PayPal's name servers) is no sign; unproven, the sign stays. A government agency's name on GovDelivery (Granicus, the service agencies send bulletins through: "IRS Newswire" <irs@service.govdelivery.com>) is no sign unless its sender check failed (0.5.70). "Business via QuickBooks" (a brand only after "via") from the sender's own address, its DMARC passing, is no sign either, unless the domain carries the brand's name (0.5.74) |
 | **Spamhaus** (0.5.37): optional, off by default. An admin adds the district's free DQS key (Secret Manager) and turns it on in Settings → Spamhaus | the sender's domain and up to 5 link sites' names, by DNS, at most `SPAMHAUS_DAILY_MAX` (90,000) lookups a day | a link site on the Domain Blocklist for phishing, malware or botnet control is dangerous (the sender's domain: strong evidence); low reputation or an abused site: a sign; a domain first seen in the last 24 hours (ZRD): a sign |
@@ -133,7 +133,8 @@ marker, short one-way hashes of its link sites and sender (never readable, never
 list's daily download adds one, every email of the last 7 days (`RECHECK_DAYS`) that has it, in every
 mailbox, is read again and checked in full, and the policy acts as on arrival: moved to Spam (enforce mode,
 through the brakes) or recorded as "would move" (monitor mode). An email found suspicious on arrival is also
-looked at again an hour and a day later (Safe Browsing or a list may know its site by then). Never moved by a
+looked at again an hour and a day later (Safe Browsing or a list may know its site by then; 0.6.7: an hour later
+is looked for up to 6 hours after it arrived, a day later up to 30 hours). Never moved by a
 re-check: an email its reader already archived or deleted, or one an admin released or marked. Each is listed
 on **Threats → Re-checked**, a red banner on Today and Messages says so, and the admins get an alert.
 
@@ -146,7 +147,7 @@ Since 0.5.51 two more things start a re-check:
   the Inbox (`RECHECK_AFTER_UPDATE_HOURS`), newest first, at most 5,000 emails (`RECHECK_AFTER_UPDATE_MAX`),
   over the next hourly runs. Only an update that changes the checks does this (a rule, a sign, the AI model,
   how the lists are matched, what the policy does with a score: `checksLevel` in `package.json` raised); one
-  that changes only the dashboard, wording, documentation or installation re-checks nothing. Status →
+  that changes only the dashboard, wording, documentation or installation re-checks nothing. Health →
   Activity says when it starts.
 
 A lookup that fails leaves an email "not checked", never "safe". Short links are **not** looked up:
@@ -184,7 +185,7 @@ either way). A colleague's own share or Classroom post gets no mark. For a share
   name): 2. Not a greeting ("Hi Dana Madeup"), not the reader's own name, not a quotation of the colleague's
   own email;
 - **asking to sign in, verify an account or confirm details** (payroll, direct deposit) to see it: 1;
-- **the same outside account reaching 10 or more of your people within the hour**: 2, and an alert (Status
+- **the same outside account reaching 10 or more of your people within the hour**: 2, and an alert (Health
   → Activity, emailed), once per account and hour.
 
 **Google Classroom from a personal account** (gmail.com, outlook.com, yahoo.com and the other free
@@ -202,14 +203,25 @@ partner you know sharing a document that mentions a colleague stays at 3: suspic
 outside email that links a document, form or signature request itself (not a notification) gets the same
 three checks. The colleague-name checks need the **Users → Read**
 privilege and one more delegation scope (docs/INSTALL.md, "The colleague-name check"); without them it is
-off, and Status says how to turn it on. `COLLEAGUE_NAMES=off` (a setting of both services, docs/DEPLOY.md)
+off, and Health → Service status says how to turn it on. `COLLEAGUE_NAMES=off` (a setting of both services, docs/DEPLOY.md)
 turns it off.
 
 ## The dashboard
 
 The dashboard keeps itself up to date: the page you're on is fetched again every 30 seconds while
 the tab is visible (not while you're typing in it, or using it otherwise). The bar at the top says
-when it last updated, and **Pause updates** stops it.
+when it last updated, and **Pause updates** stops it. Since 0.6.7:
+
+- Pages that rarely change (Help, the Settings pages except Mailboxes, About, Update) are fetched again every
+  5 minutes instead.
+- After 15 minutes with no key, click, touch or scroll, nothing is fetched: the bar says "Updates paused while you
+  are away", and updating starts again at your next key or click.
+- Service status is checked at most once a minute, shared by every open dashboard.
+- Large answers are sent compressed.
+
+Anything you start that takes more than a second (an action, opening a page, the retraining download) shows a
+loading bar across the top with what is happening (0.6.5). Every email address shown has a copy button beside
+it (0.5.72).
 
 The dashboard (0.6.0) has a menu on the left: **Today**, **Review**, **Threats**, **Mail**, **Health** and
 **Settings**, with **Help** at its foot, the signed-in admin, and a card saying the mode (monitor or enforce) and
@@ -237,7 +249,9 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     **Ignore** buttons for the clear cases. Tick several to answer them all at once.
   - **Open one** to weigh the evidence: who sent it to whom (the first two, **…show more** for everyone), where
     the AI score and the rules score stand, the signs that **point to phishing** and those that **point to safe**
-    (each weak, medium or strong), and what the AI weighed most. Its answers, with their keys:
+    (each weak, medium or strong), and what the AI weighed most. Under the evidence, a note says when the
+    sender check (DMARC) neither passed nor failed (no result from Gmail, a "none" policy, another result such as
+    temperror): it is not counted either way (0.6.4). Its answers, with their keys:
     - **P Phishing**; **F False alarm** (**Not phishing**): an email in Spam goes back to the Inbox too (0.6.1); **I Ignore, unclear** (0.5.60): for an email that is
       neither clearly phishing nor clearly safe, such as an outside request for access to a form, where only the
       reader can tell. It is left as it is (still in the Inbox, with its Suspicious label), counts as reviewed so it
@@ -247,13 +261,19 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     - **R Re-scan:** the email is read again from the mailbox and judged with today's checks and AI model (after
       a model update, say). Its scores, AI opinion, model and signs become the re-scan's, beside what they were on
       arrival; what happened to it (moved, flagged) stays. A re-scan never moves anything. Activity notes who
-      re-scanned what;
+      re-scanned what. Its limits (0.6.6): one email is re-scanned again only 30 seconds after its last re-scan
+      (kept on its record, so every instance knows), and the same email is refused while its re-scan runs; each
+      instance runs 2 at a time, with up to 8 more waiting, then says to try again in a moment. The button is
+      greyed out while it runs. A mailbox owner's own sent copy is never judged (0.6.3), and Re-scan says so;
     - **More details** opens the email's own page (Mail → Messages); **Show the email** reads it from Gmail at that
-      moment, as the model reads it, sentence by sentence, with what weighed most between the sentence of real
-      text before and after it (nothing is kept, and Activity notes that you looked). When the whole email reads
-      as genuine (under 50%), nothing is marked. It shows the whole email, every sentence (redacted as the model
-      reads it); the first 40 are also scored on their own, and those the model's input leaves out (it keeps 60
-      sentences of a longer text: the first 40 and the last 20) are marked "not read by the model".
+      moment and shows it as text only (0.6.6): who sent it to whom (with Cc and Reply-To), the date and subject,
+      all its text, the earlier messages quoted below it and any text hidden from the reader (folded away), every
+      link with where it really goes (not clickable), the attachments (name, type, size) and how many pictures
+      (not loaded). Then what the AI reads, sentence by sentence (addresses keep only their domain), with what
+      weighed most between the sentence of real text before and after it. When the whole email reads as genuine
+      (under 50%), nothing is marked. Every sentence is shown; the first 40 are also scored on their own, and those
+      the model's input leaves out (it keeps 60 sentences of a longer text: the first 40 and the last 20) are
+      marked "not read by the model". Nothing is kept, and Activity notes that you looked.
   - Marking suspicious emails shows what the move rules miss, and gives the retraining export its best examples.
   - **In enforce mode, Phishing moves an email still in the Inbox to Spam** (the button then reads **Phishing:
     move to Spam**), with the service's `SPRUCE/Moved` label; Activity notes who. In monitor mode nothing is
@@ -283,8 +303,9 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
       (in enforce mode, confirming also moves those still in the Inbox to Spam).
     - Each email shows the signs found with their weights, flagged links, the AI score with what weighed
       most, the sender check, and how strong the evidence was. Buttons: **Re-scan**, **Move back to Inbox**, **Mark
-      false alarm** (**Mark not phishing** for a suspicious email), **Confirm phishing** (**Confirm
-      phishing: move to Spam** for one still in the Inbox, in enforce mode).
+      false alarm** (**False alarm: move back to Inbox** for an email in Spam, 0.6.1; **Mark not phishing** for a
+      suspicious email), **Confirm phishing** (**Confirm phishing: move to Spam** for one still in the Inbox, in
+      enforce mode).
     - Each email also shows its **Message-ID** and Gmail ID, each with a **Copy** button. The Message-ID
       is what Google Workspace's Email log search and the security investigation tool look an email
       up by. **Copy for Vault** copies it as Google Vault's search writes it: `rfc822msgid:<Message-ID>`.
@@ -302,6 +323,7 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     - the AI model in the dashboard and in the worker: its version, the native engine (ONNX Runtime),
       whether it loaded and how fast, and a self-check that scores two made-up emails each time an
       instance starts (the worker notes its own in Firestore, `state/engine-worker`);
+    - the domains the worker counts as the organization's, compared with the dashboard's (0.6.2);
     - the phishing lists (each one that missed its download), alerts, errors, the brake.
 
     `deploy/doctor.sh` checks the rest from Cloud Shell.
@@ -348,8 +370,9 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     - Switching to enforce mode also needs **I agree**, next to how many Readiness checks pass.
     - A change applies everywhere within 30 seconds and is noted in Activity (What admins did).
     - Each setting says where its value comes from: settings.env, or changed here, by whom and when.
-  - **Allowlist:** the domains and addresses never moved (when Gmail's DMARC check passes for them),
-    changed the same way, one per line. Your own domains can't be added; single addresses in them can.
+  - **Allowlist:** the domains and addresses never moved (when Gmail's DMARC check passes for them), and the
+    link domains a phishing list's listing of the whole domain doesn't flag (0.5.73), changed the same way, one
+    per line. Your own domains can't be added; single addresses in them can.
   - **Mailboxes:** **who is checked**: the pilot (always the default: `PILOT_GROUP`, `PILOT_OU`,
     `PILOT_USERS`) or the whole domain (0.5.53: every active mailbox of `ORG_DOMAINS`, from the directory).
     Switching shows how many mailboxes each would watch, and needs a ticked box, the project ID and the
@@ -481,7 +504,10 @@ The last command writes `build/mockup.html`, a single file to share the look and
   (and the pinned commit) and the approved versions to `google_service_main`.
 - **`deploy/upgrade.sh`** installs a version you unzipped over the installed one.
 - **`deploy/rollback.sh`** goes back to the previous build.
-- **`deploy/stop.sh`** stops it.
+- **`deploy/stop.sh`** stops it (0.6.7): every mailbox stops counting as watched at once (their notifications,
+  `PILOT_USERS` too, are ignored from then on); Gmail is told to stop notifying, 10 mailboxes at a time, within the
+  request's time, and the hourly job finishes the rest (it never renews watches while stopped). Running
+  `deploy/install.sh` again, or **Read the directory again now** (Settings → Mailboxes), starts it again.
 - **`deploy/doctor.sh`** checks the installation end to end and says what to run for each problem.
 - **`deploy/dashboard-policy.sh`** (used by `install.sh` and `upgrade.sh`) compares the policy
   changed on the dashboard with settings.env.
@@ -489,9 +515,11 @@ The last command writes `build/mockup.html`, a single file to share the look and
   decisions, Activity) and keeps the watched mailboxes and settings, after you type the project ID.
 
 Changing a setting is quick: edit `deploy/settings.env` and run `install.sh` again. It reuses the image
-built from the same files, so it only redeploys, in about a minute. The mode, the AI move threshold, the
-AI suspicious line, the brake, the time zone, how long records are kept and the allowlist can also be
-changed on the dashboard (Settings → Policy, Settings → Allowlist). When the two differ,
+built from the same files, so it only redeploys, in about a minute. The policy settings can also be changed
+on the dashboard: the mode, the AI move threshold and suspicious line, the AI on inside mail and "AI alone moves
+inside mail", the brake, the time zone, how long records are kept, the Suspicious label, re-checking delivered
+mail (Settings → Policy), the allowlist and allowed link domains (Settings → Allowlist), Safe Browsing, Spamhaus
+and abuse.ch (their Settings pages), and who is checked (Settings → Mailboxes). When the two differ,
 `install.sh` asks which to keep, and writes the answer into settings.env.
 
 See `docs/DEPLOY.md` (each piece, by hand) and `docs/PRIVACY.md` (what is read, kept and shown).
@@ -499,7 +527,7 @@ See `docs/DEPLOY.md` (each piece, by hand) and `docs/PRIVACY.md` (what is read, 
 10,000 mailboxes and 100,000 emails a day asks of it, measured, and the plan beyond.
 `docs/ARCHITECTURE.md` explains the pieces. `docs/ALERTS.md` says what each alert the admins can receive means
 and what to do. `docs/WORKSPACE.md` lists Google Workspace settings that work alongside the service (an outbound
-recipient limit for a staff account taken over, Gmail's own Safety settings, DMARC). `docs/RETRAINING.md` turns the emails admins marked into
+recipient limit for a staff account taken over, Gmail's own Safety settings, DMARC). `docs/RETRAINING.md` turns the emails admins and moderators marked into
 training examples, and a better AI model.
 
 ## Layout
@@ -507,7 +535,7 @@ training examples, and a better AI model.
 | Path | What |
 |---|---|
 | `src/engine/` | MIME and HTML reading, the checks and the model (`spruce.js` loads `vendor/spruce/`; `model.js` runs the model in ONNX Runtime); `network.js` applies the lookups; `notifications.js` judges the person behind a platform's notification, and outside shares |
-| `src/intel/` | Cloudflare Security DNS, Google Safe Browsing, the phishing lists, registry dates; request limits |
+| `src/intel/` | Cloudflare Security DNS, Google Safe Browsing, the phishing lists, registry dates, brand ownership (`ownership.js`), Spamhaus, abuse.ch; request limits |
 | `src/policy.js` | What happens to an analyzed email |
 | `src/pipeline.js` | Notifications → messages → decisions → actions → records; moving back, brake, watches, retention |
 | `src/gmail/` | Keyless domain-wide delegation, Gmail and Directory API calls |
@@ -526,6 +554,6 @@ training examples, and a better AI model.
 | `src/demo/seed.js` | Made-up demo data, judged by the real engine |
 | `deploy/` | `install.sh`, `update.sh`, `upgrade.sh`, `rollback.sh`, `stop.sh`, `doctor.sh` and `clear-data.sh` (Cloud Shell), `dashboard-policy.sh` (theirs), `cloud-update.sh` (Settings → Update's Cloud Build), `settings.example.env` |
 | `.github/` | Dependabot (`dependabot.yml`: security fixes as pull requests) and the tests on every pull request (`workflows/test.yml`) |
-| `tools/` | `build-mockup.js`, `release.js` (the install zip); `sync-model.js` (pins a model of TinyPhishLLM), `fetch-model.js` (downloads it: the image build and `npm test` run it); for retraining: `check-training-file.js`, `split-examples.js`, `score-examples.js` |
+| `tools/` | `build-mockup.js`, `release.js` (the install zip); `sync-model.js` (pins a model of TinyPhishLLM), `fetch-model.js` (downloads it: the image build and `npm test` run it); `checks-level.js` (records a raised or cosmetic checks level); for retraining: `check-training-file.js`, `split-examples.js`, `score-examples.js` |
 | `ui-classic/` | the classic dashboard (0.5.74, before the 0.6.0 redesign), kept to put back: not served (`docs/DASHBOARD-ROLLBACK.md`) |
 | `vendor/spruce/` | The checks and the code that runs the model (this project's own since 0.4.0; they began as the extension's); `VENDOR.json` says from which commits, and pins the model (`modelSource`); `models/phish-tiny/` is where `fetch-model.js` puts the model (not committed) |

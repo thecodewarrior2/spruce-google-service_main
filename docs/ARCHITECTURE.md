@@ -15,8 +15,11 @@ Pub/Sub topic gmail-spruce ──push (OIDC: spruce-invoker)──▶ spruce-wor
                                                                ▼
                                                            Firestore (records, counters, state)
                                                                ▲
-Admins ──Identity-Aware Proxy──▶ spruce-admin (Cloud Run, ROLE=admin): dashboard + /api/*
-                                   move back → messages.modify (Inbox)
+Admins and moderators ──Identity-Aware Proxy──▶ spruce-admin (Cloud Run, ROLE=admin): dashboard + /api/*
+                                                  move back → messages.modify (Inbox)
+                                                  ──▶ cloudflare-dns.com (and Cloudflare Security,
+                                                      Safe Browsing, Spamhaus when on), for Health →
+                                                      DMARC & reputation: your own domains' names
 
 Cloud Scheduler ──(OIDC)──▶ worker /tasks/renew-watches (daily; a watch lasts 7 days)
                            ──▶ worker /tasks/sync-feeds (hourly: the health check, the phishing lists
@@ -28,6 +31,8 @@ worker ──▶ security.cloudflare-dns.com    host names (blocked = 0.0.0.0)
                                           its API key in Secret Manager (spruce-safe-browsing-key)
        ──▶ registries (RDAP, via IANA)    domain names, at most once a month each
        ──▶ cloudflare-dns.com             the look-alike watch: look-alike names of ORG_DOMAINS, a pass a day
+       ──▶ cloudflare-dns.com, RDAP       brand ownership (0.5.64): a domain whose sender's name claims a brand,
+                                          and the brand's domains (DMARC records, name servers, registration)
        ··▶ *.dq.spamhaus.net (DNS)        OFF by default (Settings → Spamhaus): domain and host names, with the DQS key
        ··▶ urlhaus-api / threatfox-api    OFF by default (Settings → abuse.ch): the lists' downloads, with the key
                                           (both keys in Secret Manager: spruce-spamhaus-key, spruce-abusech-key)
@@ -45,10 +50,14 @@ worker ──▶ security.cloudflare-dns.com    host names (blocked = 0.0.0.0)
    back (a user taking one out of Spam). The position only moves forward, once every message is done.
 3. **One instance claims each message** (`seen/{user|id}` in Firestore, `store.claim`), reads it raw
    (`messages.get`, format raw) and skips what isn't new Inbox mail: sent mail, drafts, what Gmail already put
-   in Spam, the service's own weekly summary.
+   in Spam, the service's own weekly summary. A mailbox owner's own sent copy (Gmail's SENT label, or from the
+   owner's own address with nothing showing it was ever delivered) is never judged, on arrival, on the
+   re-checks or on Re-scan (`ownSentCopy` in `src/pipeline.js`, 0.6.3).
 4. **The message is read** (`src/engine/mime.js`): the headers and Gmail's own DMARC, SPF and DKIM results,
    the sender and the other address lines, the links (with their text), the text a person sees and how the
-   email is laid out (hidden filler, image-only bodies), the attachments (kept in memory only).
+   email is laid out (hidden filler, image-only bodies), the attachments (kept in memory only). When Gmail
+   wrote no DMARC result for one of the organization's own domains, it is worked out from the SPF and DKIM
+   results Gmail verified, as DMARC defines it (`deriveDmarc`, 0.6.3); other senders keep what Gmail wrote.
 5. **A phishing-training email** matching Settings → Phishing training (`src/simulations.js`, 0.5.44) is let
    through here: counted, nothing else.
 6. **The checks** (`src/engine/analyze.js`, with the engine in `vendor/spruce/`) add up signs, each with a
@@ -111,7 +120,7 @@ Firestore, in your own project and region (`src/store/firestore.js`). Each docum
 | `moveCounts` | the brake's hourly counters; the mass-share counters | 2 days |
 | `events` | Activity: alerts, admins' actions, errors | `AUDIT_DAYS` |
 | `blobs` | the phishing lists, gzipped, shared by every instance | replaced daily |
-| `cache` | registry dates of domains | 30 days |
+| `cache` | registry dates of domains; brand-ownership answers (0.5.64) | 30 days (an unknown answer: 1 day) |
 | `state` | one document per setting or state: the policy changed on the dashboard (`policy-*`), the brake, the lists' health, each optional service's key metadata (never the key) and health, the re-check queue, the look-alike watch, the phishing-training rules (secret values as hashes), the last update, the weekly summary and retraining switches… | until changed |
 
 Secrets (the Safe Browsing, Spamhaus and abuse.ch keys) are only in Secret Manager.
@@ -125,17 +134,26 @@ the worker's 120-second request time. In order:
    hour; each an alert.
 2. **The weekly summary**, on Monday from 7 AM, when it is on.
 3. **The phishing lists:** downloaded once a day for everyone (and abuse.ch's, when on); a list that missed its
-   download is tried again 3 hours later. What a download adds is looked for in delivered mail (below).
-4. **Re-checks:** suspicious mail an hour and a day old is queued, and (0.5.51) after an update that changes
-   how email is checked, the next of the recent mail still in the Inbox; the queue is checked for up to 40
-   seconds (the rest the next hour).
+   download is tried again 3 hours later. A download with the same entries as the copy kept isn't written again
+   (so the instances don't load it again), and still counts as downloaded (0.6.7). What a download adds is
+   looked for in delivered mail (below).
+4. **Re-checks:** suspicious mail an hour old (looked for up to 6 hours after it arrived) and a day old (up to
+   30 hours) is queued (0.6.7), and (0.5.51) after an update that changes how email is checked, the next of the
+   recent mail still in the Inbox; the queue is checked for up to 40 seconds (the rest the next hour).
 5. **Link clicks** (when on): Gmail's logs for the re-checked mail, up to 15 seconds.
 6. **The look-alike watch:** the next 80 look-alike names, up to 12 seconds (a pass a day).
 7. **Updates:** an update from the dashboard that failed or stalled, an approved version that needs a manual
    install; each alerted once.
-8. **Cleanup** of what Firestore's TTL doesn't delete, with the time left (at most 30 seconds).
+8. **Watches:** a renewal the daily job didn't finish (a whole domain) is continued. After `deploy/stop.sh`
+   (0.6.7), Gmail is told to stop notifying for the mailboxes still left instead, and no watch is renewed
+   while stopped.
+9. **Cleanup** of what Firestore's TTL doesn't delete, with the time left (at most 30 seconds).
 
-`spruce-renew-watches` runs daily: it reads the pilot group again and renews every watch.
+`spruce-renew-watches` runs daily: it reads the pilot group again and renews every watch. `deploy/stop.sh`
+pauses it and calls `/tasks/stop-watches` (0.6.7): every mailbox stops counting as watched at once (its
+notifications are ignored, `PILOT_USERS` too), then Gmail is told to stop notifying, 10 mailboxes at a time,
+within the request's time; the hourly job finishes the rest. Any renewal (`install.sh`, the daily job, the
+dashboard's "Read the directory again now") starts it again.
 
 ## Re-checking delivered mail
 

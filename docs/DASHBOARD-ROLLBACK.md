@@ -18,6 +18,15 @@ The classic `app.js` works with the newer service: the review groups only gained
 ("Email → Review", "Status → Activity") then differ from the ones the alerts and docs use ("Review",
 "Health → Activity"). Bump the version, add a `CHANGELOG.md` entry and run `npm test` as for any change.
 
+What it doesn't have:
+- **Moderators** (0.6.1): the classic dashboard is for admins only. It reads the settings (`/api/settings`, which
+  the service gives only to admins) as it starts, knows nothing of moderators, and shows everyone Status and
+  Settings; the service refuses those to a moderator.
+- **What was added since 0.6.1:** Health → DMARC & reputation, the Retraining examples page, the whole email in
+  "Show the email" (0.6.6; the classic "…show more" shows only what the AI reads), the DMARC note under the
+  evidence (0.6.4), the loading bar (0.6.5), and the slower refresh of rarely changing pages and the pause while
+  you are away (0.6.7).
+
 ## The whole 0.6.0 change
 
 ```bash

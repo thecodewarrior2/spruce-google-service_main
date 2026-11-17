@@ -5,6 +5,11 @@ size. These are estimates at Google's list prices as checked in November 2026 (U
 Check them against Google's pricing pages before you budget. How the numbers were measured is in
 `docs/SCALING.md`.
 
+**Measured with 0.5.0's AI model.** Since 0.5.50 the model is larger (ELECTRA-small) and takes about 5 times
+the processor time per email: about 50 ms an ordinary email and about 420 ms one it flags, with its
+explanation; one worker instance takes roughly 15 emails a second instead of 28 (`docs/SCALING.md`, "0.5.50").
+The worker's Cloud Run cost below was not measured again with it: measure again before you budget.
+
 ## In short
 
 | Mailboxes | Emails a day | A month in `us-central1` | A month in `us-east1` | Per mailbox per year |
@@ -64,7 +69,10 @@ A month, at each size (`us-central1` / `us-east1` where the region matters):
 - **Campaigns.** A phishing email to every mailbox is checked within a minute or two by extra worker
   instances, at most 30 (`WORKER_MAX_INSTANCES`, which caps what a burst can cost): cents, not dollars.
 - **Dashboard pages left open** refresh every 30 seconds. They read little (counts and the dashboard's
-  own copy of the records), but close them when you're done.
+  own copy of the records), but close them when you're done. Since 0.6.7 pages that rarely change (Help,
+  the Settings pages except Mailboxes, About, Update) refresh every 5 minutes; after 15 minutes with no key,
+  click, touch or scroll, nothing is fetched until the person is back; Service status is checked at most once a
+  minute, shared by every open dashboard; and large answers are sent compressed.
 
 ## Free allowances it relies on
 

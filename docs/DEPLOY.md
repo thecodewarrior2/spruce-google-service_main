@@ -102,7 +102,7 @@ gcloud iam service-accounts add-iam-policy-binding spruce-delegate@PROJECT.iam.g
 gcloud projects add-iam-policy-binding PROJECT --member=serviceAccount:spruce-run@PROJECT.iam.gserviceaccount.com --role=roles/datastore.user
 ```
 
-For the dashboard's Status page: read the worker's Cloud Run settings (Identity-Aware Proxy, who may call
+For the dashboard's Health → Service status: read the worker's Cloud Run settings (Identity-Aware Proxy, who may call
 it, its build).
 
 ```bash
@@ -176,7 +176,8 @@ gcloud run services add-iam-policy-binding spruce-worker --region=REGION --membe
 
 **The dashboard** (`ROLE=admin`) runs behind Identity-Aware Proxy.
 - Enable IAP on the Cloud Run service directly (check Google's current "IAP for Cloud Run" steps). Grant
-  **IAP-secured Web App User** only to your admin group.
+  **IAP-secured Web App User** only to your admin group and, if you use one, the moderator group
+  (`MODERATOR_GROUP`, 0.6.1).
 - **Never on `spruce-worker`.** Pub/Sub and Cloud Scheduler can't sign in through IAP, so every
   notification and job would be refused (401) before reaching the service. `deploy/install.sh` turns it
   off there if it finds it on.
@@ -318,13 +319,19 @@ the dashboard offers only versions at that level or lower.
   2. Call `POST WORKER_URL/tasks/stop-watches` (with the invoker's token; for example, create a one-off
      Scheduler job for it).
   3. Remove the domain-wide delegation entry in the Admin console.
+- **What stopping does** (0.6.7): every mailbox stops counting as watched at once, so its notifications are
+  ignored (`PILOT_USERS` too). Gmail is then told to stop notifying, 10 mailboxes at a time, within the
+  request's time; the hourly job finishes the rest, and never renews watches while stopped. Any renewal starts
+  it again: `deploy/install.sh`, the daily job once resumed, or the dashboard's **Read the directory again now**.
 - **Records** are in Firestore. Delete the collections, or the project.
 
 ## Settings (environment variables)
 
-`MODE`, `AI_MOVE_THRESHOLD`, `AI_SUSPICIOUS_THRESHOLD`, `BRAKE_PER_HOUR`, `TIME_ZONE`, `ALLOW_DOMAINS`,
-`ALLOW_ADDRESSES` and `RETENTION_DAYS` can also be changed on the dashboard (Settings → Policy, Settings → Allowlist,
-with the project ID, which the dashboard checks against `GOOGLE_CLOUD_PROJECT`).
+`MODE`, `AI_MOVE_THRESHOLD`, `AI_SUSPICIOUS_THRESHOLD`, `AI_SCANS_INSIDE`, `AI_MOVES_INSIDE`, `SUSPICIOUS_LABEL`,
+`RECHECK`, `BRAKE_PER_HOUR`, `TIME_ZONE` and `RETENTION_DAYS` (Settings → Policy), `ALLOW_DOMAINS`,
+`ALLOW_ADDRESSES` and `ALLOW_LINK_DOMAINS` (Settings → Allowlist), `SAFE_BROWSING`, `SPAMHAUS` and `ABUSECH` (their
+Settings pages) and `WATCH_SCOPE` (Settings → Mailboxes) can also be changed on the dashboard, with the project ID,
+which the dashboard checks against `GOOGLE_CLOUD_PROJECT`.
 Those changes are kept in Firestore (`state/policy-<key>`) and read by both services at least every
 30 seconds. A change stays in force until settings.env has another value for the same setting:
 `deploy/install.sh` asks which to keep, then writes it into settings.env (docs/INSTALL.md).
@@ -365,7 +372,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `CAMPAIGN_ALERT_AFTER` | `50` | a campaign moved this many times sends an alert |
 | `TIME_ZONE` | `UTC` | the time zone (IANA name) of the dashboard's days (charts and daily counts), the scheduled jobs (`--time-zone`) and the weekly summary (Monday from 7 AM) |
 | `DASHBOARD_URL` | none | the dashboard's address, in the weekly summary (install.sh: `https://spruce-admin-NUMBER.REGION.run.app`) |
-| `GOOGLE_CLOUD_PROJECT`, `CLOUD_RUN_REGION` | none | where the services run, for the dashboard's Status page |
+| `GOOGLE_CLOUD_PROJECT`, `CLOUD_RUN_REGION` | none | where the services run, for the dashboard's Health → Service status |
 | `QUIET_HOURS` | `12` | no notification from Gmail for this long sends an alert (the hourly health check) |
 | `ALERT_EMAIL` (installer; shown on the dashboard) | the `ADMIN_GROUP` | where Cloud Monitoring emails alerts; `off` for none (Google charges about $0.70 a month for the two alert policies) |
 | `AUDIT_DAYS` | `365` | how long Health → Activity is kept, 30 to 1,825 days (0.5.29) |
@@ -374,6 +381,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `AUDIT_LOG`, `AUDIT_LOG_DAYS` (installer) | off, `365` | on: a copy of Activity in the log bucket `spruce-audit` (a sink on `jsonPayload.spruceAudit`), kept that long; Google charges a few cents a year |
 | `MOVED_LABEL`, `RELEASED_LABEL` | `SPRUCE/Moved`, `SPRUCE/Moved back` | labels added to mail moved to Spam, and to mail an admin moved back to the Inbox (`SPRUCE/Released` before 0.3.7) |
 | `MONITOR_LABEL` | none | optionally label would-move mail in monitor mode (users see it) |
+| `SUSPICIOUS_LABEL`, `SUSPICIOUS_LABEL_NAME` | `false`, `SPRUCE/Suspicious` | a Gmail label on emails that are suspicious but not moved, so their readers see it, in monitor mode too (0.5.33). Nothing is moved by it. Also on the dashboard: Settings → Policy, "Suspicious label" |
 | `CLOUDFLARE_THREATS` | `true` | Cloudflare Security DNS for link sites and sender domains |
 | `SAFE_BROWSING_SECRET` | set by install.sh | the Secret Manager secret holding the Safe Browsing API key that an admin saves on Settings → Safe Browsing (0.5.23) |
 | `SAFE_BROWSING`, `SAFE_BROWSING_KEY` | `false`, none | Google Safe Browsing for links: off by default. Turned on and off on Settings → Safe Browsing; `SAFE_BROWSING=true` with `SAFE_BROWSING_KEY` is the older way, for an install without the secret |

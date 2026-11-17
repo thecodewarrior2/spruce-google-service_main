@@ -6,7 +6,7 @@ in TinyPhishLLM_Private_Training (the model's private training repository), and 
 (the model's public repository, which the S.P.R.U.C.E+ extension uses too); the new model comes to the
 service with a new version that pins it, and every build of that version downloads it from TinyPhishLLM.
 
-This guide turns the emails your admins marked into training examples, and the examples into a better
+This guide turns the emails your admins and moderators marked into training examples, and the examples into a better
 model, without any person's details reaching a repository or an outside service.
 
 **In short:**
@@ -37,9 +37,10 @@ model, without any person's details reaching a repository or an outside service.
   you installed from, or a copy of `google_service_main`). Training also needs Python 3 with `torch` (the
   CPU build is enough) and `transformers`, a copy of TinyPhishLLM_Private_Training (private: ask the
   maintainer for access) and a copy of TinyPhishLLM (public) next to it (step 6).
-- **Only admins' marks count.** The export takes the emails an admin marked: **Confirm phishing**, and
-  **Mark false alarm** (**Mark not phishing**) or an admin's **Move back to Inbox**. A user moving an email out of Spam is not a label: people
-  rescue phishing too. An email an admin set aside with **Ignore, treat as suspicious** (neither clearly phishing
+- **Only admins' and moderators' marks count.** The export takes the emails an admin or a moderator (0.6.1)
+  marked: **Confirm phishing**, and **Mark false alarm** (**Mark not phishing**) or an admin's **Move back to
+  Inbox**. A user moving an email out of Spam is not a label: people
+  rescue phishing too. An email set aside with **Ignore, treat as suspicious** (neither clearly phishing
   nor clearly safe) is never in the export: a guess would teach the model the wrong thing.
 - **The best examples come from Review → Suspicious, not moved.** Phishing there is what the model
   scored too low, and "not phishing" there is what it found suspicious for nothing. Mark some of those,
@@ -94,7 +95,7 @@ one line, spread out (from the demo's made-up data):
 | Field | What it is |
 |---|---|
 | `name` | `spruce-` and the email's Gmail ID. To see the email's record, paste the ID into **Mail → Messages → Search**. That page also shows the email's Message-ID, for Google Workspace's Email log search. |
-| `label` | `1`: phishing or spam (an admin confirmed it). `0`: genuine (an admin marked it a false alarm). |
+| `label` | `1`: phishing or spam (an admin or moderator confirmed it). `0`: genuine (an admin or moderator marked it a false alarm). |
 | `note` | What the service did on arrival: what it did with the email, what triggered it, the rules score, the AI score. It is for you; training ignores it. |
 | `facts.subject`, `senderName`, `bodyText` | What the email said, with the people taken out (below). `bodyText` is the whole body (since 0.5.56) as the service reads it: all of it up to 20,000 characters, else its first 15,000 and its last 4,999 (since 0.5.57), so a later model that reads more of an email can be trained from the same file. A long body has more to review (step 2). |
 | `facts.senderAddress` | The sender's domain. The part before @ is kept only for shared mailboxes (`noreply`, `security`, `billing`); otherwise it is `sender`. |
@@ -391,7 +392,7 @@ With 30 held-out emails, one email is 3%, so a small set tells you about large c
 
 ## When training goes wrong, it is usually one of these
 
-- **Wrong labels:** a user's "Not spam" taken as genuine, or spam called genuine. Only admins' marks are
+- **Wrong labels:** a user's "Not spam" taken as genuine, or spam called genuine. Only admins' and moderators' marks are
   exported; still check each one (step 2).
 - **One email many times:** copies pasted in, or variants split across train and held-out. The export
   gives one per campaign, and the split keeps variants together.
