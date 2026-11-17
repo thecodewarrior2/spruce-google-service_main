@@ -295,7 +295,7 @@ class Service {
     dayOf(ms) { return A.dayIn(ms, this.cfg.timeZone); }
     // A large email (over LARGE_BYTES) is read and judged LARGE_SLOTS at a time.
     readAndJudge(user, msg, opts) {
-        const go = async () => this.judge(user, msg, await readMessage(msg.raw), opts);
+        const go = async () => this.judge(user, msg, await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains }), opts);
         return msg.raw && msg.raw.length > LARGE_BYTES ? this.largeSlots.run(go) : go();
     }
     // A day's counter of checked emails (scanned, moved, …): written at once, or added up and written with
@@ -542,7 +542,7 @@ class Service {
     // or uploaded, judged as on arrival with the same lookups, in the current mode, brakes aside.
     // Nothing is stored, moved or counted. The answer has a record's shape, for the same view.
     async checkPasted(raw, { by = '' } = {}) {
-        const facts = await readMessage(Buffer.from(String(raw), 'utf8'));
+        const facts = await readMessage(Buffer.from(String(raw), 'utf8'), { ownDomains: this.cfg.orgDomains });
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         // Judged for the recipient in the organization, if the email names one; else for the admin.
         const mailbox = (facts.to || []).find(a => this.cfg.orgDomains.includes(a.split('@')[1])) || by;
@@ -622,7 +622,7 @@ class Service {
         try { msg = await this.gmail.raw(rec.user, rec.messageId); }
         catch (e) { if (e && e.status === 404) fail(404, 'The email is no longer in the mailbox (deleted for good): its text can\'t be read.'); throw e; }
         if (!msg || !msg.raw || !msg.raw.length) fail(404, 'The email is no longer in the mailbox: its text can\'t be read.');
-        const facts = await readMessage(msg.raw);
+        const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap() });
         const skipped = result.ai && result.ai.skipped;
@@ -643,7 +643,7 @@ class Service {
         try { msg = await this.gmail.raw(rec.user, rec.messageId); }
         catch (e) { if (e && e.status === 404) fail(404, 'The email is no longer in the mailbox (deleted for good): it can\'t be re-scanned.'); throw e; }
         if (!msg || !msg.raw || !msg.raw.length) fail(404, 'The email is no longer in the mailbox: it can\'t be re-scanned.');
-        const facts = await readMessage(msg.raw);
+        const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
         if (ownSentCopy(rec.user, msg, facts)) fail(409, `This copy is ${rec.user}'s own sent message (it was never delivered to them), so it isn't judged. Mark it Not phishing to clear it from the review.`);
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         // The sender counts as new if it was on arrival (by now it isn't, and that would change the rules'
@@ -1521,7 +1521,7 @@ class Service {
         const where = labels.includes('INBOX') ? 'inbox' : labels.includes('SPAM') ? 'spam' : labels.includes('TRASH') ? 'trash' : 'archived';
         // Opened: Gmail's UNREAD label is gone (its reader opened it, or marked it read).
         const opened = !labels.includes('UNREAD');
-        const facts = await readMessage(msg.raw);
+        const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
         if (ownSentCopy(user, msg, facts)) return { item, outcome: 'skipped' };   // (its owner's own sent mail: 0.6.3)
         if (await this.trainingOf(facts)) return { item, outcome: 'skipped' };   // (a phishing-training email: 0.5.44)
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
@@ -1926,7 +1926,7 @@ class Service {
                 const got = await readOne(copies);
                 if (!got) { counts.gone++; return; }
                 const { rec, msg } = got;
-                const facts = await readMessage(msg.raw);
+                const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
                 const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
                 const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true });
                 // The model learns English only (an email clearly in another language is left out, and counted).

@@ -45,8 +45,9 @@ mode).
   - **Both need DMARC to pass.** The allowlist and "inside the organization" go by the From address,
     which anyone can write. They count only when Gmail's own DMARC check passed for its domain. A
     forged allowlisted or staff address is judged like any mail from outside, and the record says so.
-    When Gmail writes no DMARC result at all (it happens on mail between two accounts of one Workspace),
-    it is worked out from the SPF and DKIM results Gmail did verify, as DMARC defines it (0.6.3).
+    When Gmail writes no DMARC result at all for one of your own domains (it happens on mail between two
+    accounts of one Workspace), it is worked out from the SPF and DKIM results Gmail did verify, as DMARC
+    defines it (0.6.3). Other senders keep what Gmail wrote.
   - **Brakes that still protect a whole district** (`src/pipeline.js`, `brakes`):
     - **Moving clear phishing is never paused.** "Strong evidence" means the rules flag it *and* something outside
       the email confirms it: a blocked or listed link, a listed or blocked sender, a brand-new look-alike

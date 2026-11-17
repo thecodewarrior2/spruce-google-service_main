@@ -136,10 +136,11 @@ test('"Business via QuickBooks" from its own verified address is no sign; forged
 // (0.6.3) Gmail sometimes writes no DMARC result (mail between two accounts of one Google Workspace): it is worked out
 // from the SPF and DKIM results Gmail verified, as DMARC defines it (either one passing for the From address's own
 // domain). A result Gmail wrote is kept: "dmarc=fail" stays a failure. Made-up addresses.
-test('no DMARC result from Gmail: worked out from aligned DKIM or SPF; never from another domain\'s, never over a written one', async () => {
+test('no DMARC result from Gmail, for your own domains only: worked out from aligned DKIM or SPF; never another domain\'s, never over a written one', async () => {
     const raw = (from, auth) => Buffer.from([`From: "Jo Madeupson" <${from}>`, 'To: pat@maple-academy.example', 'Subject: Re:', 'Message-ID: <d1@mail.gmail.com>',
         `Authentication-Results: mx.google.com; ${auth}`, 'Content-Type: text/plain; charset=utf-8', '', 'See you Thursday.'].join('\r\n'));
-    const judge = async (from, auth) => { const f = await readMessage(raw(from, auth)); return { f, r: await analyze(f, { mailbox: 'pat@maple-academy.example', orgDomains: ['maple-schools.example', 'maple-academy.example'], readAttachments: false }) }; };
+    const OWN = ['maple-schools.example', 'maple-academy.example'];
+    const judge = async (from, auth) => { const f = await readMessage(raw(from, auth), { ownDomains: OWN }); return { f, r: await analyze(f, { mailbox: 'pat@maple-academy.example', orgDomains: ['maple-schools.example', 'maple-academy.example'], readAttachments: false }) }; };
     let { f, r } = await judge('jo@maple-academy.example', 'dkim=pass header.i=@maple-academy.example header.s=google; arc=pass (i=1); spf=pass (google.com: domain of jo@maple-academy.example designates 209.85.220.41 as permitted sender) smtp.mailfrom=jo@maple-academy.example');
     assert.deepEqual([f.auth.dmarc, f.auth.derived, f.auth.headerFrom, r.inside], ['pass', 'DKIM', 'maple-academy.example', true]);
     ({ f, r } = await judge('jo@maple-academy.example', 'dkim=none; spf=pass smtp.mailfrom=bounce@mail.maple-academy.example'));
@@ -148,6 +149,8 @@ test('no DMARC result from Gmail: worked out from aligned DKIM or SPF; never fro
     assert.deepEqual([f.auth.dmarc, r.inside], [null, false], 'another domain\'s signature proves nothing about the From address');
     ({ f, r } = await judge('jo@maple-academy.example', 'dkim=pass header.i=@maple-academy.example; spf=pass smtp.mailfrom=jo@maple-academy.example; dmarc=fail header.from=maple-academy.example'));
     assert.deepEqual([f.auth.dmarc, f.auth.derived, r.inside], ['fail', undefined, false], 'a result Gmail wrote is kept');
+    ({ f } = await judge('news@vendor.example', 'dkim=pass header.i=@vendor.example; spf=pass smtp.mailfrom=bounce@vendor.example'));
+    assert.deepEqual([f.auth.dmarc, f.auth.derived], [null, undefined], 'another organization\'s domain: what Gmail wrote, as before');
 });
 
 // (0.6.3) A copy its mailbox's owner sent (SENT, or their own address never delivered: no verification, no Received

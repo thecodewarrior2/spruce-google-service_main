@@ -32,11 +32,12 @@ function receiverAuth(rawHead, receiverHost = 'mx.google.com') {
 // Workspace: "dkim=pass header.i=@…; spf=pass smtp.mailfrom=…", no "dmarc="). DMARC passes when SPF or DKIM passed
 // for the From address's own domain (the same registrable domain: "aligned", RFC 7489); so, with no result written,
 // it is worked out from the results Gmail did verify, and marked as worked out (derived). A result Gmail wrote is
-// never changed: "dmarc=fail" stays a failure.
-function deriveDmarc(auth, senderAddress) {
+// never changed: "dmarc=fail" stays a failure. Only for the organization's own domains (ownDomains): the only mail
+// seen without one, and the only mail the result makes "inside"; other senders keep what Gmail wrote.
+function deriveDmarc(auth, senderAddress, ownDomains = []) {
     if (!auth || auth.dmarc) return auth;
     const domain = String(senderAddress || '').toLowerCase().split('@')[1] || '';
-    if (!domain) return auth;
+    if (!domain || !(ownDomains || []).some(d => { d = String(d).toLowerCase(); return domain === d || domain.endsWith('.' + d); })) return auth;
     const E = require('./spruce').load();
     const org = (d) => E.registrableDomain(d) || d;
     const aligned = (d) => !!d && org(d) === org(domain);
@@ -51,7 +52,8 @@ function textToHtmlish(text) {
 }
 
 // raw: Buffer or string. Returns the facts, or throws for a message that can't be parsed at all.
-async function readMessage(raw) {
+// ownDomains (0.6.3): the organization's own domains, for deriveDmarc.
+async function readMessage(raw, { ownDomains = [] } = {}) {
     const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw || ''), 'utf8');
     const text = buf.subarray(0, MAX_RAW).toString('utf8');
     const headEnd = text.search(/\r?\n\r?\n/);
@@ -80,7 +82,7 @@ async function readMessage(raw) {
         references: [].concat(mail.references || []).map(String).slice(0, 50),
         to,
         people,
-        auth: deriveDmarc(receiverAuth(rawHead), from.address),
+        auth: deriveDmarc(receiverAuth(rawHead), from.address, ownDomains),
         visibleText: read.visibleText,
         hiddenText: read.hiddenText,
         quotedText: read.quotedText,
