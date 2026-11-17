@@ -192,7 +192,8 @@ sender passed DMARC; a page anyone can make (a form, a file share, cloud storage
 DocuSign; Dropbox; Adobe Acrobat Sign; SharePoint): the sender's address, the sender check and your
 routing rule's `[EXTERNAL]` tag are the platform's, for a colleague's share as much as for a stranger's.
 Once Gmail's sender check proves the platform sent it, the email is judged by the **person's own address**:
-the Reply-To the platform sets from their account (Drive shares, DocuSign), or the "Name (address)" it
+the Reply-To the platform sets from their account (Drive shares, DocuSign, Adobe Acrobat Sign: since 0.6.21 its
+adobesign@adobesign.com, and adobesign.com and echosign.com count as Adobe's own domains), or the "Name (address)" it
 writes in the text (Classroom gives neither: the person is then unknown, and their name counts for nothing
 either way). A colleague's own share or Classroom post gets no mark. For a share from outside:
 - **an account under a colleague's name**: at another organization 5 (flagged: moved in enforce mode), at a

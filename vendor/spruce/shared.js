@@ -620,7 +620,7 @@ const SENDER_NAME_BRANDS = [
     { name: 'Bank of America', tokens: ['bank of america'], domains: ['bankofamerica.com', 'bofa.com'] },
     { name: 'Chase', tokens: ['chase'], ambiguousTokens: ['chase'], domains: ['chase.com', 'jpmorgan.com'] },
     { name: 'Coinbase', tokens: ['coinbase'], domains: ['coinbase.com'] },
-    { name: 'Adobe', tokens: ['adobe'], domains: ['adobe.com'] },
+    { name: 'Adobe', tokens: ['adobe'], domains: ['adobe.com', 'adobesign.com', 'echosign.com'] },   // (service 0.6.21) Acrobat Sign's own domains
     { name: 'FedEx', tokens: ['fedex'], domains: ['fedex.com'] },
     { name: 'UPS', tokens: ['ups'], ambiguousTokens: ['ups'], domains: ['ups.com', 'upsemail.com'] },
     { name: 'DHL', tokens: ['dhl'], domains: ['dhl.com', 'dhl.de'] },

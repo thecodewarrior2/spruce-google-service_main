@@ -19,6 +19,7 @@ noreply@anthropic.com
 @paypal.cm             # a look-alike of PayPal in a test of brand impersonation
 @paypa1.com            # a look-alike of PayPal in the engine's examples
 @docusign.net
+adobesign@adobesign.com # Adobe Acrobat Sign's own sending mailbox, a service's address (0.6.21)
 @govdelivery.com
 @xoom.com
 @github.com

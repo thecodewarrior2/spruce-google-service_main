@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.21: Adobe Acrobat Sign's signature requests
+
+- **"Name via Adobe Acrobat Sign" was flagged and moved:** Adobe's entry in the brand table knew only adobe.com,
+  so a signature request from adobesign.com got "the sender's name says Adobe, but the address isn't Adobe's" (5),
+  and the AI model read "the domain is not Adobe's" and scored it near 100%. adobesign.com and echosign.com (Acrobat
+  Sign's earlier name) are now Adobe's own domains (`vendor/spruce/shared.js`), and Acrobat Sign's sending mailbox
+  (adobesign@…) is a platform notification (`src/engine/notifications.js`): with Gmail's DMARC check passing for
+  Acrobat Sign's domain, the email is judged by the person who sent the document (the Reply-To Acrobat Sign sets),
+  as DocuSign's are. A made-up request now comes out clean and the AI scores it under 1%; forged (DMARC failing) or
+  from a look-alike domain, it is flagged as before.
+- Tests: `test/adobe-sign.test.js` (made-up names and documents).
+- **Checks level 21:** delivered mail of the last hours is checked again after this update.
+
 ## 0.6.20: a brand's name from the established company that runs its product
 
 - **A card issuer's mail under the brand's name:** "Brand Credit" mail from the bank that issues the brand's card,

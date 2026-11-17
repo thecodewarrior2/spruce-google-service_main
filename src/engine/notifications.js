@@ -66,7 +66,7 @@ function platformClaimSigns(E, facts) {
     return [];
 }
 // A notification mailbox's name (before the @): no-reply, notifications, drive-shares, comments, DocuSign's dse_….
-const NOTIFICATION_MAILBOX = /(^|[-_.])(no-?reply|noreply|notifications?|drive-shares|shares|comments|receipts|calendar|classroom|dse)([-_.]|$)|^dse(_[a-z0-9]+)?$/i;
+const NOTIFICATION_MAILBOX = /(^|[-_.])(no-?reply|noreply|notifications?|drive-shares|shares|comments|receipts|calendar|classroom|dse|adobesign|echosign)([-_.]|$)|^dse(_[a-z0-9]+)?$/i;
 // "Name (via Google Docs)", "Name (Classroom)", "Name (Google Forms)", "Name via Docusign".
 const VIA_PARENS = /^(.*?)\s*\((?:via\s+)?([^()]{2,40})\)\s*$/i;
 const VIA_WORD = /^(.*?)\s+via\s+(.{2,40})$/i;
