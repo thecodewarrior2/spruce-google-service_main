@@ -1863,9 +1863,46 @@
     // (0.6.9) the two repositories this installation downloads from ----
     // The button needs the agreement, the project ID and the admin's own email address; it asks the
     // spruce-update job to rebuild and redeploy both services (src/update.js, deploy/cloud-update.sh).
+    // (0.6.31) An update under way is followed wherever the admin is: the loading bar and, in the bottom corner, what is
+    // happening, the whole time Cloud Build builds and deploys it; asked every UPDATE_POLL_MS (an error while the new
+    // version takes over is tried again). When it is done the dashboard reloads by itself (its pages come from the new
+    // version); when it failed or stalled, the Update page says why.
+    const UPDATE_POLL_MS = Number(window.SPRUCE_UPDATE_POLL_MS) || 15000;
+    let updateWatch = null;
+    function followUpdate(d) {
+        const st = d && d.progress;
+        const running = !!(st && ['requested', 'building'].includes(st.phase) && d.running);
+        if (running) {
+            const label = `Updating to ${st.version}: ${st.phase === 'requested' ? 'Cloud Build is starting' : 'Cloud Build is building and deploying it'} (about 10 minutes). The dashboard reloads by itself when it is done.`;
+            if (!updateWatch) {
+                updateWatch = { version: st.version, from: d.installed && d.installed.version, ticket: busyStart(label), label };
+                updateWatch.timer = setInterval(async () => {
+                    if (document.hidden) return;
+                    try {
+                        followUpdate(await api('/api/update'));
+                        if (updateWatch && /^#\/?update/.test(currentHash()) && !inUse()) render({ quiet: true });   // its status box, starting → building
+                    } catch (e) { /* the new version is taking over: asked again */ }
+                }, UPDATE_POLL_MS);
+            } else if (updateWatch.label !== label) { busyEnd(updateWatch.ticket); updateWatch.ticket = busyStart(label); updateWatch.label = label; }
+            return;
+        }
+        if (!updateWatch) return;
+        const w = updateWatch;
+        updateWatch = null;
+        clearInterval(w.timer); busyEnd(w.ticket);
+        const installed = d && d.installed && d.installed.version;
+        if ((st && st.phase === 'done') || (installed && installed !== w.from)) {
+            toast(`Updated to ${installed || w.version}: reloading the dashboard…`);
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            toast(`The update to ${w.version} didn't finish: Settings → Update says why.`);
+            if (/^#\/?update/.test(currentHash())) render({ quiet: true });
+        }
+    }
     async function updatePage(q) {
         const demoManual = !!(q && q.get && q.get('manual'));
         const d = await api(`/api/update${demoManual ? '?manual=1' : ''}`);
+        followUpdate(d);
         const n = d.newest;
         const out = [h('h1', { text: 'Update' }), h('p', { class: 'sub', text: 'The approved versions, from your release repository (Repositories, below), and what changed in them. A version that changes only the service is installed from here; one that changes the installation itself (permissions, jobs, settings) from Cloud Shell, with bash deploy/update.sh. Each version names its AI model: the update downloads that model from TinyPhishLLM, the model\'s own repository, and uses it only if every file matches.' })];
         // The AI model: each version pins one commit of TinyPhishLLM (its own public repository), which the

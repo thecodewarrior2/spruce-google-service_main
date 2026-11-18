@@ -387,7 +387,8 @@ and **Update to …** installs it like `update.sh` does, without Cloud Shell:
 2. Tick **I agree**, type the Google Cloud project ID and the email address you are signed in with.
 3. Click **Update to …**. Both services are rebuilt from that version and redeployed with their
    settings as they are, in about 10 minutes. Mail keeps being checked meanwhile. The page shows
-   requested, building, then done or failed. Activity notes who started it and how it ended; a failure,
+   requested, building, then done or failed; meanwhile the loading bar and the bottom corner say it is updating, on
+   any page, and when it is done the dashboard reloads by itself with the new version (0.6.31). Activity notes who started it and how it ended; a failure,
    or a build that never finished, is an alert (the admins are emailed).
 
 - **Set it up once from Cloud Shell:** the first version with this page (0.3.9) is installed with

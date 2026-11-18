@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.31: Settings → Update follows the update to the end, and reloads the dashboard
+
+- **The loading bar and its message stayed off, and the page didn't refresh:** the bar only covered the request that
+  starts an update (a second), not the 10 minutes Cloud Build takes, and Update is a page refreshed every 5 minutes;
+  when the new version took over, the open dashboard kept the old one's pages.
+- **Now** an update under way shows the loading bar and, in the bottom corner, "Updating to … (about 10 minutes)"
+  the whole time, on whichever page the admin is; the service is asked every 15 seconds (an answer missed while the new
+  version takes over is asked again), Update's status box follows (starting → building), and when it is done the
+  dashboard reloads by itself, showing the new version. Failed or stalled: a message, and Update says why
+  (`followUpdate` in `public/app.js`).
+
+
 ## 0.6.30: every allow list is checked every 30 days; a domain that may have changed hands is suspended
 
 - **The 30-day check** (`src/allowwatch.js`): every domain on an allow list (allowlisted senders and addresses, allowed
