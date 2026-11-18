@@ -204,8 +204,8 @@ test('the export: off by default; confirmed phishing only unless false alarms ar
     assert.equal(c.counts.gone, 1); assert.equal(c.rows.length, 1);
     const ev = (await store.listEvents()).filter(e => e.kind === 'training').sort((x, y) => x.at - y.at);
     assert.equal(ev.length, 3);
-    assert.match(ev[0].text, /^it\.head@maple-schools\.example downloaded the retraining export: \d examples? \(\d phishing\) from the last 90 days/);
-    assert.match(ev[1].text, /\(\d phishing, 1 false alarm\)/);
+    assert.match(ev[0].text, /^it\.head@maple-schools\.example downloaded the retraining export: \d examples? \(\d phishing or spam\) from the last 90 days/);
+    assert.match(ev[1].text, /\(\d phishing or spam, 1 false alarm\)/);
     // At most max examples.
     assert.equal((await svc.trainingExport({ by: 'x', falseAlarms: true, max: 1 })).rows.length, 1);
 });
@@ -235,7 +235,7 @@ test('the dashboard: allowed in Settings, then a download (JSONL, with counts in
         const rows = (await res.text()).trim().split('\n').map(l => JSON.parse(l));
         assert.equal(Number(res.headers.get('x-spruce-examples')), rows.length);
         assert.ok(rows.some(r => r.label === 1) && rows.some(r => r.label === 0), 'the demo\'s confirmed phishing and its false alarm');
-        for (const r of rows) assert.deepEqual(Object.keys(r), ['name', 'label', 'note', 'facts']);
+        for (const r of rows) assert.deepEqual(Object.keys(r), ['name', 'label', 'class', 'note', 'facts']);
         assert.ok(!rows.some(r => /@maple-schools\.example/.test(JSON.stringify(r))), 'no staff address');
         const ev = (await (await fetch(`${base}/api/activity?days=1&kind=admin`)).json()).events;
         assert.ok(ev.some(e => e.kind === 'training'), 'listed under what admins did');

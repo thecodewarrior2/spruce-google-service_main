@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.26: spam people took back is remembered; "Spam" as an admin's answer, and in the retraining export
+
+- **Spam someone took back:** when a person moves mail the service moved as spam (trigger `spam`) back out of Spam,
+  that sender's spam isn't moved for them again for 6 months. A sender is its organization's registrable domain, or
+  the address itself at a personal mail provider (one person, not everyone at gmail.com); only a sender Gmail verified
+  (DMARC passing) counts, so a forged copy is judged as usual. Kept as one-way hashes in the store's cache (its expiry
+  is the 6 months) (`rememberSpamRescue`, `spamKept`, `applySpamMemory` in `src/pipeline.js`).
+- **Taken back by 3 or more people:** not moved as spam for anyone, noted in Activity, and listed in **Settings →
+  Allowlist → Spam people took back**: add it to the allowlist (as before, with the project ID), or **Keep moving
+  it** (each person who took some back still keeps theirs) (`GET`/`POST /api/spam-rescued`, admins only).
+- **Phishing is never affected:** mail moved as phishing and taken back teaches nothing (it goes to the admins as a
+  possible false alarm, as before), and a remembered sender's mail is still checked, and moved if it is phishing.
+- **"Spam" as an admin's answer:** Review has **Spam** (key **S**, and **All spam** for ticked items), an email's
+  page **Confirm spam**: confirmed (not a false alarm), recorded as spam rather than phishing, moved to Spam in
+  enforce mode like **Phishing**. Moderators may use it.
+- **The retraining export's `class`:** `genuine`, `spam`, `phishing`, or `phishing or spam` (marked before 0.6.26),
+  beside the `label` (0 genuine, 1 spam or phishing, as the training reads it today), for a model with a spam answer
+  of its own. `tools/check-training-file.js` checks that the two agree.
+- Tests: `test/spam-memory.test.js` (made-up people and mail), and `test/training.test.js`.
+
 ## 0.6.25: the links sign has one weight, set by what is known against the link
 
 - **Before:** a link whose text shows a well-known site but goes somewhere else was "dangerous", and the links sign

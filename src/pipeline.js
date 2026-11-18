@@ -29,6 +29,9 @@ const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOK
 const sims = require('./simulations');
 
 const DAY = 24 * 60 * 60 * 1000;
+// (0.6.26) Spam a person took back out of Spam: that sender's mail isn't moved as spam for them again for SPAM_KEEP_MS;
+// when SPAM_SHARED people or more took back the same sender's, for no one (until an admin says to keep moving it).
+const SPAM_KEEP_MS = 180 * DAY, SPAM_SHARED = 3, SPAM_RESCUED_MAX = 300;
 const HOUR = 60 * 60 * 1000;
 const LIST_RETRY_MS = 3 * HOUR;   // a phishing list that missed its download is tried again this often (0.5.22)
 const ERRORS_ALERT = 25;   // errors in an hour that make an alert (0.5.29)
@@ -799,6 +802,7 @@ class Service {
         const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
             colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize });
         result.allowlistedUnverified = allowlisted && !verified;
+        await this.applySpamMemory(user, facts, result);
         // (0.6.7) The brake is read only when it matters: when the email would be moved (enforce mode). It was read
         // for every email; the decision is the same.
         let decision = decide(result, this.cfg, { brake: false });
@@ -928,6 +932,64 @@ class Service {
 
     // An alert: in Health → Activity (and Today's Recent activity), and a log line Cloud Monitoring emails to
     // ALERT_EMAIL (install.sh).
+    // (0.6.26) Spam memory. A sender is its domain (its organization's registrable domain), or the address itself at a
+    // personal mail provider (gmail.com: one person, not everyone there). Kept as one-way hashes with the person's.
+    spamSenderKey(address) {
+        const a = String(address || '').toLowerCase(), d = a.split('@')[1] || '';
+        if (!d) return '';
+        const E = spruce.load();
+        return E.isPersonalMailDomain(d) ? a : (E.registrableDomain(d) || d);
+    }
+    async rememberSpamRescue(user, address, now = this.now()) {
+        const sender = this.spamSenderKey(address);
+        if (!sender) return;
+        const who = senderHash(user);
+        await this.store.setCached('spamok', `${who}|${senderHash(sender)}`, { at: now }, SPAM_KEEP_MS);
+        const all = Object.assign({}, (await this.store.getState('spamRescued')) || {});
+        for (const [k, v] of Object.entries(all)) if (!v || now - (v.last || 0) > SPAM_KEEP_MS) delete all[k];
+        const e = all[sender] = Object.assign({ users: [], first: now, shared: false, keep: false }, all[sender]);
+        if (!e.users.includes(who)) e.users = [...e.users, who].slice(-50);
+        e.last = now;
+        const becameShared = !e.shared && e.users.length >= SPAM_SHARED;
+        if (becameShared) e.shared = true;
+        const keys = Object.keys(all).sort((a, b) => (all[b].last || 0) - (all[a].last || 0));
+        for (const k of keys.slice(SPAM_RESCUED_MAX)) delete all[k];
+        await this.store.setState('spamRescued', all);
+        if (becameShared && !e.keep) await this.store.addEvent({ kind: 'spam-rescued', text: `${e.users.length} people took mail from ${sender} back out of Spam, where the service had moved it as spam. Its mail is no longer moved as spam for anyone (it is still checked for phishing). If it is mail your district wants, add it to Settings → Allowlist; if it is spam after all, choose "Keep moving it" in Settings → Allowlist → Spam people took back.` });
+    }
+    // Whether this person (or, once SPAM_SHARED people took it back, everyone) keeps this sender's spam: null, or why.
+    async spamKept(user, address) {
+        const sender = this.spamSenderKey(address);
+        if (!sender) return null;
+        if (await this.store.getCached('spamok', `${senderHash(user)}|${senderHash(sender)}`)) return 'they took mail from this sender back out of Spam before';
+        const e = ((await this.store.getState('spamRescued')) || {})[sender];
+        if (e && e.shared && !e.keep && this.now() - (e.last || 0) <= SPAM_KEEP_MS) return `${e.users.length} people took mail from this sender back out of Spam`;
+        return null;
+    }
+    // Applies the memory to an analyzed email: spam from a verified sender someone kept is not moved as spam.
+    async applySpamMemory(user, facts, result) {
+        if (!result || !result.spam || !result.verified) return;
+        const why = await this.spamKept(user, facts.senderAddress).catch(() => null);
+        if (why) result.spam = undefined;
+    }
+    // Settings → Allowlist: the senders several people took back (0.6.26), newest first; keep: an admin's "keep moving it".
+    async spamRescuedList() {
+        const all = (await this.store.getState('spamRescued')) || {};
+        const now = this.now();
+        return Object.entries(all).filter(([, v]) => v && v.shared && now - (v.last || 0) <= SPAM_KEEP_MS)
+            .map(([sender, v]) => ({ sender, people: v.users.length, first: v.first, last: v.last, keep: !!v.keep, keepBy: v.keepBy || null }))
+            .sort((a, b) => b.last - a.last);
+    }
+    async setSpamKeep(sender, keep, by) {
+        const all = Object.assign({}, (await this.store.getState('spamRescued')) || {});
+        const e = all[String(sender || '').toLowerCase()];
+        if (!e || !e.shared) return { error: 'That sender isn\'t on the list.', status: 404 };
+        all[String(sender).toLowerCase()] = Object.assign({}, e, { keep: !!keep, keepBy: keep ? by : null });
+        await this.store.setState('spamRescued', all);
+        await this.store.addEvent({ kind: 'settings', text: keep ? `${by} chose to keep moving spam from ${sender} to Spam, though ${e.users.length} people took some back (each of them still keeps it).`
+            : `${by} chose to stop moving spam from ${sender} for everyone, as ${e.users.length} people took some back.` });
+        return { ok: true, list: await this.spamRescuedList() };
+    }
     async alert(kind, text, extra = {}) {
         await this.store.addEvent(Object.assign({ kind, text, alert: true }, extra));
         if (this.log.warn) this.log.warn(JSON.stringify({ severity: 'WARNING', spruceAlert: kind, message: text }));
@@ -1151,6 +1213,8 @@ class Service {
             falseAlarm: rec.falseAlarm === null || rec.falseAlarm === undefined ? true : rec.falseAlarm, markedBy: rec.markedBy || null });
         await this.store.incStat(this.dayOf(now), 'released');
         await this.store.incStat(this.dayOf(now), 'userReleased');
+        // (0.6.26) Spam (not phishing) the user took back, from a sender Gmail verified: remembered for them.
+        if (rec.trigger === 'spam' && rec.auth && rec.auth.dmarc === 'pass') await this.rememberSpamRescue(user, rec.sender.address, now).catch((e) => this.log.error('spam memory:', e));
         const strong = rec.score >= 5 && rec.trigger !== 'ai';
         const text = strong ? `${user} moved an email from ${rec.sender.address} back to the Inbox, though the checks flagged it (score ${rec.score}). Make sure it's safe, or mark it phishing and warn them.`
                             : `${user} moved an email from ${rec.sender.address} back to the Inbox (counted as a false alarm).`;
@@ -1163,10 +1227,12 @@ class Service {
     // is still in the Inbox is also moved to Spam, in enforce mode only (Review's "Phishing: move to
     // Spam"). moved: 'moved'; 'gone' (no longer in the Inbox); 'monitor' (nothing is moved in monitor
     // mode); 'not-in-inbox' (already in Spam, or moved back by an admin, whose decision stands); or null.
-    async mark(key, falseAlarm, by, { move = false, quiet = false } = {}) {
+    // (0.6.26) spam: confirmed, as spam rather than phishing (falseAlarm false, spam true): Review's "Spam", and the
+    // retraining export's class.
+    async mark(key, falseAlarm, by, { move = false, quiet = false, spam = false } = {}) {
         const rec = await this.store.getRecord(key);
         if (!rec) return { error: 'not found' };
-        let out = await this.store.updateRecord(key, Object.assign({ falseAlarm: !!falseAlarm, markedBy: by }, rec.unclear ? { unclear: false } : {}));
+        let out = await this.store.updateRecord(key, Object.assign({ falseAlarm: !!falseAlarm, markedBy: by, spam: !falseAlarm && !!spam }, rec.unclear ? { unclear: false } : {}));
         if (falseAlarm && rec.falseAlarm !== true) await this.store.incStat(this.dayOf(this.now()), 'falseAlarms');
         // A false alarm loses the Suspicious label it was given (0.5.33).
         if (falseAlarm && rec.suspiciousLabel) {
@@ -1182,10 +1248,11 @@ class Service {
         let moved = null;
         if (!falseAlarm && move) {
             await this.refreshPolicy();
-            moved = this.cfg.mode !== 'enforce' ? 'monitor' : rec.state !== 'inbox' || rec.action === 'move' ? 'not-in-inbox' : await this.moveRecord(out, by, 'confirmed it as phishing');
+            const as = spam ? 'spam' : 'phishing';
+            moved = this.cfg.mode !== 'enforce' ? 'monitor' : rec.state !== 'inbox' || rec.action === 'move' ? 'not-in-inbox' : await this.moveRecord(out, by, `confirmed it as ${as}`);
             if (moved === 'moved') {
                 out = await this.store.getRecord(key);
-                if (!quiet) await this.store.addEvent({ kind: 'mark', user: rec.user, text: `${by} confirmed an email from ${rec.sender.address} to ${rec.user} as phishing and moved it to Spam.` });
+                if (!quiet) await this.store.addEvent({ kind: 'mark', user: rec.user, text: `${by} confirmed an email from ${rec.sender.address} to ${rec.user} as ${as} and moved it to Spam.` });
             }
         }
         return { record: out, moved, released };
@@ -1614,6 +1681,7 @@ class Service {
         const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime, intel: this.intel,
             colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), threadSize: await this.threadSizeOf(user, msg.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
+        await this.applySpamMemory(user, facts, result);
         let decision = decide(result, this.cfg, { brake: await this.brakeOn() });
         const was = before ? before.action : 'none';
         if ((RECHECK_RANK[decision.action] || 0) <= (RECHECK_RANK[was] || 0)) {
@@ -2032,6 +2100,7 @@ class Service {
                 // The model learns English only (an email clearly in another language is left out, and counted).
                 if (!result.language.english) { counts.notEnglish++; return; }
                 const label = rec.falseAlarm === false ? 1 : 0;
+                // (0.6.26) The three-way class (genuine, spam, phishing) beside the two-way label the training reads today.
                 // (0.5.56) The whole body (aiFacts holds only what the model is given, at most 8,000 characters).
                 rows.push({ at: rec.processedAt, row: training.example(rec, label, Object.assign({}, result.aiFacts, { bodyText: String(facts.visibleText || '') }), facts.people, this.cfg.orgDomains) });
             } catch (e) { counts.failed++; this.log.error(`retraining export ${copies[0].key}:`, e); }
@@ -2039,7 +2108,8 @@ class Service {
         counts.notReached = groups.length - reached;
         const out = rows.sort((a, b) => b.at - a.at).slice(0, max).map(x => x.row);
         counts.phishing = out.filter(r => r.label === 1).length; counts.genuine = out.length - counts.phishing;
-        await this.store.addEvent({ kind: 'training', text: `${by} downloaded the retraining export: ${out.length} example${out.length === 1 ? '' : 's'} (${counts.phishing} phishing${falseAlarms ? `, ${counts.genuine} false alarm${counts.genuine === 1 ? '' : 's'}` : ''}) from the last ${days} days${counts.gone ? `; ${counts.gone} no longer in a mailbox` : ''}. Nothing of them was stored.` });
+        counts.spam = out.filter(r => r.class === 'spam').length;
+        await this.store.addEvent({ kind: 'training', text: `${by} downloaded the retraining export: ${out.length} example${out.length === 1 ? '' : 's'} (${counts.phishing} phishing or spam${counts.spam ? `, ${counts.spam} of them marked as spam` : ''}${falseAlarms ? `, ${counts.genuine} false alarm${counts.genuine === 1 ? '' : 's'}` : ''}) from the last ${days} days${counts.gone ? `; ${counts.gone} no longer in a mailbox` : ''}. Nothing of them was stored.` });
         return { rows: out, counts, days, falseAlarms };
     }
     async setTrainingExport(enabled, by) {
@@ -2055,18 +2125,18 @@ class Service {
     // false alarm in Spam goes back to the Inbox (released says how many). One Activity line for all of them.
     async bulk(keys, action, by) {
         const out = { done: 0, skipped: 0, failed: 0 };
-        if (action === 'phishing') out.moved = 0;
+        if (action === 'phishing' || action === 'spam') out.moved = 0;
         if (action === 'false-alarm') out.released = 0;
         await pool(keys, 10, async (key) => {
             try {
                 const r = action === 'release' ? await this.release(key, by, { quiet: true }) : action === 'unclear' ? await this.setAside(key, by, { quiet: true })
-                    : await this.mark(key, action === 'false-alarm', by, { move: action === 'phishing', quiet: true });
+                    : await this.mark(key, action === 'false-alarm', by, { move: action === 'phishing' || action === 'spam', quiet: true, spam: action === 'spam' });
                 if (r && r.record) out.done++; else out.skipped++;
                 if (r && r.moved === 'moved') out.moved++;
                 if (r && r.released) out.released++;
             } catch (e) { out.failed++; this.log.error(`bulk ${action} ${key}:`, e); }
         });
-        const what = { release: 'moved back to the Inbox', 'false-alarm': 'marked as false alarms', phishing: 'confirmed as phishing', unclear: 'set aside as unclear (left as they are, not used for retraining)' }[action];
+        const what = { release: 'moved back to the Inbox', 'false-alarm': 'marked as false alarms', phishing: 'confirmed as phishing', spam: 'confirmed as spam', unclear: 'set aside as unclear (left as they are, not used for retraining)' }[action];
         if (out.done) await this.store.addEvent({ kind: action === 'release' ? 'release' : 'mark', text: `${by} ${what} ${out.done} email${out.done === 1 ? '' : 's'} at once${out.moved ? ` (${out.moved} moved to Spam)` : ''}${out.released ? ` (${out.released} moved back to the Inbox)` : ''}.` });
         return out;
     }

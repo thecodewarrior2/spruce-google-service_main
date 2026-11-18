@@ -128,7 +128,7 @@ const MODERATOR_ROUTES = new Set(['GET /api/session', 'GET /api/overview', 'GET 
     'GET /api/campaigns', 'GET /api/campaign', 'GET /api/users', 'GET /api/rechecked', 'GET /api/help',
     'POST /api/mark', 'POST /api/unclear', 'POST /api/rescan', 'POST /api/check', 'POST /api/bulk',
     'POST /api/campaign/confirm', 'POST /api/campaign/release', 'POST /api/campaign/find', 'POST /api/message/context']);
-const MODERATOR_BULK = ['false-alarm', 'phishing', 'unclear'];
+const MODERATOR_BULK = ['false-alarm', 'phishing', 'spam', 'unclear'];
 function moderatorMay(route, action) {
     if (!MODERATOR_ROUTES.has(route)) return false;
     return route !== 'POST /api/bulk' || MODERATOR_BULK.includes(action);
@@ -722,7 +722,10 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // Move one email back to the Inbox (admins only: a moderator marks it a false alarm instead).
         'POST /api/release': async (q, body, admin) => service.release(String(body.key || ''), admin.email),
         // move: phishing still in the Inbox is moved to Spam too (enforce mode).
-        'POST /api/mark': async (q, body, admin) => service.mark(String(body.key || ''), body.falseAlarm === true, admin.email, { move: body.move === true }),
+        'POST /api/mark': async (q, body, admin) => service.mark(String(body.key || ''), body.falseAlarm === true, admin.email, { move: body.move === true, spam: body.spam === true }),
+        // (0.6.26) Spam several people took back out of Spam: the list, and an admin's "keep moving it" (or undoing it).
+        'GET /api/spam-rescued': async () => ({ list: await service.spamRescuedList() }),
+        'POST /api/spam-rescued': async (q, body, admin) => service.setSpamKeep(String(body.sender || ''), body.keep === true, admin.email),
         // (0.5.60) Ignore, treat as suspicious: reviewed, left as it is, not used for retraining.
         'POST /api/unclear': async (q, body, admin) => service.setAside(String(body.key || ''), admin.email),
         // Re-scan one email (Review, Messages): judged again now, recorded beside the on-arrival result, never
@@ -817,7 +820,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // 500. Moderators: not release (moderatorMay).
         'POST /api/bulk': async (q, body, admin) => {
             const keys = Array.isArray(body.keys) ? [...new Set(body.keys.map(String))].slice(0, 500) : [];
-            if (!['release', 'false-alarm', 'phishing', 'unclear'].includes(body.action) || !keys.length) return { error: 'Choose emails and what to do with them.', status: 400 };
+            if (!['release', 'false-alarm', 'phishing', 'spam', 'unclear'].includes(body.action) || !keys.length) return { error: 'Choose emails and what to do with them.', status: 400 };
             return service.bulk(keys, body.action, admin.email);
         },
         // What needs an admin (the browser tab's title shows the count): the brake, held campaigns, users

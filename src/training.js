@@ -307,11 +307,17 @@ function noteFor(rec, label) {
     const ai = rec.ai && typeof rec.ai.probability === 'number' ? `, AI ${Math.round(rec.ai.probability * 100)}%` : '';
     const act = { move: 'moved to Spam', 'would-move': 'would have been moved (monitor mode)', flag: 'flagged, not moved' }[rec.action] || rec.action || 'recorded';
     const score = typeof rec.score === 'number' ? `, rules score ${rec.score}` : '';
-    return `${label ? 'Confirmed as phishing or spam by an admin' : 'A false alarm (genuine mail), marked by an admin'}. On arrival: ${act}; trigger ${rec.trigger || 'none'}${score}${ai}.`;
+    return `${label ? (rec.spam ? 'Confirmed as spam by an admin' : 'Confirmed as phishing or spam by an admin') : 'A false alarm (genuine mail), marked by an admin'}. On arrival: ${act}; trigger ${rec.trigger || 'none'}${score}${ai}.`;
 }
 
+// (0.6.26) class: 'genuine', 'spam' (an admin's "Spam") or 'phishing' (before 0.6.26 an admin's "Phishing" covered spam
+// too: 'phishing or spam'). label stays 1 for spam and phishing, 0 for genuine, as the training reads it today.
+function classOf(rec, label) {
+    if (!label) return 'genuine';
+    return rec.spam ? 'spam' : rec.spam === false ? 'phishing' : 'phishing or spam';
+}
 function example(rec, label, aiFacts, people, orgDomains) {
-    return { name: `spruce-${rec.messageId}`, label, note: noteFor(rec, label), facts: deidentify(aiFacts, { people, mailbox: rec.user, orgDomains, label }) };
+    return { name: `spruce-${rec.messageId}`, label, class: classOf(rec, label), note: noteFor(rec, label), facts: deidentify(aiFacts, { people, mailbox: rec.user, orgDomains, label }) };
 }
 
 const toJsonl = (rows) => rows.map(r => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '');
@@ -330,6 +336,8 @@ function problems(x, { final = false } = {}) {
     const out = [];
     if (!x || typeof x !== 'object') return ['not a JSON object'];
     if (x.label !== 0 && x.label !== 1) out.push('label must be 0 (genuine) or 1 (phishing)');
+    if (x.class !== undefined && !['genuine', 'spam', 'phishing', 'phishing or spam'].includes(x.class)) out.push('class must be genuine, spam, phishing or "phishing or spam"');
+    if (x.class !== undefined && (x.class === 'genuine') !== (x.label === 0)) out.push('class and label disagree: genuine is label 0, spam and phishing label 1');
     if (typeof x.text === 'string') out.push('has "text": make-dataset.js would use it instead of the facts; remove it');
     const f = x.facts;
     if (!f || typeof f !== 'object') { out.push('no "facts"'); return out; }
@@ -349,4 +357,4 @@ function problems(x, { final = false } = {}) {
     return out;
 }
 
-module.exports = { deidentify, pickRecords, example, noteFor, toJsonl, problems, BODY_CHARS, BODY_HEAD, BODY_TAIL, COMMON };
+module.exports = { deidentify, pickRecords, example, classOf, noteFor, toJsonl, problems, BODY_CHARS, BODY_HEAD, BODY_TAIL, COMMON };

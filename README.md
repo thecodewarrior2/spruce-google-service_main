@@ -187,6 +187,15 @@ other address lines: **Reply-To** under a colleague's name going to an outside a
 go to someone else), and a colleague **copied in** (Cc or To) at an outside address (1) or at an address
 that imitates your domain (3: "I've copied our superintendent").
 
+**Spam people took back** (0.6.26): when someone moves mail the service moved as spam (trigger `spam`) back out
+of Spam, that sender's spam isn't moved for them again for 6 months: a sender is its organization's domain, or the
+address itself at a personal mail provider, and only one Gmail verified (DMARC passing) counts, so a forged copy is
+judged as usual. When 3 or more people took back the same sender's, it isn't moved as spam for anyone and is listed
+in Settings → Allowlist → Spam people took back, where an admin can add it to the allowlist or keep moving it (each
+person who took some back still keeps theirs). Phishing is never affected: mail moved as phishing and taken back
+teaches nothing (it goes to the admins as a possible false alarm), and a remembered sender's mail is still checked
+and moved if it is phishing. Kept as one-way hashes of the sender and the person, in the shared store's cache.
+
 **Signs that need another sign** (0.6.19): text hidden far below the message after a blank space, a colleague's
 name whose only reason to count is that the sender's domain resembles yours (a local group's domain with your
 town's name in it), and a colleague copied in at an outside or resembling address count only together with
@@ -336,7 +345,8 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
       most, the sender check, and how strong the evidence was. Buttons: **Re-scan**, **Move back to Inbox**, **Mark
       false alarm** (**False alarm: move back to Inbox** for an email in Spam, 0.6.1; **Mark not phishing** for a
       suspicious email), **Confirm phishing** (**Confirm phishing: move to Spam** for one still in the Inbox, in
-      enforce mode).
+      enforce mode), **Confirm spam** (0.6.26: unwanted bulk mail, not phishing; moved the same way, and the
+      retraining export says spam). Review has **Spam** too (key **S**).
     - Each email also shows its **Message-ID** and Gmail ID, each with a **Copy** button. The Message-ID
       is what Google Workspace's Email log search and the security investigation tool look an email
       up by. **Copy for Vault** copies it as Google Vault's search writes it: `rfc822msgid:<Message-ID>`.

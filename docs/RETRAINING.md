@@ -38,10 +38,14 @@ model, without any person's details reaching a repository or an outside service.
   CPU build is enough) and `transformers`, a copy of TinyPhishLLM_Private_Training (private: ask the
   maintainer for access) and a copy of TinyPhishLLM (public) next to it (step 6).
 - **Only admins' and moderators' marks count.** The export takes the emails an admin or a moderator (0.6.1)
-  marked: **Confirm phishing**, and **Mark false alarm** (**Mark not phishing**) or an admin's **Move back to
+  marked: **Confirm phishing**, **Confirm spam** (0.6.26), and **Mark false alarm** (**Mark not phishing**) or an admin's **Move back to
   Inbox**. A user moving an email out of Spam is not a label: people
   rescue phishing too. An email set aside with **Ignore, treat as suspicious** (neither clearly phishing
   nor clearly safe) is never in the export: a guess would teach the model the wrong thing.
+- **Spam and phishing apart (0.6.26).** Each example has a `class` beside its `label`: `genuine` (label 0), `spam`
+  (an admin's **Spam**: unwanted bulk mail), `phishing`, or `phishing or spam` (marked before 0.6.26, when
+  **Phishing** covered both). The label stays 1 for spam and phishing, as the training reads it today; a model with
+  a spam answer of its own will use the class. Mark spam as **Spam**, not **Phishing**, from now on.
 - **The best examples come from Review → Suspicious, not moved.** Phishing there is what the model
   scored too low, and "not phishing" there is what it found suspicious for nothing. Mark some of those,
   not only moved emails, before you export.

@@ -876,10 +876,12 @@
             m.state === 'moved' && !isModerator() ? h('button', { class: 'btn primary', type: 'button', onclick: () => act('/api/release', { key: m.key }, 'Moved back to the Inbox.') }, 'Move back to Inbox') : null,
             m.falseAlarm !== true ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: true }, (o) => `${notMoved ? 'Marked as not phishing' : 'Marked as a false alarm'}${o && o.released ? ', and moved back to the Inbox' : ''}.`) }, m.state === 'moved' ? 'False alarm: move back to Inbox' : notMoved ? 'Mark not phishing' : 'Mark false alarm') : null,
             m.falseAlarm !== false || moves ? h('button', { class: `btn${moves ? ' primary' : ''}`, type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, move: moves }, (out) => phishedText(out.moved)) }, moves ? 'Confirm phishing: move to Spam' : 'Confirm phishing') : null,
+            // (0.6.26) Spam, not phishing: unwanted bulk mail. Moved to Spam the same way; the retraining export's class says spam.
+            !m.spam || moves ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, spam: true, move: moves }, (out) => (out.moved === 'moved' ? 'Confirmed as spam and moved to Spam.' : 'Confirmed as spam.')), title: 'Unwanted bulk mail (marketing, political, newsletters nobody signed up for), not phishing' }, moves ? 'Spam: move to Spam' : 'Confirm spam') : null,
             !(m.unclear && m.markedBy) ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/unclear', { key: m.key }, 'Set aside: left as it is for the reader to decide, and not used for retraining.'), title: 'Neither clearly phishing nor clearly safe' }, 'Ignore, treat as suspicious') : null);
         const verdictText = pasted ? 'Checked from a pasted copy: nothing was stored, moved or counted.'
             : m.falseAlarm === true && m.releasedByUser && !m.markedBy ? 'Counted as a false alarm because the user moved it back. No admin has reviewed it yet.'
-            : m.falseAlarm === true ? (notMoved ? 'An admin marked this as not phishing.' : 'An admin marked this a false alarm.') : m.falseAlarm === false ? 'An admin confirmed this as phishing or spam.'
+            : m.falseAlarm === true ? (notMoved ? 'An admin marked this as not phishing.' : 'An admin marked this a false alarm.') : m.falseAlarm === false ? (m.spam ? 'An admin confirmed this as spam (not phishing).' : m.spam === false ? 'An admin confirmed this as phishing.' : 'An admin confirmed this as phishing or spam.')
             : m.unclear && m.markedBy ? 'An admin set this aside as unclear: left as it is for the reader to decide, and not used for retraining.' : 'Not reviewed yet.';
         return [quiet ? null : h('button', { class: 'linkbtn back', type: 'button', onclick: back }, '← Back'),
             h(quiet ? 'h2' : 'h1', { class: quiet ? 'pasted-title' : null, text: m.subject || (pasted ? '(no subject)' : '(subject not stored)') }),
@@ -1134,11 +1136,33 @@
                 kvRow('Never moved', allowed || addresses ? `the allowlist: ${num(allowed)} domain${allowed === 1 ? '' : 's'} and ${num(addresses)} address${addresses === 1 ? '' : 'es'} (Settings → Allowlist)` : 'nothing allowlisted (Settings → Allowlist)'),
                 kvRow('Label on moved mail', d.movedLabel)))];
     }
+    // (0.6.26) Spam people took back: when someone moves mail the service moved as spam back out of Spam, that sender's
+    // spam isn't moved for them again (6 months); when 3 or more people did, for no one, until an admin keeps moving it.
+    async function spamRescuedCard() {
+        let list = [];
+        try { list = (await api('/api/spam-rescued')).list || []; } catch (e) { return null; }
+        const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Spam people took back' }),
+            h('p', { class: 'sub', text: 'When someone moves mail the service moved as spam back out of Spam, that sender\'s spam isn\'t moved for them again for 6 months (only from a sender Gmail verified; phishing is never affected: it is still checked and moved). When 3 or more people took back the same sender\'s, it isn\'t moved as spam for anyone; it is listed here. If it is mail your district wants, add it to the allowlist below; if it is spam after all, keep moving it (each person who took some back still keeps theirs).' }));
+        if (!list.length) { card.append(h('p', { class: 'empty', text: 'No sender yet: nobody\'s spam has been taken back by 3 or more people.' })); return card; }
+        const draw = (rows) => {
+            card.querySelectorAll('table').forEach(t => t.remove());
+            card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Sender', 'People who took it back', 'Last', ''].map(t => h('th', { text: t })))),
+                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.sender }), h('td', { text: num(r.people) }), h('td', { text: new Date(r.last).toLocaleDateString() }),
+                    h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
+                        e.target.disabled = true;
+                        try { const out = await api('/api/spam-rescued', { method: 'POST', body: { sender: r.sender, keep: !r.keep } }); toast(r.keep ? `Spam from ${r.sender} is no longer moved for anyone.` : `Spam from ${r.sender} is moved to Spam again.`); draw(out.list || []); }
+                        catch (err) { toast(`Couldn't do that: ${err.message}`); e.target.disabled = false; } } }, r.keep ? 'Stop moving it' : 'Keep moving it'),
+                        r.keep ? h('span', { class: 'small muted', text: ` Moved again${r.keepBy ? ` (${r.keepBy})` : ''}` }) : null))))));
+        };
+        draw(list);
+        return card;
+    }
     async function allowlist() {
         const d = await settingsData();
         return [h('h1', { text: 'Allowlist' }), h('p', { class: 'sub', text: 'Senders whose mail is never moved or marked suspicious, whatever the checks find, as long as Gmail\'s DMARC check passes for them (a forged address is judged like any other). Each change needs the Google Cloud project ID, and is noted in Health → Activity → What admins did.' }),
             h('div', { class: 'alert warning' }, h('div', {}, h('b', { text: 'Add only senders you trust. ' }), 'If one of their accounts is taken over, the phishing it sends isn\'t caught. Your own domains can\'t be added: a staff account taken over would never be moved. Single addresses in them can.')),
             h('p', { class: 'sub', text: 'Link domains are different: not senders, but link sites a phishing list flagged by mistake (a newsletter\'s click tracker). A list that names their whole domain no longer flags their links, in anyone\'s mail; a list naming the exact page still does, and Cloudflare, Safe Browsing and where each link leads are checked as before. The email shows a note saying the listing wasn\'t counted. Emails already checked keep their verdict: Re-scan one to check it again.' }),
+            await spamRescuedCard(),
             policyCard(d, ALLOW_ROWS, 'Allowlist', 'A change applies within 30 seconds and is noted in Health → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES; ALLOW_LINK_DOMAINS only in the services\' environment) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.')];
     }
     // Settings → Mailboxes (0.5.53): who is checked (the pilot, the default, or the whole domain, switched here with
@@ -1498,7 +1522,7 @@
     // --- Review (0.6.0): every item in one list; open one to weigh the evidence and answer ----------------------
     // Two queues: moved or "would move" (oldest first), and suspicious emails that weren't moved (newest first:
     // still in the Inbox). Each item is one email with all its copies (a campaign: the same email to many people),
-    // answered at once: P phishing, F false alarm (not phishing), I ignore (unclear: left as it is, out of the
+    // answered at once: P phishing, S spam (0.6.26), F false alarm (not phishing), I ignore (unclear: left as it is, out of the
     // queue, never used for retraining), N skip (stays in the queue, undecided), R re-scan. Several items can be
     // ticked and answered together. In enforce mode, Phishing also moves an email still in the Inbox to Spam.
     let reviewStates = {}, reviewKeys = null;
@@ -1525,8 +1549,9 @@
             if (action === 'unclear') { await api('/api/unclear', { method: 'POST', body: { key } }); msg = SET_ASIDE; }
             else {
                 // Moved only in enforce mode, as the button said (the server checks the mode, and the Inbox, again).
-                const out = await api('/api/mark', { method: 'POST', body: { key, falseAlarm: action === 'false-alarm', move: action === 'phishing' && st.mode === 'enforce' } });
-                msg = action === 'false-alarm' ? (out.released ? `${Q.noDone.replace(/\.$/, '')}, and moved back to the Inbox.` : Q.noDone) : phishedText(out.moved);
+                const out = await api('/api/mark', { method: 'POST', body: { key, falseAlarm: action === 'false-alarm', spam: action === 'spam', move: (action === 'phishing' || action === 'spam') && st.mode === 'enforce' } });
+                msg = action === 'false-alarm' ? (out.released ? `${Q.noDone.replace(/\.$/, '')}, and moved back to the Inbox.` : Q.noDone)
+                    : action === 'spam' ? (out.moved === 'moved' ? 'Confirmed as spam and moved to Spam.' : 'Confirmed as spam.') : phishedText(out.moved);
             }
         } else {
             const sum = { done: 0, moved: 0, released: 0, failed: 0 };
@@ -1536,6 +1561,7 @@
             }
             msg = action === 'unclear' ? `Set aside: ${num(sum.done)} copies left as they are, not used for retraining.`
                 : action === 'false-alarm' ? `${Q.noDone.replace(/\.$/, '')}: ${num(sum.done)} copies${sum.released ? `, ${num(sum.released)} moved back to the Inbox` : ''}.`
+                : action === 'spam' ? `Confirmed as spam: ${num(sum.done)} copies${sum.moved ? `, ${num(sum.moved)} moved to Spam` : ''}.`
                 : `Confirmed as phishing: ${num(sum.done)} copies${sum.moved ? `, ${num(sum.moved)} moved to Spam` : ''}.`;
             if (sum.failed) msg += ` ${num(sum.failed)} couldn't be marked.`;
         }
@@ -1576,7 +1602,7 @@
             h('div', { class: 'review-tools' },
                 h('nav', { class: 'segmented', 'aria-label': 'Which emails to review' }, Object.entries(QUEUES).map(([k, x]) =>
                     h('a', { href: k === 'moved' ? '#/review' : `#/review?queue=${k}`, 'aria-current': k === queue ? 'page' : null, title: x.label }, `${x.short} · ${num(left(k))}`))),
-                h('span', { class: 'keys-hint' }, h('kbd', { text: 'P' }), ' phishing ', h('kbd', { text: 'F' }), ` ${Q.no.toLowerCase()} `, h('kbd', { text: 'I' }), ' ignore ', h('kbd', { text: 'N' }), ' skip ', h('kbd', { text: 'R' }), ' re-scan')),
+                h('span', { class: 'keys-hint' }, h('kbd', { text: 'P' }), ' phishing ', h('kbd', { text: 'S' }), ' spam ', h('kbd', { text: 'F' }), ` ${Q.no.toLowerCase()} `, h('kbd', { text: 'I' }), ' ignore ', h('kbd', { text: 'N' }), ' skip ', h('kbd', { text: 'R' }), ' re-scan')),
             queue === 'suspicious' ? h('p', { class: 'sub', text: 'Suspicious: the checks found signs (a rules score of 3 or more) or the AI scored it at least the suspicious line, but not enough to move it, so it is still in the Inbox. Marking them is the best way to see what the move rules miss, and what retraining needs (Health → Model health).' }) : null];
         if (!st.groups.length) {
             return [...head, h('div', { class: 'alert good', role: 'status' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '✓' }),
@@ -1597,7 +1623,7 @@
             if (mode) st.mode = mode;
         }
         const skip = () => { st.open = st.open + 1 < st.groups.length ? st.open + 1 : -1; render(); };
-        if (g) reviewKeys = { p: () => act([g], 'phishing'), f: () => act([g], 'false-alarm'), i: () => act([g], 'unclear'), n: skip, r: () => rescanEmail(g.keys[0]) };
+        if (g) reviewKeys = { p: () => act([g], 'phishing'), s: () => act([g], 'spam'), f: () => act([g], 'false-alarm'), i: () => act([g], 'unclear'), n: skip, r: () => rescanEmail(g.keys[0]) };
         // Several at once: the ticked items.
         const bar = h('div', { class: 'bulk-review', role: 'region', 'aria-label': 'Ticked items', hidden: !st.picked.size });
         const drawBar = () => {
@@ -1608,6 +1634,7 @@
             const n = picked.reduce((a, x) => a + x.keys.length, 0);
             bar.append(h('span', { class: 'grow', text: `${num(picked.length)} item${picked.length === 1 ? '' : 's'} ticked · ${num(n)} email${n === 1 ? '' : 's'}` }),
                 h('button', { class: 'btn phish', type: 'button', onclick: () => act(picked, 'phishing') }, 'All phishing'),
+                h('button', { class: 'btn', type: 'button', onclick: () => act(picked, 'spam') }, 'All spam'),
                 h('button', { class: 'btn safe', type: 'button', onclick: () => act(picked, 'false-alarm') }, `All ${Q.no.toLowerCase()}`),
                 h('button', { class: 'btn', type: 'button', onclick: () => act(picked, 'unclear') }, 'Ignore all'),
                 h('button', { class: 'linkbtn', type: 'button', onclick: () => { st.picked.clear(); for (const c of document.querySelectorAll('.rv-pick')) c.checked = false; drawBar(); } }, 'Clear'));
@@ -1685,6 +1712,7 @@
             dmarcNote ? h('p', { class: 'small muted rv-note', text: dmarcNote }) : null,
             h('div', { class: 'rv-actions' },
                 h('button', { class: 'btn big phish', type: 'button', onclick: () => act([g], 'phishing') }, moves ? 'Phishing: move to Spam' : 'Phishing', h('kbd', { text: 'P' })),
+                h('button', { class: 'btn big', type: 'button', onclick: () => act([g], 'spam'), title: 'Unwanted bulk mail (marketing, political, newsletters nobody signed up for), not phishing' }, moves ? 'Spam: move to Spam' : 'Spam', h('kbd', { text: 'S' })),
                 h('button', { class: 'btn big safe', type: 'button', onclick: () => act([g], 'false-alarm') }, Q.no, h('kbd', { text: 'F' })),
                 h('button', { class: 'btn big', type: 'button', onclick: () => act([g], 'unclear'), title: 'Neither clearly phishing nor clearly safe: left as it is, out of the queue, never used for retraining' }, Q.ignore, h('kbd', { text: 'I' })),
                 h('button', { class: 'btn big ghost', type: 'button', onclick: skip, title: 'Go to the next one; this one stays in the queue, undecided' }, 'Skip for now', h('kbd', { text: 'N' })),
