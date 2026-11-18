@@ -193,6 +193,8 @@ async function buildDemo({ now = Date.now(), cfg }) {
         'mapleschools.net': { domain: 'mapleschools.net', first: now - 20 * DAY, last: now - 3 * H, mx: true, web: true, ageDays: 3650, status: 'harmless', firstStatus: 'baseline', by: `it.director@${ORG}`, at: now - 19 * DAY, gone: null } } });
     store.events.push({ at: now - 6 * DAY + 4 * H, kind: 'lookalike', alert: true, text: 'A domain that imitates yours was registered: maple-schools-payroll.example (mail servers: yes; a website: yes; registered 1 day ago). Mail from it, replies to it and links to it now count as strong signs of phishing. If the district registered it itself, mark it so: dashboard, Threats → Look-alikes. More: docs/ALERTS.md, "A look-alike of your domain".' });
     // Spam people took back (0.6.26): four people took a made-up coupon mailer's spam back out of Spam.
+    // (0.6.29) A brand sender a reviewer confirmed (made up: a payment company sending a store's invoices).
+    await store.setState('brandSenders', { 'walmart|payco-invoicing.example': { brand: 'Walmart', domain: 'payco-invoicing.example', by: 'demo-admin@example.org', at: now - 6 * DAY, last: now - 1 * DAY, count: 3 } });
     await store.setState('spamRescued', { 'coupon-blast.example': { users: ['demo-a', 'demo-b', 'demo-c', 'demo-d'], first: now - 12 * DAY, last: now - 2 * DAY, shared: true, keep: false } });
     // (the colleague-name check read the demo directory while the made-up mail was judged: as of now)
     const cn = await store.getState('colleagueNames');

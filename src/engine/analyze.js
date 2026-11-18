@@ -150,7 +150,7 @@ async function analyze(facts, ctx = {}) {
         // ctx.colleagues: one-way hashes of the organization's people's names (Service.colleagueNames).
         // A platform's notification for a person (Classroom, a Drive share, DocuSign…: notifications.js) is
         // judged by the person's own address, never by the platform's (0.5.16); any other email by its own.
-        ...safe(() => (relay ? N.relaySigns(E, relay, ctx.colleagues || null) : E.nameAddressSigns(facts.senderName, facts.senderAddress, org, ctx.colleagues || null, ownership, { dmarc: (facts.auth && facts.auth.dmarc) || '', dmarcPassFor: facts.auth && facts.auth.dmarc === 'pass' ? (facts.auth.headerFrom || '') : '' }))),
+        ...safe(() => (relay ? N.relaySigns(E, relay, ctx.colleagues || null) : E.nameAddressSigns(facts.senderName, facts.senderAddress, org, ctx.colleagues || null, ownership, { dmarc: (facts.auth && facts.auth.dmarc) || '', dmarcPassFor: facts.auth && facts.auth.dmarc === 'pass' ? (facts.auth.headerFrom || '') : '', brandSenders: ctx.brandSenders || null }))),
         // The same names in the other address lines: replies going to an outside address under a
         // colleague's name, a colleague copied in at an outside or look-alike address (0.5.14). A
         // notification's Reply-To is the person themselves.
@@ -217,7 +217,7 @@ async function analyze(facts, ctx = {}) {
         // is theirs, a look-alike domain, a colleague's name on an outside address (the same checks as
         // nameAddressSigns); the Reply-To domains that aren't the sender's; the attached files' kinds (their
         // endings and types, never their names; pictures inside the email aren't attachments).
-        identity: safeOne(() => E.aiSenderIdentity(facts.senderName, facts.senderAddress, { own: ctx.orgDomains || [], colleagues: ctx.colleagues || null, dmarcPassFor: facts.auth && facts.auth.dmarc === 'pass' ? (facts.auth.headerFrom || '') : '' })),
+        identity: safeOne(() => E.aiSenderIdentity(facts.senderName, facts.senderAddress, { own: ctx.orgDomains || [], colleagues: ctx.colleagues || null, dmarcPassFor: facts.auth && facts.auth.dmarc === 'pass' ? (facts.auth.headerFrom || '') : '', brandSenders: ctx.brandSenders || null })),
         replyTo: safeOne(() => E.aiReplyToDomains(facts.replyTo || [], facts.senderAddress)) || [],
         attachments: safeOne(() => E.aiAttachmentFacts((facts.attachmentFiles || facts.attachments || []).filter(a => !a.inline))) || [],
         links: judged.filter(j => !j.hidden).slice(0, 8).map(j => ({ text: j.text, host: hostOf(j.url), destHost: j.finalUrl && hostOf(j.finalUrl) !== hostOf(j.url) ? hostOf(j.finalUrl) : '', finding: j.severity ? j.reason : '' })),

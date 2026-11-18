@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.29: a reviewer's "False alarm" teaches the service a brand's real senders
+
+- **Learned, not listed by hand:** a company sending for a brand from its own domain (a store's invoices from its payment
+  company, a bank's mail about the card it issues in a store's name) gets "the sender's name says the brand, but the
+  address isn't the brand's" (5). When a reviewer answers **False alarm** on such an email, and that sign was its only
+  one (besides "from outside" and "the first email from this sender"), and Gmail's DMARC check passed for the sender's
+  domain, the brand and the sender's domain are remembered for the organization (`learnBrandSender` in
+  `src/pipeline.js`, state `brandSenders`, at most 500). From then on that domain's verified mail under that brand's
+  name is a note of no weight, and the AI is told it is the brand's sender (`brandSenderConfirmed` in
+  `vendor/spruce/shared.js`). A forged copy, another brand's name on the domain, or an email with any other sign:
+  judged as before. Activity notes each one learned.
+- **Settings → Allowlist → Brand senders your reviewers confirmed:** the list (brand, domain, who confirmed it, how
+  many emails); an admin removes one there (`GET`/`POST /api/brand-senders`). The demo has one.
+- The brand sign now carries its kind (`brand-name-other`) and brand; records keep the DMARC result's domain.
+- Tests: `test/brand-senders.test.js` (a made-up payment company and school).
+- **Checks level 28:** delivered mail of the last hours is checked again after this update.
+
+
 ## 0.6.28: Walmart Business's invoices from TreviPay aren't an imitation of Walmart
 
 - **"Walmart Business: Pay By Invoice Support" from no-reply@trevipay.app was moved:** the sender's name says

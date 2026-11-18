@@ -726,6 +726,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // (0.6.26) Spam several people took back out of Spam: the list, and an admin's "keep moving it" (or undoing it).
         'GET /api/spam-rescued': async () => ({ list: await service.spamRescuedList() }),
         'POST /api/spam-rescued': async (q, body, admin) => service.setSpamKeep(String(body.sender || ''), body.keep === true, admin.email),
+        // (0.6.29) Brand senders the reviewers confirmed (a false alarm on a brand's name from another verified domain).
+        'GET /api/brand-senders': async () => ({ list: await service.brandSenderList() }),
+        'POST /api/brand-senders': async (q, body, admin) => service.removeBrandSender(String(body.key || ''), admin.email),
         // (0.5.60) Ignore, treat as suspicious: reviewed, left as it is, not used for retraining.
         'POST /api/unclear': async (q, body, admin) => service.setAside(String(body.key || ''), admin.email),
         // Re-scan one email (Review, Messages): judged again now, recorded beside the on-arrival result, never

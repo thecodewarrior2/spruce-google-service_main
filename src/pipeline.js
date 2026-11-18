@@ -32,6 +32,7 @@ const DAY = 24 * 60 * 60 * 1000;
 // (0.6.26) Spam a person took back out of Spam: that sender's mail isn't moved as spam for them again for SPAM_KEEP_MS;
 // when SPAM_SHARED people or more took back the same sender's, for no one (until an admin says to keep moving it).
 const SPAM_KEEP_MS = 180 * DAY, SPAM_SHARED = 3, SPAM_RESCUED_MAX = 300;
+const BRAND_SENDERS_MAX = 500;   // (0.6.29) brand senders the reviewers confirmed, at most
 const HOUR = 60 * 60 * 1000;
 const LIST_RETRY_MS = 3 * HOUR;   // a phishing list that missed its download is tried again this often (0.5.22)
 const ERRORS_ALERT = 25;   // errors in an hour that make an alert (0.5.29)
@@ -571,7 +572,7 @@ class Service {
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         // Judged for the recipient in the organization, if the email names one; else for the admin.
         const mailbox = (facts.to || []).find(a => this.cfg.orgDomains.includes(a.split('@')[1])) || by;
-        const result = await analyze(facts, { mailbox, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(mailbox), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap() });
+        const result = await analyze(facts, { mailbox, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(mailbox), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet() });
         result.allowlistedUnverified = allowlisted && !verified;
         let decision = decide(result, this.cfg, {});
         // (a phishing-training email is let through, unchecked, on arrival: said so, 0.5.44)
@@ -584,7 +585,7 @@ class Service {
             sender: { name: facts.senderName.slice(0, 200), address: facts.senderAddress.slice(0, 320), domain }, subject: facts.subject.slice(0, 300),
             status: result.status, score: result.score, signals: result.signals.slice(0, 30), links: result.links.slice(0, 20), checks: result.checks || null,
             ai: result.ai ? { probability: result.ai.probability, model: result.ai.model, reasons: (result.ai.reasons || []).map(r => ({ sentence: String(r.sentence).slice(0, 160), facts: !!r.facts })) } : null,
-            auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
+            auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.headerFrom ? { headerFrom: facts.auth.headerFrom } : {}, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
             action: decision.action, trigger: decision.trigger, why: decision.why, mode: this.cfg.mode,
@@ -645,7 +646,7 @@ class Service {
         if (!msg || !msg.raw || !msg.raw.length) fail(404, 'The email is no longer in the mailbox: its text can\'t be read.');
         const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
-        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap() });
+        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet() });
         const skipped = result.ai && result.ai.skipped;
         // (0.5.66) The whole email: every sentence of its visible text (the service reads at most about 20,000
         // characters of any email), not only the 8,000 the model is given; the model's own cut of a long text keeps
@@ -698,7 +699,7 @@ class Service {
         // The sender counts as new if it was on arrival (by now it isn't, and that would change the rules'
         // score, not the model or the checks): from the arrival's signs, kept with them after a re-scan.
         const firstTime = rec.arrival ? !!rec.arrival.firstTime : (rec.signals || []).some(x => x && x.kind === 'first-time');
-        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(rec.user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(),
+        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(rec.user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(),
             threadSize: await this.threadSizeOf(rec.user, rec.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
         const decision = decide(result, this.cfg, {});
@@ -800,7 +801,7 @@ class Service {
         // Allowlisted only with DMARC passing for the address (policy.js).
         const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
         const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
-            colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize });
+            colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize, brandSenders: await this.brandSenderSet() });
         result.allowlistedUnverified = allowlisted && !verified;
         await this.applySpamMemory(user, facts, result);
         // (0.6.7) The brake is read only when it matters: when the email would be moved (enforce mode). It was read
@@ -876,7 +877,7 @@ class Service {
             campaign: campaign.key, campaignLabel,
             status: result.status, score: result.score, signals: result.signals.slice(0, 20), links: result.links.slice(0, 10), checks: result.checks || null,
             ai: aiRecord(result.ai, this.cfg),
-            auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
+            auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.headerFrom ? { headerFrom: facts.auth.headerFrom } : {}, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
             action: decision.action, trigger: decision.trigger, why: decision.why, braked: held === 'brake', held, mode: this.cfg.mode,
@@ -989,6 +990,61 @@ class Service {
         await this.store.addEvent({ kind: 'settings', text: keep ? `${by} chose to keep moving spam from ${sender} to Spam, though ${e.users.length} people took some back (each of them still keeps it).`
             : `${by} chose to stop moving spam from ${sender} for everyone, as ${e.users.length} people took some back.` });
         return { ok: true, list: await this.spamRescuedList() };
+    }
+    // (0.6.29) Brand senders the organization's reviewers confirmed: "False alarm" on an email whose only sign was a brand's
+    // name on an address that isn't the brand's (kind brand-name-other, 5), the other signs only "from outside" or "the
+    // first email from this sender", and Gmail's DMARC check passing for the sender's domain. The brand and the sender's
+    // registrable domain are kept (state brandSenders, at most BRAND_SENDERS_MAX); from then on, verified mail from that
+    // domain under that brand's name isn't counted for it, and the AI is told it is the brand's sender (shared.js
+    // brandSenderConfirmed). Settings → Allowlist lists them; an admin removes one there.
+    brandSenderOf(rec) {
+        if (!rec || !rec.sender || !rec.auth || rec.auth.dmarc !== 'pass' || rec.inside) return null;
+        const E = spruce.load();
+        const domain = String(rec.sender.address || '').split('@')[1] || '';
+        const reg = (E.registrableDomain(domain.toLowerCase()) || domain).toLowerCase();
+        if (!reg || E.isPersonalMailDomain(domain)) return null;
+        const hf = String(rec.auth.headerFrom || '').toLowerCase();
+        if (hf && (E.registrableDomain(hf) || hf) !== reg) return null;
+        const signs = (rec.signals || []).filter(x => x && (x.weight || 0) > 0);
+        const BRAND_RE = /^The sender's name says “[^”]*”, but \S+ isn't (.+)'s address\.$/;
+        const brandSign = signs.find(x => x.kind === 'brand-name-other' || BRAND_RE.test(String(x.text || '')));
+        if (!brandSign || signs.some(x => x !== brandSign && !['outside-org', 'first-time'].includes(x.kind))) return null;
+        const brand = brandSign.brand || (BRAND_RE.exec(String(brandSign.text || '')) || [])[1];
+        return brand ? { brand, domain: reg, key: `${String(brand).toLowerCase()}|${reg}` } : null;
+    }
+    async learnBrandSender(rec, by) {
+        const b = this.brandSenderOf(rec);
+        if (!b) return null;
+        const all = Object.assign({}, (await this.store.getState('brandSenders')) || {});
+        const had = all[b.key];
+        all[b.key] = Object.assign({ brand: b.brand, domain: b.domain, by, at: this.now(), count: 0 }, had, { last: this.now(), count: ((had && had.count) || 0) + 1 });
+        const keys = Object.keys(all).sort((x, y) => (all[y].last || 0) - (all[x].last || 0));
+        for (const k of keys.slice(BRAND_SENDERS_MAX)) delete all[k];
+        await this.store.setState('brandSenders', all);
+        this._brandSenders = null;
+        if (!had) await this.store.addEvent({ kind: 'brand-sender', text: `${by} marked an email from ${rec.sender.address} a false alarm: ${b.domain} is now a confirmed sender for ${b.brand}. Its verified mail under ${b.brand}'s name isn't counted as an imitation (Settings → Allowlist → Brand senders your reviewers confirmed).` });
+        return b;
+    }
+    async brandSenderSet() {
+        if (this._brandSenders && this.now() - this._brandSenders.at < 60000) return this._brandSenders.set;
+        const set = new Set(Object.keys((await this.store.getState('brandSenders')) || {}));
+        this._brandSenders = { at: this.now(), set };
+        return set;
+    }
+    async brandSenderList() {
+        const all = (await this.store.getState('brandSenders')) || {};
+        return Object.entries(all).map(([key, v]) => ({ key, brand: v.brand, domain: v.domain, by: v.by, at: v.at, last: v.last, count: v.count || 1 }))
+            .sort((a, b) => (b.last || 0) - (a.last || 0));
+    }
+    async removeBrandSender(key, by) {
+        const all = Object.assign({}, (await this.store.getState('brandSenders')) || {});
+        const e = all[String(key || '').toLowerCase()];
+        if (!e) return { error: 'That brand sender isn\'t on the list.', status: 404 };
+        delete all[String(key).toLowerCase()];
+        await this.store.setState('brandSenders', all);
+        this._brandSenders = null;
+        await this.store.addEvent({ kind: 'settings', text: `${by} removed ${e.domain} as a confirmed sender for ${e.brand}: its mail under ${e.brand}'s name is judged as before.` });
+        return { ok: true, list: await this.brandSenderList() };
     }
     async alert(kind, text, extra = {}) {
         await this.store.addEvent(Object.assign({ kind, text, alert: true }, extra));
@@ -1234,6 +1290,7 @@ class Service {
         if (!rec) return { error: 'not found' };
         let out = await this.store.updateRecord(key, Object.assign({ falseAlarm: !!falseAlarm, markedBy: by, spam: !falseAlarm && !!spam }, rec.unclear ? { unclear: false } : {}));
         if (falseAlarm && rec.falseAlarm !== true) await this.store.incStat(this.dayOf(this.now()), 'falseAlarms');
+        if (falseAlarm) await this.learnBrandSender(rec, by).catch(e => this.log.error('brand sender:', e));
         // A false alarm loses the Suspicious label it was given (0.5.33).
         if (falseAlarm && rec.suspiciousLabel) {
             try { await this.gmail.modify(rec.user, rec.messageId, [], [await this.gmail.labelId(rec.user, this.cfg.suspiciousLabelName)]); out = await this.store.updateRecord(key, { suspiciousLabel: false }); }
@@ -1679,7 +1736,7 @@ class Service {
         // A new sender on arrival stays one (as for an admin's re-scan); unknown for mail not recorded then.
         const firstTime = before ? (before.arrival ? !!before.arrival.firstTime : (before.signals || []).some(x => x && x.kind === 'first-time')) : false;
         const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime, intel: this.intel,
-            colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), threadSize: await this.threadSizeOf(user, msg.threadId, facts) });
+            colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), threadSize: await this.threadSizeOf(user, msg.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
         await this.applySpamMemory(user, facts, result);
         let decision = decide(result, this.cfg, { brake: await this.brakeOn() });
@@ -2096,7 +2153,7 @@ class Service {
                 const { rec, msg } = got;
                 const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
                 const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
-                const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true });
+                const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, brandSenders: await this.brandSenderSet() });
                 // The model learns English only (an email clearly in another language is left out, and counted).
                 if (!result.language.english) { counts.notEnglish++; return; }
                 const label = rec.falseAlarm === false ? 1 : 0;

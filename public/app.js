@@ -1163,12 +1163,34 @@
         draw(list);
         return card;
     }
+    // (0.6.29) Brand senders the reviewers confirmed: a "False alarm" on an email whose only sign was a brand's name from
+    // another verified domain. An admin removes one; moderators see the list.
+    async function brandSendersCard() {
+        let list = [];
+        try { list = (await api('/api/brand-senders')).list || []; } catch (e) { return null; }
+        const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Brand senders your reviewers confirmed' }),
+            h('p', { class: 'sub', text: 'A company that sends for a brand from its own domain (Walmart Business\'s invoices from TreviPay, a bank\'s mail about the card it issues in a store\'s name) gets "the sender\'s name says the brand, but the address isn\'t the brand\'s". When a reviewer answers False alarm on such an email, and that was its only sign and Gmail verified the sender, the brand and the domain are listed here: from then on its verified mail under that brand\'s name isn\'t counted as an imitation, and the AI is told it is the brand\'s sender. Every other check still applies, and a forged copy is judged as before. Remove one to undo it.' }));
+        if (!list.length) { card.append(h('p', { class: 'empty', text: 'None yet: no false alarm of this kind has been answered.' })); return card; }
+        const draw = (rows) => {
+            card.querySelectorAll('table, p.empty').forEach(t => t.remove());
+            if (!rows.length) { card.append(h('p', { class: 'empty', text: 'None left.' })); return; }
+            card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Brand', 'Sender domain', 'Confirmed by', 'Last', ''].map(t => h('th', { text: t })))),
+                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.brand }), h('td', { text: r.domain }), h('td', { text: `${r.by || '–'}${r.count > 1 ? ` (${num(r.count)} emails)` : ''}` }), h('td', { text: new Date(r.last || r.at).toLocaleDateString() }),
+                    h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
+                        e.target.disabled = true;
+                        try { const out = await api('/api/brand-senders', { method: 'POST', body: { key: r.key } }); toast(`${r.domain} is no longer a confirmed sender for ${r.brand}.`); draw(out.list || []); }
+                        catch (err) { toast(`Couldn't do that: ${err.message}`); e.target.disabled = false; } } }, 'Remove')))))));
+        };
+        draw(list);
+        return card;
+    }
     async function allowlist() {
         const d = await settingsData();
         return [h('h1', { text: 'Allowlist' }), h('p', { class: 'sub', text: 'Senders whose mail is never moved or marked suspicious, whatever the checks find, as long as Gmail\'s DMARC check passes for them (a forged address is judged like any other). Each change needs the Google Cloud project ID, and is noted in Health → Activity → What admins did.' }),
             h('div', { class: 'alert warning' }, h('div', {}, h('b', { text: 'Add only senders you trust. ' }), 'If one of their accounts is taken over, the phishing it sends isn\'t caught. Your own domains can\'t be added: a staff account taken over would never be moved. Single addresses in them can.')),
             h('p', { class: 'sub', text: 'Link domains are different: not senders, but link sites a phishing list flagged by mistake (a newsletter\'s click tracker). A list that names their whole domain no longer flags their links, in anyone\'s mail; a list naming the exact page still does, and Cloudflare, Safe Browsing and where each link leads are checked as before. The email shows a note saying the listing wasn\'t counted. Emails already checked keep their verdict: Re-scan one to check it again.' }),
             await spamRescuedCard(),
+            await brandSendersCard(),
             policyCard(d, ALLOW_ROWS, 'Allowlist', 'A change applies within 30 seconds and is noted in Health → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES; ALLOW_LINK_DOMAINS only in the services\' environment) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.')];
     }
     // Settings → Mailboxes (0.5.53): who is checked (the pilot, the default, or the whole domain, switched here with

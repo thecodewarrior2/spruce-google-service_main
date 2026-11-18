@@ -777,6 +777,16 @@ function brandBillingService(brand, domain, context) {
     if (!svc || !brand || !svc.brands.includes(brand.name)) return null;
     return { name: svc.name, verified: dmarcPassedFor(context, domain) };
 }
+// (0.6.29) A brand's name from a domain the organization's reviewers confirmed is a real sender for it: an admin or
+// moderator answered "False alarm" on an email whose only sign was that the name says the brand and the address isn't
+// the brand's, Gmail having verified the sender (the service's brandSenders: "brand|registrable domain", lower case).
+// Only when Gmail's DMARC check passed for this email's domain too.
+function brandSenderConfirmed(brand, domain, context) {
+    const set = context && context.brandSenders;
+    if (!brand || !set || typeof set.has !== 'function') return false;
+    const reg = registrableDomain(String(domain || '').toLowerCase()) || String(domain || '').toLowerCase();
+    return set.has(`${String(brand.name).toLowerCase()}|${reg}`) && dmarcPassedFor(context, domain);
+}
 // (5.94.41 / 0.5.74) "Lakeside Ink LLC via QuickBooks" (made up): a business sending through a platform names itself, then the
 // platform it used (QuickBooks sends invoices through the business's own mailbox; Docusign, Dropbox and others name
 // people the same way). The brand only after "via" is no claim to be the brand when the address is the sender's own:
@@ -841,6 +851,7 @@ function nameAddressSigns(name, address, own, colleagues, ownership, context) {
         if (govMailService(claimed, reg)) out.push(dmarcFailed
             ? { weight: 5, text: `The sender's name says “${shown}”, sent through GovDelivery (${address}), but its sender check (DMARC) failed: it is forged.` }
             : { weight: 0, text: `The sender's name says “${shown}”; ${address} is GovDelivery's (Granicus), the mail service government agencies use for their bulletins and alerts.` });
+        else if (brandSenderConfirmed(claimed, domain, context)) out.push({ weight: 0, kind: 'brand-sender-confirmed', brand: claimed.name, text: `The sender's name says “${shown}”; your organization's reviewers confirmed ${reg} is a real sender for ${claimed.name} (an earlier email from it was marked a false alarm), and Gmail verified it (DMARC).` });
         else if (brandBillingService(claimed, domain, context)) {
             const bill = brandBillingService(claimed, domain, context);
             out.push(bill.verified
@@ -853,7 +864,7 @@ function nameAddressSigns(name, address, own, colleagues, ownership, context) {
         else if (nameOnOtherEnding(claimed, reg)) out.push({ weight: SIGNAL_CAUTION_SCORE, text: `The sender's name says “${shown}”, and ${reg} carries ${claimed.name}'s name under another ending, but it isn't known to be ${claimed.name}'s. Make sure it's really who you expect.` });   // [5.90-4] amber, never moved
         else if (nameSpeaksAboutBrand(name)) out.push({ weight: SIGNAL_CAUTION_SCORE, text: thirdPartyNameText(shown, address, claimed.name) });   // [5.92] amber, never moved
         else if (partnerProgramName(name, claimed, domain, context)) out.push({ weight: 0, kind: 'brand-partner-name', text: `The sender's name says “${shown}”: a program of ${claimed.name} run by the organization the name also gives, writing from its own address (${address}, its sender check passed), not ${claimed.name} itself.` });   // (service 0.6.19)
-        else out.push({ weight: 5, text: `The sender's name says “${shown}”, but ${address} isn't ${claimed.name}'s address.` });
+        else out.push({ weight: 5, kind: 'brand-name-other', brand: claimed.name, text: `The sender's name says “${shown}”, but ${address} isn't ${claimed.name}'s address.` });
     }
     const h = colleagues && colleagues.size ? colleagueNameHash(name) : '';
     if (h && colleagues.has(h)) {
@@ -885,7 +896,7 @@ function ownDomainLookalike(domain, own) {
 // colleagueNameHash), so the model is told what they found. Mail from the organization's own domains isn't
 // judged by a brand its name mentions ("Microsoft 365 Support" from the district's IT). null: nothing to say.
 // ownership: brandOwnership's answer for the domain and the claimed brand, when it was looked up.
-function aiSenderIdentity(displayName, address, { own = [], colleagues = null, ownership = null, dmarcPassFor = '' } = {}) {
+function aiSenderIdentity(displayName, address, { own = [], colleagues = null, ownership = null, dmarcPassFor = '', brandSenders = null } = {}) {
     const domain = String(domainOfAddress(address) || '').toLowerCase();
     if (!domain || !/\./.test(domain)) return null;
     const inside = [].concat(own || []).some(o => o && isOwnDomain(domain, String(o).toLowerCase()));
@@ -897,7 +908,7 @@ function aiSenderIdentity(displayName, address, { own = [], colleagues = null, o
         out.brand = claimed.name;
         // (0.6.28) A brand's verified invoicing service (TreviPay for Walmart) sends as the brand: its own, for the model.
         const billing = brandBillingService(claimed, domain, { dmarcPassFor });
-        out.owner = senderDomainOwnedBy(claimed, domain) || (ownership && ownership.state === 'owned') || (billing && billing.verified) ? 'yes'
+        out.owner = senderDomainOwnedBy(claimed, domain) || (ownership && ownership.state === 'owned') || (billing && billing.verified) || brandSenderConfirmed(claimed, domain, { dmarcPassFor, brandSenders }) ? 'yes'
             : isPersonalMailDomain(domain) ? 'personal'
             : (ownership && ownership.state === 'likely') || nameOnOtherEnding(claimed, reg) || nameSpeaksAboutBrand(displayName) ? 'unsure' : 'no';
     }
