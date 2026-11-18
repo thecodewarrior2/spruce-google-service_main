@@ -195,6 +195,13 @@ async function buildDemo({ now = Date.now(), cfg }) {
     // Spam people took back (0.6.26): four people took a made-up coupon mailer's spam back out of Spam.
     // (0.6.29) A brand sender a reviewer confirmed (made up: a payment company sending a store's invoices).
     await store.setState('brandSenders', { 'walmart|payco-invoicing.example': { brand: 'Walmart', domain: 'payco-invoicing.example', by: 'demo-admin@example.org', at: now - 6 * DAY, last: now - 1 * DAY, count: 3 } });
+    // (0.6.30) The allow lists' 30-day check found a change (made up): the confirmed brand sender's name servers and
+    // registrar changed, so it is flagged; a coupon domain people took back was registered again, so it is suspended.
+    await store.setState('allowWatch', { domains: {
+        'payco-invoicing.example': { lists: ['brandSenders'], first: now - 40 * DAY, checkedAt: now - 3 * 3600e3, snap: { at: now - 40 * DAY, exists: true, created: now - 3000 * DAY, registrar: 'Madeup Registrar, Inc.', ns: ['ns1.madeup-dns.example'] },
+            review: { at: now - 3 * 3600e3, suspended: false, changes: [{ kind: 'registrar', text: 'its registrar changed from Madeup Registrar, Inc. to Another Madeup Registrar LLC', suspend: false }, { kind: 'nameservers', text: 'all its name servers changed (ns1.madeup-dns.example → ns1.new-host.example)', suspend: false }] } },
+        'coupon-blast.example': { lists: ['spamRescued'], first: now - 45 * DAY, checkedAt: now - 5 * 3600e3, snap: { at: now - 45 * DAY, exists: true, created: now - 900 * DAY },
+            review: { at: now - 5 * 3600e3, suspended: true, changes: [{ kind: 'registered-again', text: 'it was registered again 6 days ago (it had been registered for 2 years): the domain lapsed and someone registered it anew', suspend: true }] } } } });
     await store.setState('spamRescued', { 'coupon-blast.example': { users: ['demo-a', 'demo-b', 'demo-c', 'demo-d'], first: now - 12 * DAY, last: now - 2 * DAY, shared: true, keep: false } });
     // (the colleague-name check read the demo directory while the made-up mail was judged: as of now)
     const cn = await store.getState('colleagueNames');

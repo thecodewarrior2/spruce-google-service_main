@@ -498,7 +498,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                      // Phishing found after delivery, not yet marked seen (0.5.35): the overview's banner.
                      rechecked: A.recheckAlert(records, now, await store.getState('recheckSeenAt'), (await store.getState('recheckSeenCampaigns')) || {}),
                      // New look-alikes of your domain an admin hasn't marked (0.5.36): the overview's banner.
-                     lookalikes: Object.values(((await store.getState('lookalikeWatch')) || {}).found || {}).filter(e => e.status === 'new' && !e.gone).map(e => e.domain) };
+                     lookalikes: Object.values(((await store.getState('lookalikeWatch')) || {}).found || {}).filter(e => e.status === 'new' && !e.gone).map(e => e.domain),
+                     // (0.6.30) Allow-list domains the 30-day check flagged: the overview's banner.
+                     allowReview: Object.entries(((await store.getState('allowWatch')) || {}).domains || {}).filter(([, v]) => v && v.review).map(([d, v]) => ({ domain: d, suspended: !!v.review.suspended })) };
         },
         // Settings → Phishing training (0.5.44): the rules (never a secret value: only whether one is set) and link
         // domains, what matched lately, the last 7 days' count; changes with the project ID.
@@ -727,6 +729,16 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'GET /api/spam-rescued': async () => ({ list: await service.spamRescuedList() }),
         'POST /api/spam-rescued': async (q, body, admin) => service.setSpamKeep(String(body.sender || ''), body.keep === true, admin.email),
         // (0.6.29) Brand senders the reviewers confirmed (a false alarm on a brand's name from another verified domain).
+        // (0.6.30) The allow lists' 30-day check: the domains waiting for review; "Still trusted" (with the project ID for a
+        // suspended one, as for any allowlist change), optionally releasing the emails held back while it was suspended.
+        'GET /api/allow-watch': async () => service.allowReviewList(),
+        'POST /api/allow-watch': async (q, body, admin) => {
+            const domain = String(body.domain || '').toLowerCase();
+            const row = (await service.allowReviewList()).review.find(r => r.domain === domain);
+            if (!row) return { error: 'That domain isn\'t waiting for review.', status: 404 };
+            if (row.suspended) { const bad = await projectCheck(admin, body, `trusting ${domain} again after its 30-day check`); if (bad) return bad; }
+            return service.resolveAllowReview(domain, admin.email, { release: body.release === true });
+        },
         'GET /api/brand-senders': async () => ({ list: await service.brandSenderList() }),
         'POST /api/brand-senders': async (q, body, admin) => service.removeBrandSender(String(body.key || ''), admin.email),
         // (0.5.60) Ignore, treat as suspicious: reviewed, left as it is, not used for retraining.

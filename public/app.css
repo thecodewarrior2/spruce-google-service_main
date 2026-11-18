@@ -755,3 +755,15 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .ev.against.spam { border-top-color: var(--s5); }
 .ev.against.spam h3 { color: var(--s5); }
 .dots.spam span.on { background: var(--s5); }
+
+/* (0.6.30) The allow lists' 30-day check: a domain waiting for review. */
+.allow-review { border-left: 4px solid var(--critical); }
+.review-row { padding: 12px 0; border-top: 1px solid var(--border); }
+.review-row:first-of-type { border-top: 0; }
+.review-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.review-head .kind-tag { margin-right: 0; }
+.review-row ul { margin: 6px 0; padding-left: 20px; }
+.review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.kind-tag.flagged { color: var(--serious); border-color: var(--serious); background: color-mix(in srgb, var(--serious) 14%, transparent); }
+.allow-review:has(.review-row.suspended) { border-left-color: var(--critical); }
+.allow-review:not(:has(.review-row.suspended)) { border-left-color: var(--serious); }

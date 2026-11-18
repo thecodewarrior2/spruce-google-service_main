@@ -418,6 +418,13 @@
         // New look-alikes of your domain, until an admin marks them (0.5.36).
         if (d.lookalikes && d.lookalikes.length) item('critical', `${d.lookalikes.length === 1 ? 'A domain that imitates yours was' : `${num(d.lookalikes.length)} domains that imitate yours were`} registered: ${d.lookalikes.slice(0, 5).join(', ')}${d.lookalikes.length > 5 ? '…' : ''}.`,
             'Mail from them counts as a strong sign of phishing. The admins were sent an alert.', isModerator() ? null : link('#/lookalikes', 'Details, and marking one as the district\'s own'));
+        // (0.6.30) Allow-list domains the 30-day check flagged, until an admin answers.
+        if (d.allowReview && d.allowReview.length) {
+            const ar = d.allowReview, sus = ar.filter(x => x.suspended).length;
+            item(sus ? 'critical' : 'warning', `${ar.length === 1 ? `${ar[0].domain} on an allow list needs` : `${num(ar.length)} domains on the allow lists need`} review${sus ? ` (${num(sus)} suspended)` : ''}.`,
+                `The 30-day check found a change in ${ar.length === 1 ? 'its' : 'their'} registration or reputation: ${ar.length === 1 ? 'it' : 'each'} may have lapsed and been registered by someone else, or been sold. ${sus ? 'A suspended one isn\'t trusted until you answer. ' : ''}The admins were emailed.`,
+                isModerator() ? null : link('#/allowlist', 'Review it'));
+        }
         if (unreviewed) item('info', `${num(unreviewed)} email${unreviewed === 1 ? '' : 's'} ${unreviewed === 1 ? 'waits' : 'wait'} for review.`, 'Copies of one email are answered together. Every answer helps measure false alarms before enforce mode, and retraining.', h('a', { class: 'btn primary', href: '#/review', text: 'Start reviewing' }));
         const hour = new Date().getHours();
         const urgent = need.filter(n => n.tone !== 'info').length;
@@ -1184,11 +1191,45 @@
         draw(list);
         return card;
     }
+    // (0.6.30) The allow lists' 30-day check: the domains whose registration or reputation changed. A suspended one isn't
+    // trusted until an admin answers "Still trusted" (with the project ID), which can also release the emails it got
+    // while suspended (answered as false alarms: those in Spam go back to the Inbox).
+    async function allowReviewCard() {
+        let d;
+        try { d = await api('/api/allow-watch'); } catch (e) { return null; }
+        const rows = d.review || [];
+        const card = h('section', { class: 'card spaced' + (rows.length ? ' allow-review' : '') }, h('h2', { text: rows.length ? `Needs review: ${num(rows.length)}` : 'The 30-day check' }),
+            h('p', { class: 'sub', text: `Every domain on these lists (${num(d.watched || 0)} now) is looked up every 30 days: its registration (when it was registered, when it expires, its registrar and name servers) and its reputation (Cloudflare, the phishing lists, Spamhaus). If it was registered again, expired, or is now blocked or listed, it may have lapsed and been taken by someone else: it is suspended, not trusted until you answer, and its emails are checked like anyone's. A new registrar or new name servers only flag it. Each one found is also emailed to the admins.` }));
+        if (!rows.length) { card.append(h('p', { class: 'empty', text: 'Nothing to review: no domain on the lists has changed.' })); return card; }
+        const project = rows.some(r => r.suspended) ? h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', placeholder: 'project-id', 'aria-label': 'Google Cloud project ID' }) : null;
+        const answer = (r, release) => async (e) => {
+            e.target.disabled = true;
+            try {
+                const out = await api('/api/allow-watch', { method: 'POST', body: { domain: r.domain, release, projectId: project ? project.value.trim() : '' } });
+                toast(`${r.domain} is trusted again${release ? `: ${num(out.answered)} email${out.answered === 1 ? '' : 's'} answered as false alarms, ${num(out.released)} moved back to the Inbox` : ''}.`);
+                render();
+            } catch (err) { toast(`Couldn't do that: ${err.message}`); e.target.disabled = false; }
+        };
+        for (const r of rows) {
+            card.append(h('div', { class: `review-row ${r.suspended ? 'suspended' : ''}` },
+                h('div', { class: 'review-head' }, h('b', { text: r.domain }), h('span', { class: `kind-tag ${r.suspended ? 'phishing' : 'flagged'}`, text: r.suspended ? 'Suspended' : 'Flagged' }),
+                    h('span', { class: 'small muted', text: ` on ${r.lists.join(', ')} · found ${when(r.at)}` })),
+                h('ul', { class: 'small' }, r.changes.map(c => h('li', { text: `${c.text[0].toUpperCase()}${c.text.slice(1)}.` }))),
+                r.emails ? h('p', { class: 'small' }, `${num(r.emails)} email${r.emails === 1 ? '' : 's'} from it ${r.suspended ? 'were checked like anyone\'s while it was suspended' : 'were recorded since'}${r.moved ? ` (${num(r.moved)} moved to Spam)` : ''}: `, h('a', { href: `#/messages?${q({ q: `@${r.domain}` })}`, text: 'see them' }), '.') : null,
+                isModerator() ? null : h('div', { class: 'review-actions' },
+                    h('button', { class: 'btn', type: 'button', onclick: answer(r, false) }, 'Still trusted'),
+                    r.emails ? h('button', { class: 'btn primary', type: 'button', onclick: answer(r, true) }, `Still trusted, and release its ${num(r.emails)} email${r.emails === 1 ? '' : 's'}`) : null,
+                    h('span', { class: 'small muted', text: ' Not trusted any more? Remove it from its list below.' }))));
+        }
+        if (project && !isModerator()) card.append(h('label', { class: 'project' }, h('span', { text: 'Google Cloud project ID, to trust a suspended domain again' }), project));
+        return card;
+    }
     async function allowlist() {
         const d = await settingsData();
         return [h('h1', { text: 'Allowlist' }), h('p', { class: 'sub', text: 'Senders whose mail is never moved or marked suspicious, whatever the checks find, as long as Gmail\'s DMARC check passes for them (a forged address is judged like any other). Each change needs the Google Cloud project ID, and is noted in Health → Activity → What admins did.' }),
             h('div', { class: 'alert warning' }, h('div', {}, h('b', { text: 'Add only senders you trust. ' }), 'If one of their accounts is taken over, the phishing it sends isn\'t caught. Your own domains can\'t be added: a staff account taken over would never be moved. Single addresses in them can.')),
             h('p', { class: 'sub', text: 'Link domains are different: not senders, but link sites a phishing list flagged by mistake (a newsletter\'s click tracker). A list that names their whole domain no longer flags their links, in anyone\'s mail; a list naming the exact page still does, and Cloudflare, Safe Browsing and where each link leads are checked as before. The email shows a note saying the listing wasn\'t counted. Emails already checked keep their verdict: Re-scan one to check it again.' }),
+            await allowReviewCard(),
             await spamRescuedCard(),
             await brandSendersCard(),
             policyCard(d, ALLOW_ROWS, 'Allowlist', 'A change applies within 30 seconds and is noted in Health → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES; ALLOW_LINK_DOMAINS only in the services\' environment) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.')];

@@ -187,6 +187,11 @@ other address lines: **Reply-To** under a colleague's name going to an outside a
 go to someone else), and a colleague **copied in** (Cc or To) at an outside address (1) or at an address
 that imitates your domain (3: "I've copied our superintendent").
 
+**The allow lists' 30-day check** (0.6.30): every domain on an allow list is looked up again every 30 days (its registration
+and reputation). A change flags it for review (Settings → Allowlist, Today, and an email to every admin); registered
+again, expired, gone, or now blocked or listed suspends it: not trusted until an admin answers "Still trusted" (which
+can also release the emails it got meanwhile) or removes it.
+
 **Spam or phishing, at a glance** (0.6.27): Review, Mail and an email's page label each email **Spam** (purple) or
 **Phishing** (red), from what the service took it for, so a padded newsletter moved as spam isn't mistaken for phishing.
 

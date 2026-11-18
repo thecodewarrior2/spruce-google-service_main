@@ -569,10 +569,10 @@ class Service {
     // Nothing is stored, moved or counted. The answer has a record's shape, for the same view.
     async checkPasted(raw, { by = '' } = {}) {
         const facts = await readMessage(Buffer.from(String(raw), 'utf8'), { ownDomains: this.cfg.orgDomains });
-        const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
+        const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
         // Judged for the recipient in the organization, if the email names one; else for the admin.
         const mailbox = (facts.to || []).find(a => this.cfg.orgDomains.includes(a.split('@')[1])) || by;
-        const result = await analyze(facts, { mailbox, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(mailbox), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet() });
+        const result = await analyze(facts, { mailbox, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(mailbox), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet() });
         result.allowlistedUnverified = allowlisted && !verified;
         let decision = decide(result, this.cfg, {});
         // (a phishing-training email is let through, unchecked, on arrival: said so, 0.5.44)
@@ -645,8 +645,8 @@ class Service {
         catch (e) { if (e && e.status === 404) fail(404, 'The email is no longer in the mailbox (deleted for good): its text can\'t be read.'); throw e; }
         if (!msg || !msg.raw || !msg.raw.length) fail(404, 'The email is no longer in the mailbox: its text can\'t be read.');
         const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
-        const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
-        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet() });
+        const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
+        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet() });
         const skipped = result.ai && result.ai.skipped;
         // (0.5.66) The whole email: every sentence of its visible text (the service reads at most about 20,000
         // characters of any email), not only the 8,000 the model is given; the model's own cut of a long text keeps
@@ -695,11 +695,11 @@ class Service {
         if (!msg || !msg.raw || !msg.raw.length) fail(404, 'The email is no longer in the mailbox: it can\'t be re-scanned.');
         const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
         if (ownSentCopy(rec.user, msg, facts)) fail(409, `This copy is ${rec.user}'s own sent message (it was never delivered to them), so it isn't judged. Mark it Not phishing to clear it from the review.`);
-        const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
+        const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
         // The sender counts as new if it was on arrival (by now it isn't, and that would change the rules'
         // score, not the model or the checks): from the arrival's signs, kept with them after a re-scan.
         const firstTime = rec.arrival ? !!rec.arrival.firstTime : (rec.signals || []).some(x => x && x.kind === 'first-time');
-        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(rec.user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(),
+        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(rec.user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(),
             threadSize: await this.threadSizeOf(rec.user, rec.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
         const decision = decide(result, this.cfg, {});
@@ -799,11 +799,14 @@ class Service {
             alreadyMoved ? 0 : this.countShare(facts, user, now), this.threadSizeOf(user, msg.threadId, facts), this.colleagueNames(), this.lookalikeMap()]);
         const learning = now - installedAt < this.cfg.firstSeenLearningDays * DAY;
         // Allowlisted only with DMARC passing for the address (policy.js).
-        const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
-        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
+        const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
+        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
             colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize, brandSenders: await this.brandSenderSet() });
         result.allowlistedUnverified = allowlisted && !verified;
         await this.applySpamMemory(user, facts, result);
+        // (0.6.30) From a domain an allow list holds but the 30-day check suspended: tagged, so an admin finds (and can
+        // release) the emails it got while waiting for review (Settings → Allowlist).
+        result.allowSuspended = await this.allowSuspendedFor((facts.senderAddress.split('@')[1] || '').toLowerCase());
         // (0.6.7) The brake is read only when it matters: when the email would be moved (enforce mode). It was read
         // for every email; the decision is the same.
         let decision = decide(result, this.cfg, { brake: false });
@@ -876,7 +879,7 @@ class Service {
             subject: this.cfg.storeSubjects ? facts.subject.slice(0, 300) : '',
             campaign: campaign.key, campaignLabel,
             status: result.status, score: result.score, signals: result.signals.slice(0, 20), links: result.links.slice(0, 10), checks: result.checks || null,
-            ai: aiRecord(result.ai, this.cfg),
+            ai: aiRecord(result.ai, this.cfg), ...(result.allowSuspended ? { allowSuspended: result.allowSuspended } : {}),
             auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.headerFrom ? { headerFrom: facts.auth.headerFrom } : {}, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
@@ -962,6 +965,7 @@ class Service {
     async spamKept(user, address) {
         const sender = this.spamSenderKey(address);
         if (!sender) return null;
+        if (await this.allowSuspendedFor(String(address || '').toLowerCase().split('@')[1] || '')) return null;   // (0.6.30) suspended for review
         if (await this.store.getCached('spamok', `${senderHash(user)}|${senderHash(sender)}`)) return 'they took mail from this sender back out of Spam before';
         const e = ((await this.store.getState('spamRescued')) || {})[sender];
         if (e && e.shared && !e.keep && this.now() - (e.last || 0) <= SPAM_KEEP_MS) return `${e.users.length} people took mail from this sender back out of Spam`;
@@ -1027,7 +1031,8 @@ class Service {
     }
     async brandSenderSet() {
         if (this._brandSenders && this.now() - this._brandSenders.at < 60000) return this._brandSenders.set;
-        const set = new Set(Object.keys((await this.store.getState('brandSenders')) || {}));
+        const sus = await this.allowSuspendedSet();   // (0.6.30) a suspended domain isn't a confirmed sender until reviewed
+        const set = new Set(Object.keys((await this.store.getState('brandSenders')) || {}).filter(k => !sus.has(k.split('|')[1])));
         this._brandSenders = { at: this.now(), set };
         return set;
     }
@@ -1529,6 +1534,11 @@ class Service {
             if (off) { if (off.left && budget >= 15 * 1000) out.stopping = await this.finishStopping({ budgetMs: budget }); }   // (0.6.7) switched off: never renewed here
             else if (wl && wl.left > 0 && budget >= 15 * 1000) out.watches = await this.renewWatches({ budgetMs: budget });
         } catch (e) { out.watches = { error: String(e.message || e).slice(0, 200) }; this.log.error('watches, continued:', e); }
+        // (0.6.30) The allow lists' 30-day reputation check (src/allowwatch.js): the domains due.
+        try {
+            const budget = Math.min(15 * 1000, 98 * 1000 - (Date.now() - started));
+            if (budget >= 5 * 1000) { const w = await this.checkAllowlists({ budgetMs: budget }); if (w && w.checked) out.allowWatch = w; }
+        } catch (e) { out.allowWatch = { error: String(e.message || e).slice(0, 200) }; this.log.error('allow lists\' check:', e); }
         const budgetMs = Math.min(30 * 1000, 105 * 1000 - (Date.now() - started));
         if (budgetMs > 0) { try { out.purged = await this.purge({ budgetMs }); } catch (e) { out.purged = { error: String(e.message || e).slice(0, 200) }; } }
         return out;
@@ -1732,10 +1742,10 @@ class Service {
         const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
         if (ownSentCopy(user, msg, facts)) return { item, outcome: 'skipped' };   // (its owner's own sent mail: 0.6.3)
         if (await this.trainingOf(facts)) return { item, outcome: 'skipped' };   // (a phishing-training email: 0.5.44)
-        const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
+        const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
         // A new sender on arrival stays one (as for an admin's re-scan); unknown for mail not recorded then.
         const firstTime = before ? (before.arrival ? !!before.arrival.firstTime : (before.signals || []).some(x => x && x.kind === 'first-time')) : false;
-        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime, intel: this.intel,
+        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime, intel: this.intel,
             colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), threadSize: await this.threadSizeOf(user, msg.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
         await this.applySpamMemory(user, facts, result);
@@ -2152,8 +2162,8 @@ class Service {
                 if (!got) { counts.gone++; return; }
                 const { rec, msg } = got;
                 const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
-                const allowlisted = isAllowed(this.cfg, facts.senderAddress), verified = senderVerified(facts);
-                const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: this.cfg.allowLinkDomains, trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, brandSenders: await this.brandSenderSet() });
+                const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
+                const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, brandSenders: await this.brandSenderSet() });
                 // The model learns English only (an email clearly in another language is left out, and counted).
                 if (!result.language.english) { counts.notEnglish++; return; }
                 const label = rec.falseAlarm === false ? 1 : 0;
@@ -2231,5 +2241,7 @@ class Service {
         return out;
     }
 }
+
+require('./allowwatch').install(Service, { isAllowed });
 
 module.exports = { Service, ownSentCopy, campaignOf, senderHash, recordKey, dayOf, POLICY_KEYS, policyValue, STAT_FLUSH_MS, Slots, EMAIL_SLOTS, LARGE_SLOTS };

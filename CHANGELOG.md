@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.30: every allow list is checked every 30 days; a domain that may have changed hands is suspended
+
+- **The 30-day check** (`src/allowwatch.js`): every domain on an allow list (allowlisted senders and addresses, allowed
+  link domains, brand senders your reviewers confirmed, senders whose spam people took back; personal mail providers'
+  and your own domains skipped) is looked up when first seen and again every 30 days, from the hourly job (at most 20 a
+  run): its registration from its registry (RDAP: registered, expires, registrar, name servers; `record` in
+  `src/intel/rdap.js`) and its reputation (Cloudflare, the phishing lists, Spamhaus's DBL when on). Only domain names
+  are sent.
+- **A change flags it for review:** Settings → Allowlist (**Needs review**, at the top), Today's Needs attention,
+  Activity (an alert, also emailed to ALERT_EMAIL), and **an email in every admin's Inbox** (ADMIN_EMAILS and the members
+  of ADMIN_GROUP).
+- **Suspended when it may have lapsed or changed hands:** registered again (a newer registration date), expired, gone
+  from the registry, or now blocked by Cloudflare, on a phishing list or on Spamhaus. A suspended domain isn't trusted
+  anywhere until an admin answers: its mail is judged like anyone's, its links' allowance is off, it is no confirmed
+  brand sender and its spam is moved again. A new registrar, or all name servers new, only flags it (companies move
+  their DNS). Something the registry didn't answer is never a change.
+- **Finding and releasing what it held back:** each email from a suspended domain is tagged (`allowSuspended`); the
+  review lists how many, with a link to them in Mail. **Still trusted** takes a new snapshot and ends the suspension (for
+  a suspended domain, with the project ID, as for any allowlist change); **Still trusted, and release its emails** also
+  answers them as false alarms, moving those in Spam back to the Inbox. Not trusted any more: remove it from its list.
+  (`GET`/`POST /api/allow-watch`.) The demo has one flagged and one suspended.
+- Tests: `test/allow-watch.test.js` (made-up domains and registrars).
+- **Checks level 29:** delivered mail of the last hours is checked again after this update.
+
+
 ## 0.6.29: a reviewer's "False alarm" teaches the service a brand's real senders
 
 - **Learned, not listed by hand:** a company sending for a brand from its own domain (a store's invoices from its payment

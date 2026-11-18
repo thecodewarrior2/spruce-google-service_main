@@ -73,8 +73,28 @@ function createRdap({ http, store, engine, now = () => Date.now() }) {
         if (v && mem === undefined) memo.set(reg, v, v.created ? MEMO_MS : Math.min(MEMO_MS, UNKNOWN_KEEP_MS));
         return v && v.created ? Math.max(0, Math.floor((now() - v.created) / DAY)) : null;
     }
+    // (0.6.30) A domain's registration as the registry says it now (never cached), for the allow lists' 30-day check
+    // (src/allowwatch.js): { exists, created, expires, registrar, ns } (ms times, the registrar's name, the name servers
+    // sorted), exists false when the registry has no such domain, or null when it couldn't be asked.
+    async function record(domain) {
+        const reg = engine.registrableDomain(String(domain || '').toLowerCase());
+        if (!reg || !engine.SENDER_DOMAIN_RE.test(reg)) return null;
+        try {
+            const base = await serverFor(reg.split('.').pop());
+            if (!base) return null;
+            const res = await http.request(`${base}domain/${encodeURIComponent(reg)}`, { headers: { accept: 'application/rdap+json' } }, WAIT_MS);
+            if (res.status === 404) return { exists: false, created: null, expires: null, registrar: '', ns: [] };
+            if (!res.ok) return null;
+            const data = await res.json();
+            const at = (action) => { const ev = (data.events || []).find(e => e && e.eventAction === action && e.eventDate); const t = ev ? Date.parse(ev.eventDate) : NaN; return Number.isFinite(t) ? t : null; };
+            const ent = (data.entities || []).find(e => e && [].concat(e.roles || []).includes('registrar'));
+            const fn = ent && Array.isArray(ent.vcardArray) && Array.isArray(ent.vcardArray[1]) ? (ent.vcardArray[1].find(v => Array.isArray(v) && v[0] === 'fn') || [])[3] : '';
+            const ns = [...new Set((data.nameservers || []).map(n => String((n && n.ldhName) || '').toLowerCase().replace(/\.$/, '')).filter(Boolean))].sort();
+            return { exists: true, created: at('registration'), expires: at('expiration'), registrar: String(fn || (ent && ent.handle) || '').slice(0, 120), ns: ns.slice(0, 12) };
+        } catch (e) { return null; }
+    }
     // (0.5.64) The registry's RDAP base for an ending, for the ownership lookups (src/intel/ownership.js).
-    return { ageDays, serverFor };
+    return { ageDays, serverFor, record };
 }
 
 module.exports = { createRdap };

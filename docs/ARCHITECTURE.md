@@ -188,6 +188,18 @@ name exist, with mail servers, with a website); a pass a day. The first pass tak
 appears later, or one registered in the last 30 days, is an alert and a strong sign in mail from it, replies
 to it and links to it. Admins mark each one: the district's own, harmless, or a threat.
 
+## The allow lists' 30-day check
+
+(0.6.30, `src/allowwatch.js`.) The hourly job looks up the domains on the allow lists that are due (never looked up, or
+30 days since; at most 20 a run): the registry's record (`record` in `src/intel/rdap.js`: registered, expires, registrar,
+name servers) and the reputation services (Cloudflare, the phishing lists, Spamhaus's DBL). The first look is a
+snapshot; each later one is compared with it (`compareSnapshots`). Registered again, expired, gone, blocked or listed:
+suspended (state `allowWatch`); a new registrar or all name servers new: flagged only. Either is noted in Activity (an
+alert), emailed into every admin's Inbox (`adminMail`, as the weekly summary is) and shown on Today and Settings →
+Allowlist. While suspended, `allowedNow`, `allowLinkDomainsNow`, `brandSenderSet` and `spamKept` treat the domain as not
+listed, and each email from it is tagged (`allowSuspended`). "Still trusted" (`resolveAllowReview`) takes a new snapshot
+and can answer the tagged emails as false alarms.
+
 ## Optional services
 
 All off by default, each turned on on its own Settings page with a key kept in Secret Manager:
