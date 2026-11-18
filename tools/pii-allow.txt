@@ -54,3 +54,5 @@ coach.pat.sample@yahoo.com
 # (0.6.28) TreviPay's own sending and support mailboxes (a payment company's, no person's), in test/brand-billing.test.js.
 no-reply@trevipay.app
 walmartbusinesssupport@trevipay.app
+# (0.6.33) A made-up card-offers mailbox at a bank's own domain (a company's role address, no person's), in test/training-miss-and-lures.test.js.
+card@cards.tdbank.com

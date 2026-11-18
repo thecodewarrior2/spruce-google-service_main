@@ -57,9 +57,10 @@ test('the organization\'s domain written inside another domain: 5, in the reply 
     assert.equal(sign(await judge({ replyTo: 'Signing <dse@maple-k12-example.docusign.net>' }), 'org-domain-inside'), undefined, 'a well-known company\'s own domain');
 });
 
-test('a hidden, empty link beside a visible one to the same site: 2; a newsletter\'s hidden mobile block: nothing', async () => {
+test('a hidden, empty link beside a visible one to the same site: 5 (0.6.33); a newsletter\'s hidden mobile block: nothing', async () => {
     const decoy = await judge({ html: '<p>Reconnect your account.</p><a href="https://reconnect.lure-site.example/a1" style="height:0;opacity:0;width:0;"> </a><a href="https://reconnect.lure-site.example/a2">Reconnect Now</a>' });
-    assert.equal(sign(decoy, 'hidden-decoy-link').weight, 2);
+    assert.equal(sign(decoy, 'hidden-decoy-link').weight, 5);
+    assert.ok(decoy.score >= 5 && decoy.status === 'flagged', 'flagged on its own');
     const responsive = await judge({ html: '<div style="display:none"><a href="https://news.shop-example.example/m">Shop the sale</a></div><div><a href="https://news.shop-example.example/d">Shop the sale</a></div>' });
     assert.equal(sign(responsive, 'hidden-decoy-link'), undefined);
 });
@@ -68,4 +69,14 @@ test('Xero\'s name from another domain is an imitation', async () => {
     const r = await judge({ from: 'Xero <xero@verify-bank-details.example>' });
     assert.equal(sign(r, 'brand-name-other').weight, 5);
     assert.match(sign(r, 'brand-name-other').text, /isn't Xero's address/);
+});
+
+test('0.6.33: a store\'s co-branded card from the bank that issues it: its links to the bank behind the store\'s address aren\'t dangerous', async () => {
+    const html = '<p>Stack your savings.</p>' + [0, 1, 2].map(i => `<a href="https://cards.tdbank.com/r?${i}">https://www.target.com/deals</a>`).join(' ') + '<a href="https://cards.tdbank.com/s">Shop Deals</a>';
+    const r = await judge({ from: '"Store Circle Card" <card@cards.tdbank.com>', html });
+    assert.equal(r.status, 'clean', JSON.stringify(r.signals.map(s => [s.kind, s.weight])));
+    assert.ok(!r.signals.some(s => /dangerous/.test(s.text)), 'no dangerous links');
+    const unknown = await judge({ from: '"Store Circle Card" <card@cards.circle-rewards.example>', html: html.replace(/cards\.tdbank\.com/g, 'cards.circle-rewards.example') });
+    assert.ok(unknown.signals.some(s => /dangerous/.test(s.text)), 'the same links to an unknown site: still dangerous');
+    assert.equal(sign(await judge({ from: 'TD Bank <alerts@td-bank-secure.example>' }), 'brand-name-other').weight, 5, 'TD Bank is a known brand now');
 });

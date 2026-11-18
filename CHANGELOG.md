@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.33: a store's card from the bank that issues it; a hidden decoy link is flagged on its own
+
+- **A store's co-branded card mail was suspicious:** a store card's offers come from the bank that issues the card
+  (here TD Bank's own domain, its sender check passing), with links whose text shows the store's address but which go
+  to the bank's site; three such "dangerous" links (2) and "from outside" (1) made it suspicious (3). TD Bank wasn't
+  in the brand list, so its site counted as anyone's. Now:
+  - the banks behind most stores' cards are in the brand list: TD Bank, Synchrony, Citi, U.S. Bank, Barclays, Bread
+    Financial (Comenity), Capital One, American Express and Discover (`vendor/spruce/shared.js`);
+  - a link whose text shows one well-known brand's address and which goes to another well-known company's own site
+    (a co-branded product) isn't a dangerous link: neither is a site anyone else can put a page on. The same link to
+    an unknown site is dangerous as before.
+- **A hidden decoy link counts 5** (2 in 0.6.32): an invisible, empty link beside a visible one to the same site is
+  flagged on its own; no genuine email, marketing included, hides an empty link like this. A newsletter's hidden mobile
+  or desktop block (links with text) still doesn't count.
+- Tests: `test/training-miss-and-lures.test.js` (made-up mail; the bank's domain as the sender's own).
+- **Checks level 31:** delivered mail of the last hours is checked again after this update.
+
+
 ## 0.6.32: why a training rule didn't match; the district's domain inside another domain, decoy links and Xero
 
 - **A training email that wasn't recognized:** a KnowBe4 test email came from one of the vendor's sending addresses the

@@ -387,12 +387,13 @@ function orgDomainInsideSigns(E, facts, judged, own) {
 }
 // (0.6.32) A hidden link with no text beside a visible link to the same site: a decoy for link scanners (they follow the
 // hidden one; the reader clicks the visible one). Responsive newsletters hide whole blocks, but their links have text.
+// (0.6.33) 5, flagged on its own: no genuine email, marketing included, hides an empty link like this.
 function hiddenDecoyLinkSigns(E, judged) {
     const reg = (u) => { try { const h = new URL(u).hostname.toLowerCase(); return E.registrableDomain(h) || h; } catch (e) { return ''; } };
     const web = (judged || []).filter(j => /^https?:\/\//i.test(String(j.url || '')));
     const visible = new Set(web.filter(j => !j.hidden && String(j.text || '').trim()).map(j => reg(j.url)).filter(Boolean));
     const decoy = web.find(j => j.hidden && !String(j.text || '').trim() && visible.has(reg(j.url)));
-    return decoy ? [{ weight: 2, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${reg(decoy.url)} beside the visible one: a trick to fool link scanners.` }] : [];
+    return decoy ? [{ weight: 5, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${reg(decoy.url)} beside the visible one: a trick to fool link scanners.` }] : [];
 }
 
 // (0.6.19) Signs that count only together with another warning sign. Each alone, with only "it comes from outside"

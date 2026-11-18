@@ -288,6 +288,11 @@ function detectLinkProblem(visibleText, originalUrl, finalUrl, trackerDomains, f
     // be an imitation's: amber at most (the text and the ending couldn't be tied to one company).
     const ending = companyEndingOf(destDomain);
     if (ending) return `link text shows ${textHost} but the link goes to ${host}, an address only ${ending.operator} can have`;
+    // (0.6.33) One well-known brand's address in the text, another well-known company's own site behind it: a co-branded
+    // product (a store's card, run by the bank that issues it: text target.com, link to the bank's site). Neither is a
+    // site anyone else can put a page on, so it is no imitation.
+    // Never a platform where anyone can make a page (a form, a file share, cloud storage: PROTECTED_DOMAINS).
+    if ((PROTECTED_BRANDS.includes(textDomain) || textCompany) && destCompany && textCompany !== destCompany && !PROTECTED_DOMAINS.has(destDomain)) return null;
     // Text that shows a well-known brand's address while going elsewhere is a classic phishing trick.
     if (PROTECTED_BRANDS.includes(textDomain)) return `link text shows ${textHost} (a well-known brand) but the link goes to ${host}`;
     return `link text shows ${textHost} but the link goes to ${host}`;
@@ -638,6 +643,16 @@ const SENDER_NAME_BRANDS = [
     { name: 'Walmart', tokens: ['walmart'], domains: ['walmart.com'] },
     { name: 'Xero', tokens: ['xero'], domains: ['xero.com'] },   // (0.6.32) accounting software, a common bank-connection lure
     { name: 'Costco', tokens: ['costco'], domains: ['costco.com'] },
+    // (0.6.33) The banks that issue stores' co-branded cards (a store's card mail comes from them, under the store's name).
+    { name: 'TD Bank', tokens: ['td bank'], domains: ['tdbank.com', 'td.com'] },
+    { name: 'Synchrony', tokens: ['synchrony', 'synchrony bank'], domains: ['synchrony.com', 'mysynchrony.com', 'synchronybank.com', 'syf.com'] },
+    { name: 'Citi', tokens: ['citi', 'citibank', 'citi cards'], ambiguousTokens: ['citi'], domains: ['citi.com', 'citibank.com', 'citicards.com'] },
+    { name: 'U.S. Bank', tokens: ['u s bank', 'us bank'], domains: ['usbank.com'] },
+    { name: 'Barclays', tokens: ['barclays', 'barclaycard'], domains: ['barclays.com', 'barclaysus.com', 'barclaycardus.com'] },
+    { name: 'Bread Financial', tokens: ['bread financial', 'comenity', 'comenity bank'], domains: ['breadfinancial.com', 'comenity.net', 'comenity.com'] },
+    { name: 'Capital One', tokens: ['capital one'], domains: ['capitalone.com'] },
+    { name: 'American Express', tokens: ['american express', 'amex'], domains: ['americanexpress.com', 'aexp.com'] },
+    { name: 'Discover', tokens: ['discover', 'discover card'], ambiguousTokens: ['discover'], domains: ['discover.com'] },
     { name: 'Verizon', tokens: ['verizon'], domains: ['verizon.com', 'verizonwireless.com'] },
     { name: 'AT&T', tokens: ['at&t', 'att'], ambiguousTokens: ['att'], domains: ['att.com', 'att.net', 'att-mail.com'] },
     { name: 'Xfinity', tokens: ['xfinity', 'comcast'], domains: ['xfinity.com', 'comcast.com', 'comcast.net'] },
