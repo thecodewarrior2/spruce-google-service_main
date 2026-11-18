@@ -1682,6 +1682,11 @@
         const ai = m.ai && typeof m.ai.probability === 'number' ? m.ai.probability : null;
         const moves = st.mode === 'enforce' && m.state === 'inbox' && m.action !== 'move';
         const against = (m.signals || []).filter(x => x.weight > 0).sort((a, b) => b.weight - a.weight).map(x => [x.weight, x.text]);
+        // (0.6.27) Taken for spam: the column says spam, not phishing, and starts with what made it spam (the hidden
+        // filler in list mail counts for no rules score, so it isn't among the weighted signs).
+        const spamItem = kindOf(m) === 'spam';
+        if (spamItem && (m.trigger === 'spam' || (m.signals || []).some(x => x && x.kind === 'hidden-filler'))) against.unshift([2, 'It is list or marketing mail that hides a block of unrelated text below the message: a spam trick.']);
+        const againstTitle = spamItem ? 'Points to spam' : 'Points to phishing';
         for (const l of m.links || []) against.push([l.severity === 'danger' ? 3 : 1.5, `Link: ${l.reason || l.url}`]);
         if (ai !== null && ai >= 0.5) against.unshift([ai >= aiThreshold ? 3 : ai >= aiSuspicious ? 2 : 1, `The AI scores it ${pct(ai)}: it reads like phishing`]);
         const pro = (m.signals || []).filter(x => x.weight < 0).map(x => [x.weight, x.text]);
@@ -1713,7 +1718,7 @@
                 lean),
             recheckBox(m), rescanBox(m),
             h('div', { class: 'ev-cols' },
-                h('section', { class: 'ev against', 'aria-label': 'Points to phishing' }, h('h3', { text: 'Points to phishing' }), list(against, 'phish', 'Nothing found that points to phishing.')),
+                h('section', { class: `ev against${spamItem ? ' spam' : ''}`, 'aria-label': againstTitle }, h('h3', { text: againstTitle }), list(against, spamItem ? 'spam' : 'phish', `Nothing found that ${againstTitle.toLowerCase()}.`)),
                 h('section', { class: 'ev for', 'aria-label': 'Points to safe' }, h('h3', { text: 'Points to safe' }), list(pro, 'safe', 'Nothing found that points to safe.'),
                     quotes ? h('div', { class: 'ev-quotes' }, h('div', { class: 'small muted', text: 'What the AI weighed most:' }), quotes) : null)),
             dmarcNote ? h('p', { class: 'small muted rv-note', text: dmarcNote }) : null,

@@ -751,3 +751,7 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .rv-verdict { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
 .rv-verdict .kind-tag { font-size: 12px; padding: 2px 9px; }
 .decision .kind-tag { margin-left: 8px; }
+/* (0.6.27) An item taken for spam: its first column is "Points to spam", in the spam label's purple. */
+.ev.against.spam { border-top-color: var(--s5); }
+.ev.against.spam h3 { color: var(--s5); }
+.dots.spam span.on { background: var(--s5); }

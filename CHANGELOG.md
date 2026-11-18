@@ -5,7 +5,8 @@
 - **Spam or phishing, at a glance:** every item in Review, and every email in Mail and its page, carries a coloured
   label: **Spam** (purple: moved or to be moved as spam, or an admin answered "Spam") or **Phishing** (red: moved, to be
   moved or flagged on the rules or the AI). An opened item's first line says it too ("Would be moved: spam, not
-  phishing"). The review list gets each item's `kind` from the server (`verdictKind` in `src/dashboard/aggregate.js`).
+  phishing"), and for spam its evidence column is **Points to spam** (purple), starting with the spam trick that made it
+  spam, instead of "Points to phishing". The review list gets each item's `kind` from the server (`verdictKind` in `src/dashboard/aggregate.js`).
   The demo has a padded store newsletter moved as spam, to show it.
 - **Padded list mail from an established sender is left alone:** list or marketing mail that hides a block of text below
   the message, with nothing else wrong, was moved to Spam as spam (0.6.19), but real newsletters (a recipe site's,
