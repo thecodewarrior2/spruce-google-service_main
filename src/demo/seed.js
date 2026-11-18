@@ -102,6 +102,10 @@ function campaignTemplates() {
             subject: 'Are you available?',
             html: '<p>Hi,</p><p>Are you available? I am in a meeting and need a quick favor before the end of the day.</p><p>Reply with your cell number and I will text you the details.</p><p>Jordan Exampleton</p>' }) },
         // An email in Spanish: the rules check it as any other, the AI model (English only) gives no score.
+        // (0.6.27) Spam, not phishing: a store list padded with hidden filler from a domain under a year old.
+        { id: 'padded', recipients: 8, daysAgo: 2, spread: 0.4, make: (to) => eml({ fromName: 'Lakeview Garden Club', from: 'news@mail.lakeviewgardens.example', to, dmarc: 'pass',
+            subject: 'Big spring sale', extraHeaders: 'List-Unsubscribe: <https://lakeviewgardens.example/u>',
+            html: '<p>Big spring sale, 40% off everything.</p><div style="height:3000px"></div><p>' + 'Unrelated filler text from an old forum post about garden tools. '.repeat(6) + '</p>' }) },
         { id: 'spanish', recipients: 6, daysAgo: 5, spread: 0.3, make: (to) => eml({ fromName: 'Servicio de Correo', from: 'soporte@correo-seguro-cuenta.example', to, dmarc: 'fail',
             subject: 'Su cuenta de correo será suspendida hoy',
             html: '<p>Estimado usuario,</p><p>Su cuenta de correo ha sido suspendida temporalmente por actividad inusual. Para restablecer el acceso, haga clic en el enlace y confirme su información antes de las 24 horas.</p><p><a href="https://correo-seguro-cuenta.example/verificar">Verificar mi cuenta</a></p><p>Gracias por su atención,</p><p>Equipo de soporte</p>' }) },

@@ -187,6 +187,9 @@ other address lines: **Reply-To** under a colleague's name going to an outside a
 go to someone else), and a colleague **copied in** (Cc or To) at an outside address (1) or at an address
 that imitates your domain (3: "I've copied our superintendent").
 
+**Spam or phishing, at a glance** (0.6.27): Review, Mail and an email's page label each email **Spam** (purple) or
+**Phishing** (red), from what the service took it for, so a padded newsletter moved as spam isn't mistaken for phishing.
+
 **Spam people took back** (0.6.26): when someone moves mail the service moved as spam (trigger `spam`) back out
 of Spam, that sender's spam isn't moved for them again for 6 months: a sender is its organization's domain, or the
 address itself at a personal mail provider, and only one Gmail verified (DMARC passing) counts, so a forged copy is

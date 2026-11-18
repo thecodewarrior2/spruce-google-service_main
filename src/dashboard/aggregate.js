@@ -337,7 +337,7 @@
             if (!g) {
                 g = { campaign: r.campaign || null, label: r.campaignLabel || '', keys: [], users: new Set(), senders: new Set(), count: 0,
                     subject: r.subject || '', sender: r.sender ? { name: r.sender.name || '', address: r.sender.address || '' } : null, firstAt: r.receivedAt || r.processedAt || null,
-                    ai: null, score: null, inside: !!r.inside,
+                    ai: null, score: null, inside: !!r.inside, kind: verdictKind(r),
                     signs: (r.signals || []).filter(s => s.weight > 0).sort((a, b) => b.weight - a.weight).slice(0, 3).map(s => ({ text: s.text, weight: s.weight })) };
                 if (r.campaign) byCampaign.set(r.campaign, g);
                 out.push(g);
@@ -354,8 +354,16 @@
             if (at && (!g.firstAt || at < g.firstAt)) g.firstAt = at;
         }
         return out.map(g => ({ campaign: g.campaign, label: g.label, count: g.count, keys: g.keys, users: [...g.users], senders: [...g.senders],
-            subject: g.subject, sender: g.sender, firstAt: g.firstAt, ai: g.ai, score: g.score, inside: g.inside, signs: g.signs }));
+            subject: g.subject, sender: g.sender, firstAt: g.firstAt, ai: g.ai, score: g.score, inside: g.inside, kind: g.kind, signs: g.signs }));
+    }
+    // (0.6.27) What the service took an email for, in one word for the dashboard: 'spam' (moved or to be moved as spam:
+    // trigger 'spam', or an admin's "Spam" answer), 'phishing' (moved, to be moved or flagged on the rules or the AI),
+    // or null (nothing found).
+    function verdictKind(r) {
+        if (!r) return null;
+        if (r.spam || r.trigger === 'spam') return 'spam';
+        return ['move', 'would-move', 'flag'].includes(r.action) ? 'phishing' : null;
     }
 
-    return { DAY, dayOf, dayIn, addDays, setTimeZone, TRIGGERS, signalCategory, summary, trend, topReasons, campaigns, users, filterRecords, modelHealth, readiness, toCsv, activity, isAdminAction, activityCsv, rechecked, recheckAlert, recheckReason, reviewGroups };
+    return { DAY, dayOf, dayIn, addDays, setTimeZone, TRIGGERS, signalCategory, summary, trend, topReasons, campaigns, users, filterRecords, modelHealth, readiness, toCsv, activity, isAdminAction, activityCsv, rechecked, recheckAlert, recheckReason, reviewGroups, verdictKind };
 });

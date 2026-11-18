@@ -106,6 +106,12 @@ test('review groups: the copies of one campaign are one item (its keys, recipien
     assert.equal(g[0].count, 3);
 });
 
+test('0.6.27: each review item says what the service took it for: spam or phishing', () => {
+    const rec = (key, action, trigger, extra = {}) => Object.assign({ key, campaign: key, action, trigger, sender: { address: 's@y' } }, extra);
+    const kinds = reviewGroups([rec('a', 'would-move', 'spam'), rec('b', 'move', 'ai'), rec('c', 'flag', 'rules'), rec('d', 'none', null), rec('e', 'move', 'rules', { spam: true })]).map(g => g.kind);
+    assert.deepEqual(kinds, ['spam', 'phishing', 'phishing', null, 'spam']);
+});
+
 test('dashboard: the review queue in groups; one decision marks every copy; "…show more" reads the email (nothing stored, noted)', async () => {
     const cfg = loadConfig({ DEMO: '1', MODE: 'monitor', ORG_DOMAINS: ORG });
     const { store, raws, staff } = await buildDemo({ cfg, now: Date.now() });

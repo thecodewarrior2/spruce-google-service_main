@@ -78,6 +78,12 @@
     const STATE = { moved: ['In Spam', 'moved'], released: ['Moved back', 'released'], inbox: ['In Inbox', 'inbox'] };
     const stateOf = (m) => (m.state === 'released' && m.releasedByUser ? ['Moved back by user', 'released'] : STATE[m.state] || [m.state, '']);
     const pill = ([label, cls]) => h('span', { class: `pill ${cls}`, text: label });
+    // (0.6.27) Spam or phishing, plainly: what the service took the email for (its trigger, or an admin's "Spam"
+    // answer), as a coloured label beside the subject and at the top of an opened email.
+    const kindOf = (m) => (!m ? null : m.kind !== undefined ? m.kind : m.spam || m.trigger === 'spam' ? 'spam' : ['move', 'would-move', 'flag'].includes(m.action) ? 'phishing' : null);
+    const KIND = { spam: ['Spam', 'Unwanted bulk or marketing mail, not phishing: moved to Spam as spam'], phishing: ['Phishing', 'Taken for phishing by the rules or the AI'] };
+    const kindTag = (k) => (KIND[k] ? h('span', { class: `kind-tag ${k}`, title: KIND[k][1], text: KIND[k][0] }) : null);
+    const asKind = (m) => { const k = kindOf(m), a = (ACTION[m.action] || [m.action])[0]; return k === 'spam' ? `${a}: spam, not phishing` : k === 'phishing' && m.action !== 'flag' ? `${a}: phishing` : a; };
     // Re-checked after delivery (0.5.35): what happened, and the outcomes that mean phishing had been delivered.
     const RECHECK_BAD = ['moved', 'would-move', 'held', 'not-in-inbox'];
     const WHERE = { archived: 'archived by its reader', spam: 'in Spam', trash: 'in the Trash', inbox: 'in the Inbox' };
@@ -647,7 +653,7 @@
                 { name: 'AI', num: true, get: m => (m.ai === null ? '–' : pct(m.ai)) },
                 { name: 'Score', num: true, get: m => (m.score === null || m.score === undefined ? '–' : m.score) },
                 { name: 'Action', get: m => (m.recheck ? h('span', { class: 'found-later' }, alertIcon(`Found after it was delivered (re-checked ${when(m.recheck.at)})${m.recheck.clicked ? ': a link in it was clicked' : m.recheck.opened ? ': it had been opened' : ''}`), pill(ACTION[m.action] || [m.action, '']), h('span', { class: 'small muted', text: ' found later' }))
-                    : pill(ACTION[m.action] || [m.action, ''])) },
+                    : h('span', {}, pill(ACTION[m.action] || [m.action, '']), ' ', kindTag(kindOf(m)))) },
                 { name: 'Now', get: m => pill(stateOf(m)) }
             ], d.messages, m => go(`#/message?${q({ key: m.key })}`), 'No messages match.', m => (m.recheck && RECHECK_BAD.includes(m.recheck.outcome) ? 'row-alert' : '')))];
     }
@@ -890,7 +896,7 @@
             h('div', { class: 'grid detail' },
                 h('div', { class: 'grid' },
                     h('section', { class: 'card' }, h('h2', { text: 'What happened' }),
-                        h('div', { class: `decision ${decisionClass}` }, h('b', { text: pasted ? (PASTED[m.action] || m.action) : m.state === 'released' ? (m.releasedByUser ? 'Moved back to the Inbox by the user' : `Moved back to the Inbox by ${m.releasedBy}`) : (ACTION[m.action] || [m.action])[0] }), h('div', { text: m.state === 'released' ? `${when(m.releasedAt)}. It was moved because ${m.why}.` : m.why ? `Because ${m.why}.` : 'No sign of phishing from the checks or the AI.' }),
+                        h('div', { class: `decision ${decisionClass}` }, h('b', { text: pasted ? (PASTED[m.action] || m.action) : m.state === 'released' ? (m.releasedByUser ? 'Moved back to the Inbox by the user' : `Moved back to the Inbox by ${m.releasedBy}`) : asKind(m) }), pasted || m.state === 'released' ? null : kindTag(kindOf(m)), h('div', { text: m.state === 'released' ? `${when(m.releasedAt)}. It was moved because ${m.why}.` : m.why ? `Because ${m.why}.` : 'No sign of phishing from the checks or the AI.' }),
                             rescueToCheck ? h('div', { text: 'The checks flagged it. Make sure it is safe, or confirm phishing and warn the user.' }) : null),
                         h('div', { class: 'small muted', text: `${verdictText} ${m.markedBy ? `(${m.markedBy})` : ''}`.trim() }),
                         pasted ? null : recheckBox(m),
@@ -1659,7 +1665,7 @@
         return h('div', { class: `rv-item${open ? ' open' : ''}` },
             h('div', { class: 'rv-row' }, pick, ring,
                 h('button', { class: 'rv-title', type: 'button', 'aria-expanded': String(open), onclick: toggle },
-                    h('span', { class: 'rv-subject', text: g.subject || g.label || '(subject not stored)' }), h('span', { class: 'rv-meta', text: meta })),
+                    h('span', { class: 'rv-subject' }, kindTag(g.kind), h('span', { text: g.subject || g.label || '(subject not stored)' })), h('span', { class: 'rv-meta', text: meta })),
                 sign,
                 open ? null : h('div', { class: 'rv-quick', role: 'group', 'aria-label': 'Quick answer' },
                     h('button', { class: 'btn sm phish', type: 'button', onclick: () => act([g], 'phishing') }, 'Phishing'),
@@ -1702,7 +1708,8 @@
                 h('div', { class: 'rv-who' }, 'From ', m.sender.address ? addr(m.sender.address, m.sender.name ? `${m.sender.name} <${m.sender.address}>` : m.sender.address) : (m.sender.name || 'an unknown sender'),
                     h('br'), 'To ', shortList(users, `Who received "${m.subject || 'this email'}"`, { copy: true, describe: (k) => `${num(k)} people in your organization received a copy${g.keys.length > 1 ? `; ${num(g.keys.length)} copies wait for review` : ''}.` }),
                     g.senders.length > 1 ? [h('br'), `From ${num(g.senders.length)} addresses: `, shortList(g.senders, 'Who sent it', { copy: true, describe: (k) => `The copies came from ${num(k)} sender addresses.` })] : null,
-                    h('div', { class: 'small muted', text: `${(ACTION[m.action] || [m.action])[0]}${m.why ? `, because ${m.why}` : ''}.` })),
+                    h('div', { class: 'rv-verdict' }, kindTag(kindOf(m)), h('b', { text: asKind(m) })),
+                    h('div', { class: 'small muted', text: m.why ? `Because ${m.why}.` : '' })),
                 lean),
             recheckBox(m), rescanBox(m),
             h('div', { class: 'ev-cols' },
