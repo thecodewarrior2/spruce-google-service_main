@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.28: Walmart Business's invoices from TreviPay aren't an imitation of Walmart
+
+- **"Walmart Business: Pay By Invoice Support" from no-reply@trevipay.app was moved:** the sender's name says
+  Walmart and the address isn't Walmart's (5), and the AI, told the same, scored a made-up payment receipt 99.9%.
+  Walmart Business's Pay By Invoice is run by TreviPay, which sends its mail from its own domains. A short list of
+  such invoicing services and the brands each is known to send for (`BRAND_BILLING_SERVICES` in
+  `vendor/spruce/shared.js`; TreviPay for Walmart) makes it a note of no weight when Gmail's DMARC check passed for
+  the service's domain, and tells the AI the sender is the brand's own (identity owner "yes"). The made-up receipt now
+  scores 2.5 on the rules (clean) and 1% from the AI. Forged (DMARC failing): 5, "may be forged" (the receipt scores
+  10.5, flagged). A domain that only resembles TreviPay's, or another brand's name on TreviPay's: judged as before.
+- Tests: `test/brand-billing.test.js` (a made-up school, amount and payment ID).
+- **Checks level 27:** delivered mail of the last hours is checked again after this update.
+
+
 ## 0.6.27: spam or phishing, plainly labelled; a newsletter from an established sender isn't moved as spam for padding its email
 
 - **Spam or phishing, at a glance:** every item in Review, and every email in Mail and its page, carries a coloured

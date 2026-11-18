@@ -217,7 +217,7 @@ async function analyze(facts, ctx = {}) {
         // is theirs, a look-alike domain, a colleague's name on an outside address (the same checks as
         // nameAddressSigns); the Reply-To domains that aren't the sender's; the attached files' kinds (their
         // endings and types, never their names; pictures inside the email aren't attachments).
-        identity: safeOne(() => E.aiSenderIdentity(facts.senderName, facts.senderAddress, { own: ctx.orgDomains || [], colleagues: ctx.colleagues || null })),
+        identity: safeOne(() => E.aiSenderIdentity(facts.senderName, facts.senderAddress, { own: ctx.orgDomains || [], colleagues: ctx.colleagues || null, dmarcPassFor: facts.auth && facts.auth.dmarc === 'pass' ? (facts.auth.headerFrom || '') : '' })),
         replyTo: safeOne(() => E.aiReplyToDomains(facts.replyTo || [], facts.senderAddress)) || [],
         attachments: safeOne(() => E.aiAttachmentFacts((facts.attachmentFiles || facts.attachments || []).filter(a => !a.inline))) || [],
         links: judged.filter(j => !j.hidden).slice(0, 8).map(j => ({ text: j.text, host: hostOf(j.url), destHost: j.finalUrl && hostOf(j.finalUrl) !== hostOf(j.url) ? hostOf(j.finalUrl) : '', finding: j.severity ? j.reason : '' })),

@@ -51,3 +51,6 @@ dana.madeup.payroll@gmail.com
 coach.pat.sample@gmail.com
 coach.pat.sample@outlook.com
 coach.pat.sample@yahoo.com
+# (0.6.28) TreviPay's own sending and support mailboxes (a payment company's, no person's), in test/brand-billing.test.js.
+no-reply@trevipay.app
+walmartbusinesssupport@trevipay.app
