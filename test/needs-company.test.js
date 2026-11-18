@@ -51,6 +51,22 @@ test('hidden filler in list or marketing mail, nothing else: spam, moved to Spam
     }
 });
 
+test('0.6.27: padded list mail from an established sender (DMARC passing, domain a year old or more) is left alone', async () => {
+    const intel = (days) => ({ rdap: { ageDays: async () => days } });
+    const opts = () => ({ extra: ['List-Unsubscribe: <https://lakeviewgardens.example/unsub?u=7>'], html: `<p>A new pie recipe for the holidays.</p>${FILLER}` });
+    const old = await judge(opts(), { intel: intel(4000) });
+    assert.equal(old.spam, undefined, 'a long-held, verified newsletter domain: not spam');
+    assert.equal(sign(old, 'hidden-filler').weight, 0);
+    assert.match(sign(old, 'hidden-filler').text, /Not moved as spam either: Gmail verified the sender, and its domain is more than a year old/);
+    assert.equal(decide(ruleCheck(old), enforce, {}).action, 'none');
+    for (const [days, why] of [[200, 'a domain under a year old'], [null, 'an unknown age']]) {
+        const r = await judge(opts(), { intel: intel(days) });
+        assert.ok(r.spam && /spam trick/.test(r.spam.why), `still spam with ${why}`);
+    }
+    const failing = await judge(Object.assign(opts(), { dmarc: 'fail' }), { intel: intel(4000) });
+    assert.equal(sign(failing, 'hidden-filler').weight, 3, 'the sender check failing: another sign, so the filler counts (judged as phishing, as before)');
+});
+
 test('hidden filler with another warning sign counts as before (3), and is judged as phishing, not spam', async () => {
     const r = await judge({ subject: 'Your mailbox is full: verify your account now', html: `<p>Your mailbox storage is full. Verify your password within 24 hours or lose your email.</p>${FILLER}`, dmarc: 'fail', extra: ['List-Unsubscribe: <https://x.example/u>'] });
     assert.equal(sign(r, 'hidden-filler').weight, 3);

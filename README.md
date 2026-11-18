@@ -103,7 +103,7 @@ For each new Inbox message:
 |---|---|
 | The rules flag it (score 5+), from any sender | **Move to Spam** (label `SPRUCE/Moved`) |
 | The AI scores **90%** or more (`AI_MOVE_THRESHOLD`), sender outside the organization (or a staff address without DMARC passing): the AI score alone, no rule, link check or other sign needs to agree | **Move to Spam** |
-| **Spam, not phishing** (0.6.19): list or marketing mail (an unsubscribe header or link) that hides a block of unrelated text below the message, with nothing else suspicious | **Move to Spam** as spam (trigger "spam"; the user can take it back out) |
+| **Spam, not phishing** (0.6.19): list or marketing mail (an unsubscribe header or link) that hides a block of unrelated text below the message, with nothing else suspicious; not from an established sender (0.6.27: Gmail verified it and its domain is a year old or more, as real newsletters pad their emails too) | **Move to Spam** as spam (trigger "spam"; the user can take it back out) |
 | Same, in monitor mode, or while moving is paused (a campaign on weaker evidence, or the domain-wide brake) | Left in the Inbox, recorded as "would move" (a paused one can be moved later) |
 | An admin dismissed the campaign as a false alarm | Recorded as suspicious, not moved |
 | The user moved it into the Inbox themselves, and the service hadn't checked it | Checked and recorded, never moved (an alert if flagged) |

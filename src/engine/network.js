@@ -281,7 +281,8 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         const sh = shOf(j.finalUrl || j.url) || shOf(j.url);
         if ((typeof days === 'number' && days >= 0 && days < LOW_REPUTATION_DAYS) || (sh && (sh.dbl || typeof sh.zrdHours === 'number'))) j.lowRep = true;
     }
-    return { signals, checks };
+    // (0.6.27) The sender's domain's age (days, or null when unknown), for analyze.js's spam exception.
+    return { signals, checks, senderAge: typeof senderAge === 'number' ? senderAge : null };
 }
 
 module.exports = { networkChecks, LINK_AGE_LOOKUPS };

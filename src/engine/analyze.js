@@ -191,7 +191,7 @@ async function analyze(facts, ctx = {}) {
     safe(() => partnerNameInContext(signals));
     // (0.6.20) A brand's name on an established company's own domain that sends about the brand's product it runs.
     safe(() => establishedSenderInContext(E, facts, judged, signals, verified));
-    const spam = safeOne(() => signsNeedingCompany(signals, facts, inside));
+    const spam = safeOne(() => signsNeedingCompany(signals, facts, inside, { verified, senderAge: net.senderAge }));
     const base = { status: ctx.trusted ? 'trusted' : 'clean', reasons: [], move: false };
     const verdict = E.applyEmailSignals(base, signals) || base;
     // What confirms it from outside the email's own text: a link a security service blocks or a
@@ -341,22 +341,32 @@ function colleagueInContext(E, facts, signals, ctx, bodyText) {
 // Then they keep their text, with no weight, saying why. Hidden filler in list or marketing mail (a List-Unsubscribe or
 // List-Id header, Precedence: bulk, or an unsubscribe link) with nothing else wrong is spam, not phishing: returned as
 // { why } for the policy, which moves it to Spam (trigger 'spam'); never mail from inside the organization.
+// (0.6.27) Nor from an established sender: Gmail verified it (DMARC passed) and its domain is at least a year old
+// (ESTABLISHED_SENDER_DAYS; an unknown age doesn't count). Real newsletters pad their emails too, and spam rarely
+// comes from a long-held domain that passes the sender check; the email is then left alone, saying why.
 const NEEDS_COMPANY = new Set(['hidden-filler', 'colleague-copied-lookalike', 'colleague-copied-outside']);
 const CONTEXT_ONLY = new Set(['outside-org', 'first-time']);
 const ALONE_NOTE = ' Alone it isn\'t counted: nothing else in the email is suspicious.';
+const ESTABLISHED_SENDER_DAYS = 365;
+const ESTABLISHED_NOTE = ' Not moved as spam either: Gmail verified the sender, and its domain is more than a year old (newsletters do this too).';
 function bulkMail(facts) {
     const raw = String(facts.rawForHeaders || '');
     const head = raw.split(/\r?\n\r?\n/)[0] || '';
     if (/^(list-unsubscribe|list-id)[ \t]*:/im.test(head) || /^precedence[ \t]*:[ \t]*(bulk|list)\b/im.test(head)) return true;
     return /\bunsubscribe\b|\bopt[- ]out\b|\bemail preferences\b/i.test(String(facts.visibleText || '').slice(-4000));
 }
-function signsNeedingCompany(signals, facts, inside) {
+function signsNeedingCompany(signals, facts, inside, sender = {}) {
     const needs = (s) => !!s && (NEEDS_COMPANY.has(s.kind) || !!s.needsCompany);
     const held = signals.map((s, i) => [s, i]).filter(([s]) => needs(s) && (s.weight || 0) > 0);
     if (!held.length) return null;
     if (signals.some(s => s && !needs(s) && !CONTEXT_ONLY.has(s.kind) && (s.weight || 0) > 0)) return null;
     for (const [s, i] of held) signals[i] = Object.assign({}, s, { weight: 0, text: `${s.text}${ALONE_NOTE}` });
     if (!inside && held.some(([s]) => s.kind === 'hidden-filler') && bulkMail(facts)) {
+        if (sender.verified && typeof sender.senderAge === 'number' && sender.senderAge >= ESTABLISHED_SENDER_DAYS) {
+            const k = signals.findIndex(s => s && s.kind === 'hidden-filler');
+            if (k >= 0) signals[k] = Object.assign({}, signals[k], { text: `${signals[k].text}${ESTABLISHED_NOTE}` });
+            return null;
+        }
         return { why: 'list or marketing mail that hides a block of unrelated text below the message (a spam trick), with nothing else suspicious' };
     }
     return null;

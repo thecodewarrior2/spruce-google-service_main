@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.27: a newsletter from an established sender isn't moved as spam for padding its email
+
+- **Padded list mail from an established sender is left alone:** list or marketing mail that hides a block of text below
+  the message, with nothing else wrong, was moved to Spam as spam (0.6.19), but real newsletters (a recipe site's,
+  a store's) pad their emails too. Now it isn't moved when the sender is established: Gmail verified it (DMARC passed)
+  and its domain is a year old or more (the same domain-age lookup as the "new domain" sign; an unknown age doesn't
+  count). The hidden-filler sign says why, with no weight. Spam from a new domain, or one whose age isn't known, is
+  moved as before; with any other warning sign (a failing sender check too) it is judged as phishing, as before
+  (`signsNeedingCompany` in `src/engine/analyze.js`; `networkChecks` returns the sender's domain age).
+- **The checks level is raised (26):** after this update, recent delivered mail is checked again.
+
+
 ## 0.6.26: spam people took back is remembered; "Spam" as an admin's answer, and in the retraining export
 
 - **Spam someone took back:** when a person moves mail the service moved as spam (trigger `spam`) back out of Spam,
