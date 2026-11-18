@@ -578,9 +578,10 @@ class Service {
         // (a phishing-training email is let through, unchecked, on arrival: said so, 0.5.44)
         const training = await this.trainingOf(facts);
         if (training) decision = { action: 'none', trigger: null, why: `a phishing-training email (${training.name}): let through unchecked, as set in Settings → Phishing training. The checks below show what they would find` };
+        const trainingMiss = training ? [] : await this.trainingMissOf(facts);   // (0.6.32) why a rule's header didn't make it training
         const domain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
         return {
-            pasted: true, training: training ? training.name : null, key: null, messageId: null, rfc822MessageId: messageIdOf(facts.messageIdHeader), user: mailbox,
+            pasted: true, training: training ? training.name : null, trainingMiss, key: null, messageId: null, rfc822MessageId: messageIdOf(facts.messageIdHeader), user: mailbox,
             receivedAt: facts.date || null, processedAt: this.now(),
             sender: { name: facts.senderName.slice(0, 200), address: facts.senderAddress.slice(0, 320), domain }, subject: facts.subject.slice(0, 300),
             status: result.status, score: result.score, signals: result.signals.slice(0, 30), links: result.links.slice(0, 20), checks: result.checks || null,
@@ -787,6 +788,7 @@ class Service {
         // A phishing-training email (Settings → Phishing training, 0.5.44): let through, unchecked, only counted.
         const training = alreadyMoved ? null : await this.trainingOf(facts);
         if (training) { await this.count(day, 'training'); await this.noteTraining(training); return { user, messageId: msg.id, action: 'none', training: training.name }; }
+        if (!alreadyMoved) await this.noteTrainingMiss(facts);   // (0.6.32) a rule's header, but not the rule
         // Both never change once set, so each instance asks Firestore once: when the service was installed,
         // and when each sender was first seen (a campaign's 10,000 copies cost one look, not 10,000).
         const installedAt = this.installedAt || (this.installedAt = (await this.store.getState('installedAt')) || (await this.store.setState('installedAt', now), now));
@@ -2027,6 +2029,27 @@ class Service {
         if (this.trainingSeenAt && Date.now() - this.trainingSeenAt < 10 * 60 * 1000) return;
         this.trainingSeenAt = Date.now();
         try { await this.store.setState('phishTrainingSeen', Object.assign({}, await this.store.getState('phishTrainingSeen'), Object.fromEntries(this.trainingSeen))); } catch (e) { /* next time */ }
+    }
+    // (0.6.32) An email with a rule's header that didn't match it: state/phishTrainingMissed { [rule id]: { count, first,
+    // last, why, ip } }, shown on the rule's row, and noted in Activity the first time (and again after a day).
+    async trainingMissOf(facts) {
+        const st = await this.trainingSettings();
+        if (!st || !(st.rules || []).length) return [];
+        try { return await sims.trainingMiss(spruce.load(), facts, st); } catch (e) { this.log.error('phishing training (miss):', e); return []; }
+    }
+    async noteTrainingMiss(facts) {
+        const miss = await this.trainingMissOf(facts);
+        if (!miss.length) return;
+        const all = Object.assign({}, (await this.store.getState('phishTrainingMissed')) || {});
+        for (const m of miss) {
+            const e = all[m.id] = Object.assign({ count: 0, first: this.now(), notedAt: 0 }, all[m.id], { last: this.now(), why: m.why, ip: m.ip, name: m.name });
+            e.count++;
+            if (this.now() - (e.notedAt || 0) > DAY) {
+                e.notedAt = this.now();
+                await this.store.addEvent({ kind: 'training-miss', text: `An email had the "${m.name}" phishing-training rule's header but didn't match the rule: ${m.why}. It was checked like any email. If it was the vendor's training email, edit the rule in Settings → Phishing training.` });
+            }
+        }
+        await this.store.setState('phishTrainingMissed', all);
     }
     async trainingChange(change, by, words) {
         const cur = Object.assign({ rules: [], domains: [] }, await this.store.getState('phishTraining'));

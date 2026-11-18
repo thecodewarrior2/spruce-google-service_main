@@ -767,3 +767,5 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .kind-tag.flagged { color: var(--serious); border-color: var(--serious); background: color-mix(in srgb, var(--serious) 14%, transparent); }
 .allow-review:has(.review-row.suspended) { border-left-color: var(--critical); }
 .allow-review:not(:has(.review-row.suspended)) { border-left-color: var(--serious); }
+/* (0.6.32) A training rule whose header was seen in an email it didn't match. */
+.training-miss { margin-top: 4px; max-width: 46ch; }

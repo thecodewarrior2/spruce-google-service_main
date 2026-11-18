@@ -179,7 +179,10 @@ async function analyze(facts, ctx = {}) {
         ...net.signals,
         // A look-alike of the organization's domain that the look-alike watch found registered (0.5.36):
         // ctx.lookalikes, domain → 'strong' (new, or marked a threat) or 'weak' (there before the watch).
-        ...safe(() => watchedLookalikeSigns(E, facts, judged, ctx.lookalikes))
+        ...safe(() => watchedLookalikeSigns(E, facts, judged, ctx.lookalikes)),
+        // (0.6.32) The organization's own domain written inside another domain, and a hidden decoy link.
+        ...safe(() => orgDomainInsideSigns(E, facts, judged, ctx.orgDomains || [])),
+        ...safe(() => hiddenDecoyLinkSigns(E, judged))
     ];
     // A colleague's name with a title or the organization's name added ("Misty Samplefield, Principal", "Misty
     // Samplefield - Maple Schools"), which impersonators write and the exact match misses (0.5.43).
@@ -330,6 +333,66 @@ function colleagueInContext(E, facts, signals, ctx, bodyText) {
     signals[i] = why.length
         ? Object.assign({}, signals[i], { kind: 'sender-colleague-name', weight: personalOnly ? 2 : 3, needsCompany: lookalikeOnly || undefined, text: `The sender uses the name of someone in your organization, but writes from an outside address (${address.slice(0, 120)}), ${why.slice(0, 3).join('; ')}.` })
         : Object.assign({}, signals[i], { kind: 'sender-name-shared', weight: 0, text: `The sender has the same name as someone in your organization, writing from ${domain}'s own address. Nothing in the email claims to be from inside your organization, so it doesn't count (people share names).` });
+}
+
+// (0.6.32) The organization's domain written inside another domain: maple-schools-example.gmail.net-login.example, or
+// maple-schools.example.evil.example, in the sender's address, a reply address or a link the reader sees. Made to
+// read as the organization's own at a glance, and registered by someone else: 5, whichever it is. The forms looked for:
+// the whole domain with its dots as hyphens, run together, or followed by another ending; for a domain of three or more
+// parts (a school district's name.k12.state.us), also without its last part (name-k12-state).
+function orgDomainForms(own) {
+    const out = [];
+    for (const o of own) {
+        const d = String(o || '').toLowerCase();
+        if (!d.includes('.')) continue;
+        const forms = [d.replace(/\./g, '-'), d.replace(/\./g, '')];
+        const parts = d.split('.');
+        if (parts.length >= 3) { const head = parts.slice(0, -1); forms.push(head.join('-'), head.join('')); }
+        out.push({ own: d, forms: forms.filter(f => f.length >= 8), dotted: `${d}.` });
+    }
+    return out;
+}
+function orgDomainInsideSigns(E, facts, judged, own) {
+    const forms = orgDomainForms(own);
+    if (!forms.length) return [];
+    const ours = (h) => own.some(o => h === o || h.endsWith(`.${o}`));
+    // A known company's own domain (a school-software tenant named after the district: district-k12.lms.example) never
+    // counts; in links only the full domain followed by another ending does (no real service writes it that way).
+    const known = (reg) => { try { return !!((E.PROTECTED_DOMAINS && E.PROTECTED_DOMAINS.has(reg)) || (E.brandOfDomain && E.brandOfDomain(reg)) || (E.companyNameOf && E.companyNameOf(reg))); } catch (e) { return false; } };
+    const inside = (host, { dottedOnly = false } = {}) => {
+        const h = String(host || '').toLowerCase().replace(/\.$/, '');
+        if (!h || ours(h)) return null;
+        const reg = E.registrableDomain(h) || h;
+        if (known(reg)) return null;
+        for (const f of forms) {
+            if (h.startsWith(f.dotted) || h.includes(`.${f.dotted}`)) return f.own;
+            if (!dottedOnly && f.forms.some(x => h.split('.').some(label => label.includes(x)))) return f.own;
+        }
+        return null;
+    };
+    const domainOf = (a) => String(a || '').toLowerCase().split('@')[1] || '';
+    const found = [];
+    const sender = domainOf(facts.senderAddress);
+    if (inside(sender)) found.push(['the sender\'s address', sender, inside(sender)]);
+    for (const r of facts.replyTo || []) { const d = domainOf(r); if (d && inside(d)) { found.push(['the reply address', d, inside(d)]); break; } }
+    for (const j of judged || []) {
+        if (j.hidden) continue;
+        let h = '';
+        try { h = new URL(j.finalUrl || j.url).hostname; } catch (e) { h = ''; }
+        if (h && inside(h, { dottedOnly: true })) { found.push(['a link', h, inside(h, { dottedOnly: true })]); break; }
+    }
+    if (!found.length) return [];
+    const [where, host, o] = found[0];
+    return [{ weight: 5, kind: 'org-domain-inside', text: `${where[0].toUpperCase()}${where.slice(1)} (${host}) writes your organization's domain (${o}) inside someone else's domain (${E.registrableDomain(host) || host}): made to look like yours at a glance.` }];
+}
+// (0.6.32) A hidden link with no text beside a visible link to the same site: a decoy for link scanners (they follow the
+// hidden one; the reader clicks the visible one). Responsive newsletters hide whole blocks, but their links have text.
+function hiddenDecoyLinkSigns(E, judged) {
+    const reg = (u) => { try { const h = new URL(u).hostname.toLowerCase(); return E.registrableDomain(h) || h; } catch (e) { return ''; } };
+    const web = (judged || []).filter(j => /^https?:\/\//i.test(String(j.url || '')));
+    const visible = new Set(web.filter(j => !j.hidden && String(j.text || '').trim()).map(j => reg(j.url)).filter(Boolean));
+    const decoy = web.find(j => j.hidden && !String(j.text || '').trim() && visible.has(reg(j.url)));
+    return decoy ? [{ weight: 2, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${reg(decoy.url)} beside the visible one: a trick to fool link scanners.` }] : [];
 }
 
 // (0.6.19) Signs that count only together with another warning sign. Each alone, with only "it comes from outside"

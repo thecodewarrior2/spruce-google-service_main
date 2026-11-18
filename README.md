@@ -187,6 +187,10 @@ other address lines: **Reply-To** under a colleague's name going to an outside a
 go to someone else), and a colleague **copied in** (Cc or To) at an outside address (1) or at an address
 that imitates your domain (3: "I've copied our superintendent").
 
+**Look-alikes written inside other domains** (0.6.32): a sender, reply address or link that writes the district's own
+domain inside someone else's (district-k12-example.mail.other.example) counts 5; a hidden, empty decoy link beside a
+visible one counts 2.
+
 **The allow lists' 30-day check** (0.6.30): every domain on an allow list is looked up again every 30 days (its registration
 and reputation). A change flags it for review (Settings → Allowlist, Today, and an email to every admin); registered
 again, expired, gone, or now blocked or listed suspends it: not trusted until an admin answers "Still trusted" (which
@@ -446,7 +450,8 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     through unchecked, recognized by the vendor's header with a secret token or its sending addresses, or by all
     their links going to the vendor's own domains; with step-by-step instructions. A rule can be edited in place
     (**Edit**, 0.5.61): its secret value is kept unless a new one is typed or it is removed. Each change needs the
-    project ID.
+    project ID. When an email has a rule's header but doesn't match it (sent from an address the rule doesn't list,
+    say), the rule's row says so and why, as does Check an email (0.6.32).
   - **Link clicks** (0.5.35; optional, off by default): for each email found to be phishing after it was
     delivered, Gmail's own logs (Admin SDK Reports API) tell when each person first opened it and whether
     they clicked a link in it; a click is an alert. It needs Gmail log events in your Workspace edition, the

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.32: why a training rule didn't match; the district's domain inside another domain, decoy links and Xero
+
+- **A training email that wasn't recognized:** a KnowBe4 test email came from one of the vendor's sending addresses the
+  rule didn't list, so the rule didn't match: the email was checked like any other and wasn't counted as training,
+  with nothing to say why. Now an email with a rule's header that doesn't match the rule is noted on the rule's row in
+  **Settings → Phishing training** ("Header seen 2 times without a match: Gmail received it from 198.51.100.7, not one of
+  the rule's sending addresses. If 198.51.100.7 is the vendor's, add it to the rule"), in Activity (once a day), and on
+  **Check an email** for a pasted copy. A wrong secret value is said too, never the value itself
+  (`trainingMiss` in `src/simulations.js`, state `phishTrainingMissed`).
+- **The organization's domain written inside another domain (5):** a reply address, sender or link made from the
+  district's own domain, as maple-k12-example.gmail.login-helpdesk.example or maple.k12.example.account-check.example
+  (the whole domain with hyphens, run together, or followed by another ending; for a domain of three or more parts, also
+  without its last part). A known company's own domain doesn't count (a school service's tenant named after the
+  district), nor, in links, any form but the full domain followed by another ending (`orgDomainInsideSigns` in
+  `src/engine/analyze.js`).
+- **A hidden decoy link (2):** an invisible link with no text beside a visible link to the same site, a trick to send
+  link scanners elsewhere than the reader; a newsletter's hidden mobile or desktop block, whose links have text, doesn't
+  count (`hiddenDecoyLinkSigns`).
+- **Xero** is in the brand list: its name from another domain is an imitation (5).
+- The lure that showed them (paraphrased, made up) scores 14.5 on the rules now, flagged, where it was 2.5.
+- Tests: `test/training-miss-and-lures.test.js`. The demo has a training rule with a near miss.
+- **Checks level 30:** delivered mail of the last hours is checked again after this update.
+
+
 ## 0.6.31: Settings → Update follows the update to the end, and reloads the dashboard
 
 - **The loading bar and its message stayed off, and the page didn't refresh:** the bar only covered the request that

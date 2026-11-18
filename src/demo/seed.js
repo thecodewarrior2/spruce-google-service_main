@@ -202,6 +202,9 @@ async function buildDemo({ now = Date.now(), cfg }) {
             review: { at: now - 3 * 3600e3, suspended: false, changes: [{ kind: 'registrar', text: 'its registrar changed from Madeup Registrar, Inc. to Another Madeup Registrar LLC', suspend: false }, { kind: 'nameservers', text: 'all its name servers changed (ns1.madeup-dns.example → ns1.new-host.example)', suspend: false }] } },
         'coupon-blast.example': { lists: ['spamRescued'], first: now - 45 * DAY, checkedAt: now - 5 * 3600e3, snap: { at: now - 45 * DAY, exists: true, created: now - 900 * DAY },
             review: { at: now - 5 * 3600e3, suspended: true, changes: [{ kind: 'registered-again', text: 'it was registered again 6 days ago (it had been registered for 2 years): the domain lapsed and someone registered it anew', suspend: true }] } } } });
+    // (0.6.32) A made-up training vendor's rule whose header was seen from an address it doesn't list.
+    await store.setState('phishTraining', { rules: [{ id: 'demo-trainer', name: 'Madeup Trainer', header: 'x-madeup-test', headerShown: 'X-MADEUP-TEST', valueHash: null, ips: ['192.0.2.0/26'] }], domains: [], by: 'demo-admin@example.org', at: now - 20 * DAY });
+    await store.setState('phishTrainingMissed', { 'demo-trainer': { name: 'Madeup Trainer', count: 2, first: now - 26 * 3600e3, last: now - 3 * 3600e3, notedAt: now - 26 * 3600e3, ip: '198.51.100.7', why: 'Gmail received it from 198.51.100.7, not one of the rule\'s sending addresses' } });
     await store.setState('spamRescued', { 'coupon-blast.example': { users: ['demo-a', 'demo-b', 'demo-c', 'demo-d'], first: now - 12 * DAY, last: now - 2 * DAY, shared: true, keep: false } });
     // (the colleague-name check read the demo directory while the made-up mail was judged: as of now)
     const cn = await store.getState('colleagueNames');

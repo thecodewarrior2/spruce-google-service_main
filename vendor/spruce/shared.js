@@ -636,6 +636,7 @@ const SENDER_NAME_BRANDS = [
     { name: 'Cash App', tokens: ['cash app', 'cashapp'], domains: ['cash.app', 'square.com', 'squareup.com'] },
     { name: 'eBay', tokens: ['ebay'], domains: ['ebay.com'] },
     { name: 'Walmart', tokens: ['walmart'], domains: ['walmart.com'] },
+    { name: 'Xero', tokens: ['xero'], domains: ['xero.com'] },   // (0.6.32) accounting software, a common bank-connection lure
     { name: 'Costco', tokens: ['costco'], domains: ['costco.com'] },
     { name: 'Verizon', tokens: ['verizon'], domains: ['verizon.com', 'verizonwireless.com'] },
     { name: 'AT&T', tokens: ['at&t', 'att'], ambiguousTokens: ['att'], domains: ['att.com', 'att.net', 'att-mail.com'] },

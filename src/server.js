@@ -509,7 +509,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const now = Date.now();
             const days = await statsFor(A.dayOf(now - 6 * A.DAY), A.dayOf(now));
             return { rules: st.rules.map(r => ({ id: r.id, name: r.name, header: r.headerShown || r.header, hasValue: !!r.valueHash, ips: r.ips || [] })), domains: st.domains, by: st.by || null, at: st.at || null,
-                     presets: require('./simulations').PRESETS, seen: (await store.getState('phishTrainingSeen')) || {},
+                     presets: require('./simulations').PRESETS, seen: (await store.getState('phishTrainingSeen')) || {}, missed: (await store.getState('phishTrainingMissed')) || {},
                      week: days.reduce((n, d) => n + (Number(d.training) || 0), 0), today: Number(((days.find(d => d.day === A.dayOf(now)) || {}).training) || 0),
                      projectKnown: !!expectedProject(cfg), demoProjectId: cfg.demo ? DEMO_PROJECT : null };
         },

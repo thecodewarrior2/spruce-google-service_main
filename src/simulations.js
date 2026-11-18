@@ -177,4 +177,26 @@ async function matchTraining(E, facts, settings) {
     return null;
 }
 
-module.exports = { matchTraining, ruleFrom, domainsFrom, refusedDomain, deliveringIp, ipInList, validIpEntry, hashValue, PRESETS, MAX_RULES, MAX_DOMAINS };
+// (0.6.32) Why an email that has a rule's header didn't match the rule: [{ id, name, why, ip }] (an email matched by
+// any rule, or by the link domains, has none). Shown on Settings → Phishing training and Check an email, so an admin
+// sees at once that the vendor sent from an address the rule doesn't list, or with another token. Only the rule's
+// own facts are said: never the value the email carried.
+async function trainingMiss(E, facts, settings) {
+    if (!settings || !(settings.rules || []).length) return [];
+    if (await matchTraining(E, facts, settings)) return [];
+    let headers = [];
+    try { headers = E.parseRawHeaders(facts.rawForHeaders || ''); } catch (e) { headers = []; }
+    const ip = deliveringIp(headers);
+    const out = [];
+    for (const rule of settings.rules) {
+        const values = headers.filter(([n]) => n === rule.header).map(([, v]) => String(v));
+        if (!values.length) continue;
+        const why = [];
+        if (rule.valueHash && !values.some(v => [v, ...v.split(/[\s;,]+/)].some(x => x && hashValue(rule.header, x) === rule.valueHash))) why.push(`its ${rule.headerShown || rule.header} value isn't the rule's secret value`);
+        if ((rule.ips || []).length && !(ip && ipInList(ip, rule.ips))) why.push(ip ? `Gmail received it from ${ip}, not one of the rule's sending addresses` : 'Gmail\'s own Received line, which says where it came from, isn\'t there');
+        if (why.length) out.push({ id: rule.id, name: rule.name, why: why.join('; '), ip: ip || null });
+    }
+    return out;
+}
+
+module.exports = { matchTraining, trainingMiss, ruleFrom, domainsFrom, refusedDomain, deliveringIp, ipInList, validIpEntry, hashValue, PRESETS, MAX_RULES, MAX_DOMAINS };

@@ -906,6 +906,9 @@
                         h('div', { class: `decision ${decisionClass}` }, h('b', { text: pasted ? (PASTED[m.action] || m.action) : m.state === 'released' ? (m.releasedByUser ? 'Moved back to the Inbox by the user' : `Moved back to the Inbox by ${m.releasedBy}`) : asKind(m) }), pasted || m.state === 'released' ? null : kindTag(kindOf(m)), h('div', { text: m.state === 'released' ? `${when(m.releasedAt)}. It was moved because ${m.why}.` : m.why ? `Because ${m.why}.` : 'No sign of phishing from the checks or the AI.' }),
                             rescueToCheck ? h('div', { text: 'The checks flagged it. Make sure it is safe, or confirm phishing and warn the user.' }) : null),
                         h('div', { class: 'small muted', text: `${verdictText} ${m.markedBy ? `(${m.markedBy})` : ''}`.trim() }),
+                        // (0.6.32) A pasted email with a training rule's header the rule didn't match: why.
+                        pasted && (m.trainingMiss || []).length ? h('div', { class: 'alert warning' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '!' }),
+                            h('div', { class: 'grow' }, h('b', { text: 'Not recognized as a training email. ' }), m.trainingMiss.map(x => `It has the "${x.name}" rule's header, but ${x.why}.`).join(' '), ' Settings → Phishing training: edit the rule.')) : null,
                         pasted ? null : recheckBox(m),
                         pasted ? null : rescanBox(m),
                         // (about moving, so not for an email the service didn't move: suspicious, or moved by an admin's decision)
@@ -2720,7 +2723,12 @@
                     { name: 'Name', get: r => r.name }, { name: 'Header', get: r => h('code', { text: r.header }) },
                     { name: 'Secret value', get: r => (r.hasValue ? 'set (hidden)' : 'none') },
                     { name: 'Sending addresses', get: r => (r.ips.length ? r.ips.slice(0, 3).join(', ') + (r.ips.length > 3 ? ` +${r.ips.length - 3}` : '') : 'any (direct injection works)') },
-                    { name: 'Last matched', get: r => seen(r.name) },
+                    { name: 'Last matched', get: r => {
+                        // (0.6.32) Its header seen in an email the rule didn't match, and why: an address the rule doesn't list, say.
+                        const miss = (d.missed || {})[r.id];
+                        return miss ? h('div', {}, seen(r.name), h('div', { class: 'small training-miss' }, alertIcon('Header seen, not matched'),
+                            ` Header seen ${num(miss.count)} time${miss.count === 1 ? '' : 's'} without a match (last ${when(miss.last)}): ${miss.why}. ${miss.ip && /sending addresses/.test(miss.why) ? `If ${miss.ip} is the vendor's, add it to the rule (Edit).` : 'Check the rule (Edit).'}`)) : seen(r.name);
+                    } },
                     { name: '', get: r => h('div', { class: 'actions' },
                         h('button', { class: 'btn', type: 'button', 'aria-label': `Edit the rule ${r.name}`, onclick: () => { editingRule = r.id; render(); } }, 'Edit'),
                         confirmForm('Remove', '/api/phish-training/rule/remove', () => ({ id: r.id }), () => `Rule "${r.name}" removed.`)) }], d.rules) : h('div', { class: 'empty', text: 'No rule yet.' }),
