@@ -1030,7 +1030,7 @@ class Service {
         if (Object.keys(all).length > 2000) return { error: 'The list is full (2,000 senders).', status: 409 };
         await this.store.setState('spamSenders', all);
         this._spamSenders = null;
-        if (!had) await this.store.addEvent({ kind: 'settings', text: `${by} added ${key} to Spam senders${from === 'review' ? ' (answering Spam in Review)' : ''}: its verified mail goes straight to Spam, as spam.` });
+        if (!had) await this.store.addEvent({ kind: 'settings', text: `${by} added ${key} to Spam senders${from === 'review' ? ' (answering Spam on an email)' : ''}: its verified mail goes straight to Spam, as spam.` });
         return { ok: true, key, list: await this.spamSenderList() };
     }
     async removeSpamSender(key, by) {

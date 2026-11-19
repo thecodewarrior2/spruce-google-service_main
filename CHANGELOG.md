@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.38: Confirm spam on an email's page can add its sender to Spam senders too
+
+- **An email's own page** (Mail → an email): its **Confirm spam** button didn't offer "also send its sender's future mail
+  straight to Spam", so the sender wasn't added. It has the same choice as Review and Mail now, ticked by default for
+  admins, shown for a verified outside sender; the message after it says when the sender was added.
+- The choice reads "with Spam, also send …" on every page, and Spam senders says "from a Spam answer" for one added
+  that way, wherever it was answered.
+- Dashboard only: how email is judged doesn't change.
+
+
 ## 0.6.37: Spam and Ignore on Mail, for the emails ticked and for a campaign's copies
 
 - **Mail → Messages:** the bar for the ticked emails has **Mark spam** and **Ignore, unclear** beside Move back, Mark false

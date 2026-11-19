@@ -917,7 +917,10 @@
             m.falseAlarm !== true ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: true }, (o) => `${notMoved ? 'Marked as not phishing' : 'Marked as a false alarm'}${o && o.released ? ', and moved back to the Inbox' : ''}.`) }, m.state === 'moved' ? 'False alarm: move back to Inbox' : notMoved ? 'Mark not phishing' : 'Mark false alarm') : null,
             m.falseAlarm !== false || moves ? h('button', { class: `btn${moves ? ' primary' : ''}`, type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, move: moves }, (out) => phishedText(out.moved)) }, moves ? 'Confirm phishing: move to Spam' : 'Confirm phishing') : null,
             // (0.6.26) Spam, not phishing: unwanted bulk mail. Moved to Spam the same way; the retraining export's class says spam.
-            !m.spam || moves ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, spam: true, move: moves }, (out) => (out.moved === 'moved' ? 'Confirmed as spam and moved to Spam.' : 'Confirmed as spam.')), title: 'Unwanted bulk mail (marketing, political, newsletters nobody signed up for), not phishing' }, moves ? 'Spam: move to Spam' : 'Confirm spam') : null,
+            // (0.6.38) With the spam-senders choice, as in Review (a verified outside sender; admins).
+            !m.spam || moves ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, spam: true, move: moves, addSender: spamAddSender && !isModerator() && !!(m.auth && m.auth.dmarc === 'pass' && !m.inside) },
+                (out) => `${out.moved === 'moved' ? 'Confirmed as spam and moved to Spam.' : 'Confirmed as spam.'}${out.spamSenderAdded ? ` ${out.spamSenderAdded} is now on Spam senders: its mail goes straight to Spam.` : ''}`), title: 'Unwanted bulk mail (marketing, political, newsletters nobody signed up for), not phishing' }, moves ? 'Spam: move to Spam' : 'Confirm spam') : null,
+            (!m.spam || moves) && m.auth && m.auth.dmarc === 'pass' && !m.inside ? spamSenderBox('its sender\'s') : null,
             !(m.unclear && m.markedBy) ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/unclear', { key: m.key }, 'Set aside: left as it is for the reader to decide, and not used for retraining.'), title: 'Neither clearly phishing nor clearly safe' }, 'Ignore, treat as suspicious') : null);
         const verdictText = pasted ? 'Checked from a pasted copy: nothing was stored, moved or counted.'
             : m.falseAlarm === true && m.releasedByUser && !m.markedBy ? 'Counted as a false alarm because the user moved it back. No admin has reviewed it yet.'
@@ -1273,7 +1276,7 @@
             const at = card.querySelector('.spam-add');
             const tbl = rows.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Sender', 'Added', 'By', ''].map(t => h('th', { text: t })))),
                 h('tbody', {}, rows.map(r => h('tr', {}, h('td', {}, h('span', { class: 'list-label spam small-label', text: 'Always to Spam' }), ' ', h('b', { text: r.key })),
-                    h('td', { 'data-sort': String(r.at || 0), text: `${new Date(r.at).toLocaleDateString()}${r.from === 'review' ? ', from Review' : ''}` }), h('td', { text: r.by || '–' }),
+                    h('td', { 'data-sort': String(r.at || 0), text: `${new Date(r.at).toLocaleDateString()}${r.from === 'review' ? ', from a Spam answer' : ''}` }), h('td', { text: r.by || '–' }),
                     h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
                         e.target.disabled = true;
                         try { const out = await api('/api/spam-senders', { method: 'POST', body: { key: r.key, remove: true } }); toast(`${r.key} is checked as usual again.`); draw(out.list || []); }
@@ -1762,7 +1765,7 @@
         const box = h('input', { type: 'checkbox', checked: spamAddSender });
         box.addEventListener('change', () => { spamAddSender = box.checked; });
         return h('label', { class: 'small spam-sender-opt', title: 'Only senders Gmail verified, from outside, are added (Settings → Sender lists → Spam senders); it skips the other checks for them.' },
-            box, ` with Mark spam, also send ${whose} future mail straight to Spam`);
+            box, ` with Spam, also send ${whose} future mail straight to Spam`);
     };
     // Answers every copy of the items given (one copy: its own endpoint, so Activity names it; more: in batches of 500).
     async function answerGroups(st, groups, action) {
