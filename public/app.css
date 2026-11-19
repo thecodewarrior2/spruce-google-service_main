@@ -880,3 +880,5 @@ tr[hidden], .row-cards tr[hidden] { display: none !important; }
 .intro-more { margin: -4px 0 14px; }
 .intro-more > summary { cursor: pointer; color: var(--accent); font-size: 13.5px; font-weight: 600; }
 .intro-more > p.sub { margin-top: 6px; }
+/* 0.6.41: a rule sign's points, so the rules score adds up on the page. */
+.ev-list li .sign-pts { margin-left: auto; padding-left: 10px; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text-2); white-space: nowrap; }

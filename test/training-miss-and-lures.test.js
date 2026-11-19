@@ -89,6 +89,16 @@ test('0.6.34: a newsletter\'s hidden, empty link to its own site, the sender ver
     const own = await analyze(await news('pass'), { mailbox: PAT, orgDomains: [ORG], firstTime: true });
     assert.equal(sign(own, 'hidden-decoy-link').weight, 0);
     assert.notEqual(own.status, 'flagged');
-    assert.equal(sign(await analyze(await news('fail'), { mailbox: PAT, orgDomains: [ORG], firstTime: true }), 'hidden-decoy-link').weight, 5, 'the sender not verified');
+    assert.equal(sign(await analyze(await news('fail'), { mailbox: PAT, orgDomains: [ORG], firstTime: true }), 'hidden-decoy-link').weight, 2, 'the sender not verified: a little (0.6.41)');
     assert.equal(sign(await analyze(await news('pass', 'go.lure-site.example'), { mailbox: PAT, orgDomains: [ORG], firstTime: true }), 'hidden-decoy-link').weight, 5, 'to another site');
+});
+
+test('0.6.41: Gmail naming the organization\'s domain (header.from) for a subdomain sender still counts as the sender\'s own site', async () => {
+    const mail = readMessage(Buffer.from([
+        'From: "Bookshop" <bookshop@e.bookshop.example>', `To: ${PAT}`, 'Subject: [EXTERNAL] The winners of this year\'s book awards', 'Message-ID: <b1@e.bookshop.example>',
+        'Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass (p=REJECT) header.from=bookshop.example', 'Content-Type: text/html; charset=utf-8', '',
+        '<p>See the winners.</p><a href="https://www.bookshop.example/t/abc" style="display:none"></a><p><a href="https://www.bookshop.example/winners">Shop the winners</a></p>'].join('\r\n')), { ownDomains: [ORG] });
+    const r = await analyze(await mail, { mailbox: PAT, orgDomains: [ORG] });
+    assert.equal(sign(r, 'hidden-decoy-link').weight, 0);
+    assert.notEqual(r.status, 'flagged');
 });

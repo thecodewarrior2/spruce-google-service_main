@@ -390,7 +390,8 @@ function orgDomainInsideSigns(E, facts, judged, own) {
 // (0.6.32) A hidden link with no text beside a visible link to the same site: a decoy for link scanners (they follow the
 // hidden one; the reader clicks the visible one). Responsive newsletters hide whole blocks, but their links have text.
 // (0.6.33) 5, flagged on its own. (0.6.34) Except to the sender's own site with Gmail's DMARC check passing: a brand's
-// newsletter can hide an empty link to its own site (a cooking site's did): a note of no weight then.
+// newsletter can hide an empty link to its own site (a cooking site's did): a note of no weight then. (0.6.41) 5 only to
+// another site than the sender's.
 function hiddenDecoyLinkSigns(E, judged, facts = {}, verified = false) {
     const reg = (u) => { try { const h = new URL(u).hostname.toLowerCase(); return E.registrableDomain(h) || h; } catch (e) { return ''; } };
     const web = (judged || []).filter(j => /^https?:\/\//i.test(String(j.url || '')));
@@ -400,8 +401,18 @@ function hiddenDecoyLinkSigns(E, judged, facts = {}, verified = false) {
     const site = reg(decoy.url);
     const senderDomain = String(facts.senderAddress || '').toLowerCase().split('@')[1] || '';
     const senderReg = E.registrableDomain(senderDomain) || senderDomain;
-    if (verified && site && site === senderReg) return [{ weight: 0, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one; that is the sender's own site and Gmail verified the sender, so it isn't counted (newsletters do this).` }];
-    return [{ weight: 5, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one: a trick to fool link scanners.` }];
+    // (0.6.41) The full 5 only for a link to another site than the sender's. To the sender's own site: nothing when
+    // Gmail's DMARC check passed for the sender's organization (Gmail can name the organization's domain, header.from
+    // bookshop.example for mail from e.bookshop.example), else 2 (the failed sender check counts
+    // on its own).
+    if (site && site === senderReg) {
+        const a = facts.auth || {};
+        const hf = String(a.headerFrom || '').toLowerCase();
+        const orgPass = verified || (a.dmarc === 'pass' && !!hf && (E.registrableDomain(hf) || hf) === senderReg);
+        return orgPass ? [{ weight: 0, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one; that is the sender's own site and Gmail verified the sender, so it isn't counted (newsletters do this).` }]
+            : [{ weight: 2, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one. That is the site the sender's address names, but Gmail couldn't confirm the sender, so it counts a little.` }];
+    }
+    return [{ weight: 5, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one: a trick to fool link scanners. It goes to another site than the sender's.` }];
 }
 
 // (0.6.19) Signs that count only together with another warning sign. Each alone, with only "it comes from outside"

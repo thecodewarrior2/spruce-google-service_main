@@ -2032,7 +2032,9 @@
         const Q = QUEUES[st.queue];
         const ai = m.ai && typeof m.ai.probability === 'number' ? m.ai.probability : null;
         const moves = st.mode === 'enforce' && m.state === 'inbox' && m.action !== 'move';
-        const against = (m.signals || []).filter(x => x.weight > 0).sort((a, b) => b.weight - a.weight).map(x => [x.weight, x.text]);
+        // (0.6.41) A rule sign carries its points (they add up to the rules score); the others (the AI, a link's verdict, the
+        // sender check) are shown by strength only.
+        const against = (m.signals || []).filter(x => x.weight > 0).sort((a, b) => b.weight - a.weight).map(x => [x.weight, x.text, x.weight]);
         // (0.6.27) Taken for spam: the column says spam, not phishing, and starts with what made it spam (the hidden
         // filler in list mail counts for no rules score, so it isn't among the weighted signs).
         const spamItem = kindOf(m) === 'spam';
@@ -2040,7 +2042,7 @@
         const againstTitle = spamItem ? 'Points to spam' : 'Points to phishing';
         for (const l of m.links || []) against.push([l.severity === 'danger' ? 3 : 1.5, `Link: ${l.reason || l.url}`]);
         if (ai !== null && ai >= 0.5) against.unshift([ai >= aiThreshold ? 3 : ai >= aiSuspicious ? 2 : 1, `The AI scores it ${pct(ai)}: it reads like phishing`]);
-        const pro = (m.signals || []).filter(x => x.weight < 0).map(x => [x.weight, x.text]);
+        const pro = (m.signals || []).filter(x => x.weight < 0).map(x => [x.weight, x.text, x.weight]);
         if (ai !== null && ai < 0.5) pro.unshift([ai < 0.2 ? 3 : 2, `The AI scores it ${pct(ai)}: it reads as genuine`]);
         if (m.auth && m.auth.dmarc === 'pass') pro.push([1, 'Gmail confirmed the sender is real (DMARC)']);
         if (m.inside) pro.push([1, 'It comes from inside your organization']);
@@ -2050,7 +2052,7 @@
             : !dm ? 'Sender check (DMARC): Gmail wrote no result for this email. Not counted either way.'
             : dm === 'none' ? 'Sender check (DMARC): none. The sender\'s domain publishes no DMARC policy, so nothing confirms who sent it. Not counted either way.'
             : dm !== 'pass' && dm !== 'fail' ? `Sender check (DMARC): ${dm} (neither a pass nor a failure). Not counted either way.` : '';
-        const list = (items, tone, none) => (items.length ? h('ul', { class: 'ev-list' }, items.map(([w, t]) => h('li', {}, signDots(w, tone), h('span', { text: t }))))
+        const list = (items, tone, none) => (items.length ? h('ul', { class: 'ev-list' }, items.map(([w, t, pts]) => h('li', {}, signDots(w, tone), h('span', { text: t }), typeof pts === 'number' ? h('span', { class: 'sign-pts', title: 'Points toward the rules score', text: `${pts > 0 ? '+' : '−'}${Math.abs(pts)}` }) : null)))
             : h('p', { class: 'small muted', text: none }));
         const lean = ai === null ? null : h('div', { class: 'lean-box' },
             h('div', { class: 'lean-ends', 'aria-hidden': 'true' }, h('span', { text: 'Reads as genuine' }), h('span', { text: 'Reads like phishing' })),

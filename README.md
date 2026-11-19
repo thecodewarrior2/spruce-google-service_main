@@ -190,7 +190,7 @@ that imitates your domain (3: "I've copied our superintendent").
 
 **Look-alikes written inside other domains** (0.6.32): a sender, reply address or link that writes the district's own
 domain inside someone else's (district-k12-example.mail.other.example) counts 5; a hidden, empty decoy link beside a
-visible one counts 5 (0.6.33: flagged on its own), unless it goes to the sender's own site and Gmail verified the sender (0.6.34: newsletters do that). A store's co-branded card mail from the bank that issues it (TD Bank, Synchrony, Citi…), linking to the bank's own site behind the store's address, isn't counted as dangerous links (0.6.33).
+visible one counts 5 (0.6.33: flagged on its own) when it goes to another site than the sender's; to the sender's own site, nothing when Gmail's DMARC check passed for the sender's organization (0.6.34: newsletters do that), else 2 (0.6.41). A store's co-branded card mail from the bank that issues it (TD Bank, Synchrony, Citi…), linking to the bank's own site behind the store's address, isn't counted as dangerous links (0.6.33).
 
 **Sender lists** (0.6.35; was Allowlist): Trusted senders (never moved), Spam senders (always to Spam: added with a Spam
 answer in Review, ticked by default for admins, or on the page; verified mail only), brand senders your reviewers
@@ -325,7 +325,8 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   - Each row shows the AI score, the subject, the sender, how many copies and people, when it arrived and its
     heaviest sign, with quick **Phishing**, **Spam**, **Not phishing** and **Not sure** buttons for the clear
     cases. Tick several to answer them all at once (more than 50 asks first).
-  - **Open one** to weigh the evidence: who sent it to whom (the first two, **…show more** for everyone), where
+  - **Open one** to weigh the evidence (0.6.41: each rule sign shows its points, which add up to the rules score; the
+    marks beside it are its strength): who sent it to whom (the first two, **…show more** for everyone), where
     the AI score and the rules score stand, the signs that **point to phishing** and those that **point to safe**
     (each weak, medium or strong), and what the AI weighed most. Under the evidence, a note says when the
     sender check (DMARC) neither passed nor failed (no result from Gmail, a "none" policy, another result such as

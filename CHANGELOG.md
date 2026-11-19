@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.41: The hidden link counts fully only toward another site; Review shows each sign's points
+
+- **A hidden, empty link** (the link-scanner trick, 0.6.32) counts its full 5 only when it goes to another site than the
+  sender's. To the sender's own site it counts nothing when Gmail's DMARC check passed for the sender's organization, and
+  2 otherwise. Gmail sometimes names the organization's domain in its result (header.from bookshop.example for mail from
+  e.bookshop.example): that counted as unconfirmed before, so a store's newsletter scored 6 and was flagged.
+- **Review shows each rule sign's points** (+5, +1…) beside its strength marks, so the rules score adds up on the page.
+  The marks are strength (weak, medium, strong), not points.
+- How email is judged changes (the hidden link): checks level 35, so recent delivered mail is checked again after the update.
+
+
 ## 0.6.40: Spam answers cover the same address, Spam senders by subdomain or address, a quieter Suspicious tab
 
 - **One Spam answer for one address:** answering Spam (Review, an email's page, Mail's ticked emails, a campaign's box)
