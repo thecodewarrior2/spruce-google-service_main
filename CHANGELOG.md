@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.34: a newsletter's hidden link to its own site isn't a decoy
+
+- **A cooking site's newsletter was flagged as phishing:** it hides an invisible, empty link to its own site beside a
+  visible one, which 0.6.33 counted 5 (a decoy for link scanners), flagging it on its own though the AI scored it 0%.
+  Brands' newsletters do this. Now, when the hidden link goes to the sender's own site (its registrable domain) and
+  Gmail's DMARC check passed for the sender, it is a note of no weight. To any other site, or with the sender not
+  verified (as in the phishing-training lure that showed the trick), it counts 5 as before (`hiddenDecoyLinkSigns` in
+  `src/engine/analyze.js`).
+- Tests: `test/training-miss-and-lures.test.js` (a made-up cooking site).
+- **Checks level 32:** delivered mail of the last hours is checked again after this update, so the newsletters flagged
+  for this are checked again.
+
+
 ## 0.6.33: a store's card from the bank that issues it; a hidden decoy link is flagged on its own
 
 - **A store's co-branded card mail was suspicious:** a store card's offers come from the bank that issues the card

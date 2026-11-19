@@ -80,3 +80,15 @@ test('0.6.33: a store\'s co-branded card from the bank that issues it: its links
     assert.ok(unknown.signals.some(s => /dangerous/.test(s.text)), 'the same links to an unknown site: still dangerous');
     assert.equal(sign(await judge({ from: 'TD Bank <alerts@td-bank-secure.example>' }), 'brand-name-other').weight, 5, 'TD Bank is a known brand now');
 });
+
+test('0.6.34: a newsletter\'s hidden, empty link to its own site, the sender verified: not counted; unverified, or to another site: 5', async () => {
+    const news = (dmarc, site = 'links.cooking-site.example') => readMessage(Buffer.from([
+        'From: "Cooking Site Tips" <tips@email.cooking-site.example>', `To: ${PAT}`, 'Subject: Can glass dishes go in the oven?', 'Message-ID: <n1@email.cooking-site.example>',
+        `Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=${dmarc} header.from=email.cooking-site.example`, 'Content-Type: text/html; charset=utf-8', '',
+        `<p>Reheating dinner? Read this first.</p><a href="https://${site}/t1" style="height:0;opacity:0;width:0;"> </a><a href="https://${site}/t2">Read More</a>`].join('\r\n')), { ownDomains: [ORG] });
+    const own = await analyze(await news('pass'), { mailbox: PAT, orgDomains: [ORG], firstTime: true });
+    assert.equal(sign(own, 'hidden-decoy-link').weight, 0);
+    assert.notEqual(own.status, 'flagged');
+    assert.equal(sign(await analyze(await news('fail'), { mailbox: PAT, orgDomains: [ORG], firstTime: true }), 'hidden-decoy-link').weight, 5, 'the sender not verified');
+    assert.equal(sign(await analyze(await news('pass', 'go.lure-site.example'), { mailbox: PAT, orgDomains: [ORG], firstTime: true }), 'hidden-decoy-link').weight, 5, 'to another site');
+});

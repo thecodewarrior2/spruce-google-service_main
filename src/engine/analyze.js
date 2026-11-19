@@ -182,7 +182,7 @@ async function analyze(facts, ctx = {}) {
         ...safe(() => watchedLookalikeSigns(E, facts, judged, ctx.lookalikes)),
         // (0.6.32) The organization's own domain written inside another domain, and a hidden decoy link.
         ...safe(() => orgDomainInsideSigns(E, facts, judged, ctx.orgDomains || [])),
-        ...safe(() => hiddenDecoyLinkSigns(E, judged))
+        ...safe(() => hiddenDecoyLinkSigns(E, judged, facts, verified))
     ];
     // A colleague's name with a title or the organization's name added ("Misty Samplefield, Principal", "Misty
     // Samplefield - Maple Schools"), which impersonators write and the exact match misses (0.5.43).
@@ -387,13 +387,19 @@ function orgDomainInsideSigns(E, facts, judged, own) {
 }
 // (0.6.32) A hidden link with no text beside a visible link to the same site: a decoy for link scanners (they follow the
 // hidden one; the reader clicks the visible one). Responsive newsletters hide whole blocks, but their links have text.
-// (0.6.33) 5, flagged on its own: no genuine email, marketing included, hides an empty link like this.
-function hiddenDecoyLinkSigns(E, judged) {
+// (0.6.33) 5, flagged on its own. (0.6.34) Except to the sender's own site with Gmail's DMARC check passing: a brand's
+// newsletter can hide an empty link to its own site (a cooking site's did): a note of no weight then.
+function hiddenDecoyLinkSigns(E, judged, facts = {}, verified = false) {
     const reg = (u) => { try { const h = new URL(u).hostname.toLowerCase(); return E.registrableDomain(h) || h; } catch (e) { return ''; } };
     const web = (judged || []).filter(j => /^https?:\/\//i.test(String(j.url || '')));
     const visible = new Set(web.filter(j => !j.hidden && String(j.text || '').trim()).map(j => reg(j.url)).filter(Boolean));
     const decoy = web.find(j => j.hidden && !String(j.text || '').trim() && visible.has(reg(j.url)));
-    return decoy ? [{ weight: 5, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${reg(decoy.url)} beside the visible one: a trick to fool link scanners.` }] : [];
+    if (!decoy) return [];
+    const site = reg(decoy.url);
+    const senderDomain = String(facts.senderAddress || '').toLowerCase().split('@')[1] || '';
+    const senderReg = E.registrableDomain(senderDomain) || senderDomain;
+    if (verified && site && site === senderReg) return [{ weight: 0, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one; that is the sender's own site and Gmail verified the sender, so it isn't counted (newsletters do this).` }];
+    return [{ weight: 5, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one: a trick to fool link scanners.` }];
 }
 
 // (0.6.19) Signs that count only together with another warning sign. Each alone, with only "it comes from outside"
