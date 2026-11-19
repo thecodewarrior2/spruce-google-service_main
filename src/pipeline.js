@@ -235,7 +235,7 @@ function policyValue(key, v, now = {}) {
             const domain = key === 'allowAddresses' ? x.split('@')[1] || '' : x;
             if (key === 'allowAddresses' && !/^[^\s@]+@[^\s@]+$/.test(x)) bad(`"${x.slice(0, 80)}" isn't an email address.`);
             if (!DOMAIN_RE.test(domain)) bad(`"${x.slice(0, 80)}" isn't a domain${key === 'allowAddresses' ? ' at the end of an address' : ''}.`);
-            if (key === 'allowDomains' && orgDomains.some(d => x === d || x.endsWith(`.${d}`) || d.endsWith(`.${x}`))) bad(`${x} is your organization's own domain: it can't be allowlisted, or a staff account taken over would never be moved. Allowlist single addresses instead.`);
+            if (key === 'allowDomains' && orgDomains.some(d => x === d || x.endsWith(`.${d}`) || d.endsWith(`.${x}`))) bad(`${x} is your organization's own domain: it can't be on Trusted senders, or a staff account taken over would never be moved. Add single addresses instead.`);
             if (key === 'allowLinkDomains') {
                 if (orgDomains.some(d => x === d || x.endsWith(`.${d}`) || d.endsWith(`.${x}`))) bad(`${x} is your organization's own domain: the phishing lists already flag its links only by the exact page listed, never the whole site.`);
                 const why = linkDomainRefused(x, spruce.load());
@@ -403,7 +403,7 @@ class Service {
             const part = (verb, l) => (l.length ? `${verb} ${l.length > 10 ? `${l.length} entries` : l.join(', ')}` : '');
             const changes = [part('added', added), part('removed', removed)].filter(Boolean).join('; ');
             if (key === 'allowLinkDomains') return `${by} changed the allowed link domains on the dashboard (${how}): ${changes}. A phishing list's listing of their whole domain no longer flags links to them, in anyone's mail (a listing of the exact page still does; the other link checks still apply).`;
-            return `${by} changed the allowlisted ${key === 'allowDomains' ? 'domains' : 'addresses'} on the dashboard (${how}): ${changes}. Mail from them is never moved when Gmail's DMARC check passes for it.`;
+            return `${by} changed Trusted senders (${key === 'allowDomains' ? 'domains' : 'addresses'}) on the dashboard (${how}): ${changes}. Mail from them is never moved when Gmail's DMARC check passes for it.`;
         };
         const text = LIST_KEYS.includes(key) ? listChange()
             : key === 'releasesRepo' ? `${by} changed the release repository on the dashboard (${how}), from ${policyWords(key, before)} to ${policyWords(key, value)}: Settings → Update now offers the versions there, and an update installs them.`
@@ -411,10 +411,10 @@ class Service {
             : key === 'watchScope' ? (value === 'domain'
                 ? `${by} switched the service to the whole domain on the dashboard (${how}): every active mailbox of ${this.cfg.orgDomains.join(', ')} is watched and checked from the next re-read of the directory (started now), not only the pilot. The mode (${this.cfg.mode}) and the brakes apply to all of them.`
                 : `${by} switched the service back to the pilot on the dashboard (${how}): only the pilot's mailboxes are checked; the others' watches are stopped at the next re-read (started now).`)
-            : key === 'aiScansInside' ? `${by} turned ${value ? 'on' : 'off'} the AI for mail from inside the organization on the dashboard (${how}): ${value ? `the AI reads it too now; its score alone ${this.cfg.aiMovesInside ? `moves it at ${policyWords('aiThreshold', this.cfg.aiThreshold)} or more ("AI alone moves inside mail" is on)` : 'still doesn\'t move it'}` : this.cfg.aiMovesInside ? 'but "AI alone moves inside mail" is on and needs it, so the AI keeps reading inside mail until that is off' : 'the rule checks alone read it now (its links, its headers and the rest)'}.`
+            : key === 'aiScansInside' ? `${by} turned ${value ? 'on' : 'off'} the AI for mail from inside the organization on the dashboard (${how}): ${value ? `the AI reads it too now; its score alone ${this.cfg.aiMovesInside ? `moves it at ${policyWords('aiThreshold', this.cfg.aiThreshold)} or more ("Let the AI alone move staff email" is on)` : 'still doesn\'t move it'}` : this.cfg.aiMovesInside ? 'but "Let the AI alone move staff email" is on and needs it, so the AI keeps reading inside mail until that is off' : 'the rule checks alone read it now (its links, its headers and the rest)'}.`
             : key === 'aiMovesInside' ? (value
-                ? `${by} turned on "AI alone moves inside mail" on the dashboard (${how}): an email from inside the organization that the AI scores ${policyWords('aiThreshold', this.cfg.aiThreshold)} or more is ${this.cfg.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} on the AI score alone, as outside mail is. The AI reads inside mail for it.`
-                : `${by} turned off "AI alone moves inside mail" on the dashboard (${how}): the AI score alone no longer moves mail from inside the organization; the rules still can (a staff account taken over).${this.cfg.aiScansInside ? '' : ' The AI stops reading inside mail ("AI on inside mail" is off).'}`)
+                ? `${by} turned on "Let the AI alone move staff email" on the dashboard (${how}): an email from inside the organization that the AI scores ${policyWords('aiThreshold', this.cfg.aiThreshold)} or more is ${this.cfg.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} on the AI score alone, as outside mail is. The AI reads inside mail for it.`
+                : `${by} turned off "Let the AI alone move staff email" on the dashboard (${how}): the AI score alone no longer moves mail from inside the organization; the rules still can (a staff account taken over).${this.cfg.aiScansInside ? '' : ' The AI stops reading inside mail ("AI reads staff email" is off).'}`)
             : key === 'suspiciousLabel' ? (value
                 ? `${by} turned on the Suspicious label on the dashboard (${how}): from now on, an email that is suspicious but not moved gets the label ${this.cfg.suspiciousLabelName} in its mailbox, so its reader sees it, in monitor mode too. Nothing is moved by it.`
                 : `${by} turned off the Suspicious label on the dashboard (${how}): no more emails get it; the ones that have it keep it.`)
@@ -820,7 +820,7 @@ class Service {
         const spamSender = await this.spamSenderFor(user, facts, result, allowlisted).catch(() => null);
         if (spamSender) {
             result.spamSender = spamSender.key;
-            decision = { action: this.cfg.mode === 'enforce' ? 'move' : 'would-move', trigger: 'spam', why: `spam: ${spamSender.key} is on Settings → Sender lists → Spam senders (added by ${spamSender.by})${this.cfg.mode === 'enforce' ? '' : ' (monitor mode: not moved)'}` };
+            decision = { action: this.cfg.mode === 'enforce' ? 'move' : 'would-move', trigger: 'spam', why: `spam: ${spamSender.key} is on Settings → Sender lists → Spam senders (added by ${spamSender.by})${this.cfg.mode === 'enforce' ? '' : ' (monitor mode: nothing is moved)'}` };
         }
         if (!alreadyMoved && decision.action === 'move' && await this.brakeOn(now)) decision = spamSender ? Object.assign({}, decision, { action: 'would-move', why: `${decision.why}; the brake is on, so it was left in the Inbox` }) : decide(result, this.cfg, { brake: true });
         if (alreadyMoved) decision = { action: 'move', trigger: decision.trigger, why: `${decision.why || 'moved'} (moved by an earlier try)` };
@@ -931,7 +931,7 @@ class Service {
         const slot = await this.store.reserveMove(`${hourOf(now)}|${resumedAt}`, limit, now);
         if (!slot.ok) {
             await this.tripBrake(now, slot.count, limit);
-            return { decision: { action: 'would-move', trigger: decision.trigger, why: `${decision.why} (brake on: not moved)`, braked: true }, held: 'brake' };
+            return { decision: { action: 'would-move', trigger: decision.trigger, why: `${decision.why} (not moved: the brake is on)`, braked: true }, held: 'brake' };
         }
         return { decision, held: null };
     }

@@ -86,11 +86,11 @@ test('DMARC must pass: a forged allowlisted or staff address is judged like mail
     const rec = (id) => store.getRecord(`${USER}|${id}`);
     assert.equal(await rec('allowOk'), null, 'allowlisted with DMARC passing: nothing');
     const forged = await rec('allowForged');
-    assert.equal(forged.action, 'move'); assert.match(forged.why, /allowlisted sender, but DMARC didn't pass/);
+    assert.equal(forged.action, 'move'); assert.match(forged.why, /on Trusted senders, but Gmail couldn't confirm the sender is real/);
     assert.equal(await rec('insideOk'), null, 'staff mail with DMARC passing: the AI doesn\'t read it (AI_SCANS_INSIDE off), the rules find nothing');
     for (const id of ['insideForged', 'insideNoResult']) {
         const r = await rec(id);
-        assert.equal(r.action, 'move', id); assert.match(r.trigger, /ai/); assert.match(r.why, /isn't treated as inside/);
+        assert.equal(r.action, 'move', id); assert.match(r.trigger, /ai/); assert.match(r.why, /isn't treated as staff mail/);
     }
     assert.deepEqual(gmail.modified.map(m => m.id).sort(), ['allowForged', 'insideForged', 'insideNoResult']);
     // With AI_SCANS_INSIDE on, the AI reads staff mail too, and its score alone still never moves it.

@@ -44,7 +44,7 @@ function suspiciousWhy(result, cfg) {
             : `a link check found ${result.status === 'flagged' ? 'a dangerous' : 'a suspicious'} link${off}`);
     }
     if (p !== null && p >= cfg.aiThreshold && result.inside && !cfg.aiMovesInside) {
-        parts.push(`the AI scored it ${pct(p)}, but the sender is inside the organization and "AI alone moves inside mail" is off, so the AI score alone doesn't move it`);
+        parts.push(`the AI scored it ${pct(p)}, but the sender is inside the organization and "Let the AI alone move staff email" is off, so the AI score alone doesn't move it`);
     } else if (p !== null && p >= line) {
         parts.push(`the AI scored it ${pct(p)} (suspicious from ${pct(line)}, moved from ${pct(cfg.aiThreshold)})`);
     }
@@ -53,14 +53,14 @@ function suspiciousWhy(result, cfg) {
 
 // The action for an analyzed email ({ action, trigger, why, braked }); state.brake: the domain-wide brake is on.
 function decide(result, cfg, state = {}) {
-    if (result.status === 'trusted') return { action: 'none', trigger: null, why: 'allowlisted sender' };
+    if (result.status === 'trusted') return { action: 'none', trigger: null, why: 'the sender is on Trusted senders (Settings → Sender lists)' };
     const p = result.ai && typeof result.ai.probability === 'number' ? result.ai.probability : null;
     const ruleMove = cfg.moveOnRules && result.status === 'flagged';
     const aiHigh = p !== null && p >= cfg.aiThreshold;
     const aiMove = aiHigh && (!result.inside || cfg.aiMovesInside);
     // Why an allowlisted or staff address didn't count as one (said on the record).
-    const notes = [result.allowlistedUnverified ? 'allowlisted sender, but DMARC didn\'t pass, so it was judged like any other' : '',
-                   result.ownAddress && !result.inside ? 'the address is the organization\'s, but DMARC didn\'t pass, so it isn\'t treated as inside' : ''].filter(Boolean);
+    const notes = [result.allowlistedUnverified ? 'the sender is on Trusted senders, but Gmail couldn\'t confirm the sender is real (DMARC), so it was checked like any other' : '',
+                   result.ownAddress && !result.inside ? 'the address is your organization\'s, but Gmail couldn\'t confirm the sender is real (DMARC), so it isn\'t treated as staff mail' : ''].filter(Boolean);
     const noted = (s) => [s, ...notes].filter(Boolean).join('; ');
     // (0.6.19) Spam, not phishing (analyze.js signsNeedingCompany): list or marketing mail padded with hidden filler,
     // nothing else suspicious. Moved to Spam like the rest (the user can take it back out), under the same switch as
@@ -74,10 +74,11 @@ function decide(result, cfg, state = {}) {
         return { action: suspicious ? 'flag' : 'none', trigger: null, why: noted(suspicious ? suspiciousWhy(result, cfg) : '') };
     }
     const trigger = ruleMove && aiMove ? 'rules+ai' : ruleMove ? 'rules' : aiMove ? 'ai' : 'spam';
-    const why = spamMove ? noted(`spam: ${result.spam.why}`) : noted([ruleMove ? `rules flagged it (score ${result.score})` : '',
-                       aiMove ? `AI ${Math.round(p * 100)}% ≥ ${Math.round(cfg.aiThreshold * 100)}%${result.inside ? ' (the sender is inside the organization; "AI alone moves inside mail" is on)' : ''}` : ''].filter(Boolean).join(' and '));
-    if (cfg.mode !== 'enforce') return { action: 'would-move', trigger, why: `${why} (monitor mode: not moved)` };
-    if (state.brake) return { action: 'would-move', trigger, why: `${why} (brake on: not moved)`, braked: true };
+    // (0.6.39) In plain words: what scored how much, and the level that moves.
+    const why = spamMove ? noted(`spam: ${result.spam.why}`) : noted([ruleMove ? `the rule checks scored it ${result.score} (moved from 5)` : '',
+                       aiMove ? `the AI was ${Math.round(p * 100)}% sure it is phishing (moved from ${Math.round(cfg.aiThreshold * 100)}%)${result.inside ? ' (the sender is staff; "Let the AI alone move staff email" is on)' : ''}` : ''].filter(Boolean).join(' and '));
+    if (cfg.mode !== 'enforce') return { action: 'would-move', trigger, why: `${why} (monitor mode: nothing is moved)` };
+    if (state.brake) return { action: 'would-move', trigger, why: `${why} (not moved: the brake is on)`, braked: true };
     return { action: 'move', trigger, why };
 }
 

@@ -14,8 +14,8 @@ const DAY = 24 * 60 * 60 * 1000;
 const CHECK_EVERY_MS = 30 * DAY;
 const PER_RUN = 20;
 const SUSPEND = new Set(['registered-again', 'gone', 'expired', 'blocked', 'listed', 'spamhaus']);
-const LIST_NAMES = { allowDomains: 'allowlisted senders', allowAddresses: 'allowlisted addresses', allowLinkDomains: 'allowed link domains',
-    brandSenders: 'brand senders your reviewers confirmed', spamRescued: 'spam people took back', spamSenders: 'spam senders' };
+const LIST_NAMES = { allowDomains: 'Trusted senders', allowAddresses: 'Trusted senders (addresses)', allowLinkDomains: 'Link sites',
+    brandSenders: 'Brand senders', spamRescued: 'Spam people took back', spamSenders: 'Spam senders' };
 
 const day = (t) => new Date(t).toISOString().slice(0, 10);
 
@@ -130,10 +130,10 @@ function install(Service, { isAllowed }) {
         async allowReviewAlert(d, e) {
             const lists = e.lists.map(l => LIST_NAMES[l] || l).join(', ');
             const what = e.review.changes.map(c => c.text).join('; ');
-            const text = `${d} (on ${lists}) needs review: ${what}. ${e.review.suspended ? 'It may have lapsed or changed hands, so it is suspended: no longer trusted until an admin answers in Settings → Sender lists ("Still trusted", or remove it).' : 'It is still trusted; check it in Settings → Sender lists ("Still trusted", or remove it).'}`;
+            const text = `${d} (on ${lists}) needs review: ${what}. ${e.review.suspended ? 'It may have lapsed or changed hands, so it is suspended: its list doesn\'t count for it until an admin answers in Settings → Sender lists ("Keep it on the list", or remove it).' : 'Its list still counts for it; check it in Settings → Sender lists ("Keep it on the list", or remove it).'}`;
             await this.alert('allowlist-review', text, { domain: d });
-            await this.adminMail(`S.P.R.U.C.E: ${d} on your allow list needs review${e.review.suspended ? ' (suspended)' : ''}`,
-                `${text}\n\nThe allow lists are checked every 30 days: a domain whose registration or reputation changed may have expired and been registered by someone else, or been sold.${this.cfg.dashboardUrl ? `\n\nSettings → Sender lists: ${this.cfg.dashboardUrl}#/allowlist` : ''}\n`)
+            await this.adminMail(`S.P.R.U.C.E: ${d} on your Sender lists needs review${e.review.suspended ? ' (suspended)' : ''}`,
+                `${text}\n\nEvery domain on your Sender lists is checked every 30 days: a domain whose registration or reputation changed may have expired and been registered by someone else, or been sold.${this.cfg.dashboardUrl ? `\n\nSettings → Sender lists: ${this.cfg.dashboardUrl}#/allowlist` : ''}\n`)
                 .catch(err => this.log.error('allowlist review mail:', err));
         },
         // An email in every admin's Inbox (as the weekly summary is sent).

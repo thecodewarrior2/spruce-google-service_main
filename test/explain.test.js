@@ -38,7 +38,7 @@ test('the suspicious reason names its cause: the rules\' score, a link check, th
     // Flagged, with moving on the rules off.
     assert.match(decide(r('flagged', 6, 0.1), cfgOf({ MOVE_ON_RULES: 'false' })).why, /scored it 6 .*moving on the rules is off \(MOVE_ON_RULES\)/);
     // Inside, the AI high, the setting off: says so.
-    assert.match(decide(r('clean', 0, 0.95, true), cfg).why, /the AI scored it 95%, but the sender is inside the organization and "AI alone moves inside mail" is off/);
+    assert.match(decide(r('clean', 0, 0.95, true), cfg).why, /the AI scored it 95%, but the sender is inside the organization and "Let the AI alone move staff email" is off/);
     // Nothing suspicious: no reason.
     assert.equal(decide(r('clean', 1, 0.2), cfg).action, 'none');
     assert.equal(suspiciousWhy(r('caution', 3, null), cfg), 'the rule checks scored it 3 (suspicious from 3, moved from 5)');
@@ -50,7 +50,7 @@ test('"AI alone moves inside mail": off by default; on (environment or Settings 
     assert.equal(decide(inside, cfgOf({ MODE: 'enforce' })).action, 'flag', 'off: never moved on the AI alone');
     const on = decide(inside, cfgOf({ MODE: 'enforce', AI_MOVES_INSIDE: 'true' }));
     assert.deepEqual([on.action, on.trigger], ['move', 'ai']);
-    assert.match(on.why, /^AI 95% ≥ 90% \(the sender is inside the organization; "AI alone moves inside mail" is on\)$/);
+    assert.match(on.why, /^the AI was 95% sure it is phishing \(moved from 90%\) \(the sender is staff; "Let the AI alone move staff email" is on\)$/);
     assert.equal(policyValue('aiMovesInside', 'on'), true);
     assert.equal(policyValue('aiMovesInside', false), false);
     assert.throws(() => policyValue('aiMovesInside', 'maybe'), /alone moves mail from inside is on or off/);
@@ -74,12 +74,12 @@ test('"AI alone moves inside mail": off by default; on (environment or Settings 
         assert.equal(out.body.aiMovesInside, true, 'every answer says it');
         assert.equal(cfg.aiMovesInside, true);
         assert.equal(service.aiReadsInside(), true, 'it needs the AI to read inside mail');
-        assert.ok((await store.listEvents()).some(e => /turned on "AI alone moves inside mail" on the dashboard \(confirmed with the project ID\): an email from inside the organization that the AI scores 90% or more is moved to Spam on the AI score alone/.test(e.text)));
+        assert.ok((await store.listEvents()).some(e => /turned on "Let the AI alone move staff email" on the dashboard \(confirmed with the project ID\): an email from inside the organization that the AI scores 90% or more is moved to Spam on the AI score alone/.test(e.text)));
         // Turning it off needs no agreement.
         out = await post({ key: 'aiMovesInside', value: false, projectId: 'demo-project' });
         assert.equal(out.status, 200);
         assert.equal(cfg.aiMovesInside, false);
-        assert.ok((await store.listEvents()).some(e => /turned off "AI alone moves inside mail".*the AI score alone no longer moves mail from inside the organization; the rules still can/.test(e.text)));
+        assert.ok((await store.listEvents()).some(e => /turned off "Let the AI alone move staff email".*the AI score alone no longer moves mail from inside the organization; the rules still can/.test(e.text)));
         assert.equal(service.aiReadsInside(), false);
         const s = await (await fetch(`${base}/api/settings`)).json();
         assert.equal(s.aiMovesInside, false);

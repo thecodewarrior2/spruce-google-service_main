@@ -134,8 +134,8 @@ test('the allowlist on the dashboard: lists checked (never the organization\'s o
     assert.equal(isAllowed(svc.cfg, `sis-notices@${ORG}`), true, 'a single address in the own domain can be');
     await svc.setPolicy('allowDomains', 'vendor.example\nbus-company.example', `it.head@${ORG}`);
     const texts = (await store.listEvents()).filter(e => e.kind === 'settings').map(e => e.text);
-    assert.ok(texts.includes(`it.head@${ORG} changed the allowlisted domains on the dashboard (confirmed with the project ID): added news.example, vendor.example. Mail from them is never moved when Gmail's DMARC check passes for it.`));
-    assert.ok(texts.includes(`it.head@${ORG} changed the allowlisted domains on the dashboard (confirmed with the project ID): added bus-company.example; removed news.example. Mail from them is never moved when Gmail's DMARC check passes for it.`));
+    assert.ok(texts.includes(`it.head@${ORG} changed Trusted senders (domains) on the dashboard (confirmed with the project ID): added news.example, vendor.example. Mail from them is never moved when Gmail's DMARC check passes for it.`));
+    assert.ok(texts.includes(`it.head@${ORG} changed Trusted senders (domains) on the dashboard (confirmed with the project ID): added bus-company.example; removed news.example. Mail from them is never moved when Gmail's DMARC check passes for it.`));
     assert.equal(warned.length, 0, '0.5.28: noted under What admins did, not emailed');
     // Another instance, at its refresh.
     const b = new Service({ cfg: loadConfig(ENV), store, gmail: gmail(), log: { error() {} } });

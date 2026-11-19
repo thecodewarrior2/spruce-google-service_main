@@ -58,7 +58,7 @@ test('registered again: suspended, the admins emailed, its mail judged like anyo
     assert.deepEqual(list[0].changes.map(c => c.kind), ['registered-again', 'registrar', 'nameservers']);
     assert.equal(sent.length, 1, 'one email to the admin');
     assert.equal(sent[0].user, ADMIN);
-    assert.match(sent[0].raw, /lakeview-supply\.example on your allow list needs review \(suspended\)/);
+    assert.match(sent[0].raw, /lakeview-supply\.example on your Sender lists needs review \(suspended\)/);
     assert.ok((await svc.store.listEvents(0, { limit: 20 })).some(e => e.kind === 'allowlist-review'));
     assert.deepEqual(await svc.allowedNow(`billing@${VENDOR}`), { allowed: false, suspended: VENDOR });
     const held = await judge(svc, 'Invoice 2');
