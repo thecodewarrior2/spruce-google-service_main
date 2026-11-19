@@ -371,7 +371,8 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     whether they clicked a link in it (with **Settings → Link clicks** on; Gmail's logs), and what was done
     (moved to Spam and when; would move; it had already left the Inbox). **Mark as seen** on a card, or **Mark
     all as seen**, takes it off the page (a link shows the ones marked) and off the red banner on Today and
-    Messages, until something new is found in it (0.6.17).
+    Messages, until something new is found in it (0.6.17). Answering any of its emails in any way counts as seen too,
+    and a seen listing is gone from the page 7 days later (0.6.43).
   - **Look-alikes** (0.5.36): the look-alike watch's progress and each domain found that imitates yours
     (when, registered, whether it has mail servers or a website, how it counts in mail), with **It's ours**, **Harmless**, **A
     threat** and **Watch as found** (each with the project ID, noted in Activity). A new one is a red banner

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.43: Re-checked: an answered email counts as seen, and seen listings clear after 7 days
+
+- **Threats → Re-checked:** answering any copy of an email in any way (Phishing, Spam, Not phishing, Not sure, or an
+  admin moving it back) marks its listing as seen, from the moment of the answer, the same as **Mark as seen**: it leaves
+  the page and the banners on Today and Mail. An answer from before the re-check found it doesn't count. Something new
+  found in it brings it back, as before.
+- **Seen listings clear:** 7 days after a listing was seen (marked or answered), it is gone from the page altogether,
+  "Show the ones seen" included. Its pill says when it was seen and when it clears.
+- Dashboard only: how email is judged doesn't change.
+
+
 ## 0.6.42: Each sign as a heat box
 
 - **Review's evidence** shows each sign as a colored box, like a heat index, instead of dots: the box holds the sign's

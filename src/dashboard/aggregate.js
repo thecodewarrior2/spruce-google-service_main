@@ -169,6 +169,12 @@
     // (0.6.17) Marked as seen: all of them at once (seenAt) or one campaign (seen.campaigns[campaign]). A group
     // is seen when none of its re-checks is newer than that; something new found brings it back.
     const seenUntil = (seen, campaign) => Math.max(Number(seen && seen.at) || 0, Number(seen && seen.campaigns && seen.campaigns[campaign]) || 0);
+    // (0.6.43) An email answered in any way (Phishing, Spam, Not phishing, Not sure, or moved back by an admin) counts as
+    // seen, from when it was answered. A listing seen for SEEN_CLEAR_DAYS leaves the page altogether, "marked as seen"
+    // included, until something new is found in it.
+    const SEEN_CLEAR_DAYS = 7;
+    const answeredAt = (r) => (r.markedBy || (r.state === 'released' && r.releasedBy && !r.releasedByUser)
+        ? Number((r.undo && r.undo.at) || r.releasedAt || r.updatedAt || r.processedAt) || 0 : 0);
     function rechecked(records, now, n, seen = {}) {
         const since = now - n * DAY;
         const hit = records.filter(r => r.recheck && r.recheck.at >= since);
@@ -183,6 +189,7 @@
                 opened: cl && cl.opened ? true : rc ? !!rc.opened : null, openedAt: cl && cl.openedAt ? cl.openedAt : null,
                 clicked: cl ? !!cl.clicked : null, clickedAt: cl && cl.clickedAt ? cl.clickedAt : null, clicksCheckedAt: cl ? cl.checkedAt : null,
                 movedAt: rc && rc.movedAt ? rc.movedAt : r.state === 'moved' ? (r.heldMovedAt || r.processedAt) : null, released: r.state === 'released' });
+            g.answered = Math.max(g.answered || 0, answeredAt(r));
             if (rc) {
                 g.reasons.add(recheckReason(rc));
                 g.lastRecheck = Math.max(g.lastRecheck, rc.at);
@@ -193,18 +200,23 @@
         return [...groups.values()].map(g => {
             const re = g.copies.filter(c => c.rechecked);
             const count = (f) => g.copies.filter(f).length;
+            const marked = seenUntil(seen, g.campaign), seenAt = Math.max(marked, g.answered || 0);
+            const isSeen = g.lastRecheck <= seenAt;
             return { campaign: g.campaign, label: g.label, subject: g.subject, sender: g.sender, reasons: [...g.reasons], lastRecheck: g.lastRecheck, firstReceived: g.firstReceived,
-                seen: g.lastRecheck <= seenUntil(seen, g.campaign),
+                seen: isSeen, seenAt: isSeen ? seenAt : null, seenBy: isSeen ? (g.lastRecheck <= marked ? 'marked' : 'answered') : null,
                 phishing: re.some(c => RECHECK_BAD.includes(c.outcome)), people: new Set(g.copies.map(c => c.user)).size, rechecked: re.length,
                 moved: count(c => c.movedAt), opened: count(c => c.opened), clicked: count(c => c.clicked), clicksChecked: count(c => c.clicksCheckedAt),
                 copies: g.copies.sort((a, b) => (b.clicked === true) - (a.clicked === true) || (b.opened === true) - (a.opened === true) || String(a.user).localeCompare(String(b.user))) };
-        }).sort((a, b) => b.lastRecheck - a.lastRecheck);
+        }).filter(g => !g.seen || now - g.seenAt < SEEN_CLEAR_DAYS * DAY).sort((a, b) => b.lastRecheck - a.lastRecheck);
     }
     // Today's and Messages' banner: phishing found by a re-check since an admin last marked them seen
     // (at most 7 days back), all at once or (0.6.17) that campaign.
     function recheckAlert(records, now, seenAt = 0, campaigns = {}) {
         const from = Math.max(now - 7 * DAY, Number(seenAt) || 0);
-        const rs = records.filter(r => r.recheck && r.recheck.at > from && r.recheck.at > (Number(campaigns[r.campaign]) || 0) && RECHECK_BAD.includes(r.recheck.outcome));
+        // (0.6.43) A campaign with an email answered after its re-check is seen too.
+        const answered = {};
+        for (const r of records) { const at = answeredAt(r); if (at && r.campaign) answered[r.campaign] = Math.max(answered[r.campaign] || 0, at); }
+        const rs = records.filter(r => r.recheck && r.recheck.at > from && r.recheck.at > Math.max(Number(campaigns[r.campaign]) || 0, answered[r.campaign] || 0) && RECHECK_BAD.includes(r.recheck.outcome));
         if (!rs.length) return null;
         return { emails: rs.length, campaigns: new Set(rs.map(r => r.campaign)).size, people: new Set(rs.map(r => r.user)).size,
             moved: rs.filter(r => r.recheck.outcome === 'moved').length, opened: rs.filter(r => r.recheck.opened || (r.recheck.clicks && r.recheck.clicks.opened)).length,

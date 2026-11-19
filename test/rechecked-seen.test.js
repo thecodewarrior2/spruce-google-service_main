@@ -56,3 +56,22 @@ test('the dashboard: each listing marked on its own, then all; both leave the pa
         assert.deepEqual(await store.getState('recheckSeenCampaigns'), {}, 'one mark for all replaces the single ones');
     } finally { await new Promise(r => srv.close(r)); }
 });
+
+// 0.6.43: an answered email counts as seen; a seen listing leaves the page 7 days later.
+test('answered in any way: seen from the answer, in the page and the banner; an answer from before the re-check doesn\'t count', () => {
+    const answered = records.map(r => (r.key === 'a2' ? Object.assign({}, r, { markedBy: 'it.madeup@maple-schools.example', unclear: true, undo: { at: now - 1000 } }) : r));
+    const gs = A.rechecked(answered, now, 14);
+    assert.deepEqual(seenOf(gs), { c1: true, c2: false });
+    assert.equal(gs.find(g => g.campaign === 'c1').seenBy, 'answered');
+    assert.equal(A.recheckAlert(answered, now, 0, {}).emails, 1, 'only c2 in the banner');
+    const before = records.map(r => (r.key === 'a2' ? Object.assign({}, r, { markedBy: 'it.madeup@maple-schools.example', undo: { at: now - 5 * DAY } }) : r));
+    assert.deepEqual(seenOf(A.rechecked(before, now, 14)), { c1: false, c2: false }, 'answered before it was found again');
+    const released = records.map(r => (r.key === 'b1' ? Object.assign({}, r, { state: 'released', releasedBy: 'it.madeup@maple-schools.example', releasedAt: now - 1000 }) : r));
+    assert.deepEqual(seenOf(A.rechecked(released, now, 14)), { c1: false, c2: true }, 'moved back by an admin');
+});
+
+test('a seen listing clears 7 days after it was seen', () => {
+    const seen = { at: 0, campaigns: { c1: now - 1000 } };
+    assert.deepEqual(seenOf(A.rechecked(records, now, 14, seen)), { c1: true, c2: false });
+    assert.deepEqual(seenOf(A.rechecked(records, now + 7 * DAY, 30, seen)), { c2: false }, 'gone a week later; the unseen one stays');
+});

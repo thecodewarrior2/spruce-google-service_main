@@ -2791,7 +2791,7 @@
                     h('div', { class: 'sub', text: `From ${g.sender && g.sender.name ? `${g.sender.name} <${g.sender.address}>` : (g.sender && g.sender.address) || 'an unknown sender'}` })),
                 h('div', { class: 'actions' },
                     !g.seen && !isModerator() ? h('button', { class: 'btn small-btn', type: 'button', onclick: postButton('/api/rechecked/seen', () => ({ campaign: g.campaign }), () => 'Marked as seen: it is off this list until something new is found in it.') }, 'Mark as seen') : null,
-                    g.seen ? h('span', { class: 'pill', text: 'Seen' }) : null,
+                    g.seen ? h('span', { class: 'pill', title: 'It leaves this page 7 days after it was seen.', text: `${g.seenBy === 'answered' ? 'Answered' : 'Seen'} ${dayOf(g.seenAt)} · clears ${dayOf(g.seenAt + 7 * 86400000)}` }) : null,
                     h('a', { href: `#/messages?${q({ campaign: g.campaign })}`, text: 'Open the campaign' }))),
             h('p', { class: 'small' }, h('b', { text: `${g.reasons.join('; ')}. ` }), `First delivered ${when(g.firstReceived)}; re-checked ${when(g.lastRecheck)}.`),
             h('div', { class: 'grid kpis recheck-kpis' },
@@ -2807,10 +2807,11 @@
                 { name: 'What happened', get: c => [pill(outcomeOf(c)), c.movedAt ? at(c.movedAt) : null] }
             ], g.copies, c => go(`#/message?${q({ key: c.key })}`), 'No copies.', c => (c.clicked ? 'row-alert' : '')));
         // (0.6.17) Listings marked as seen leave the page (a link shows them again) until something new is found in them.
+        // (0.6.43) An answered email counts as seen; a seen listing is gone 7 days later (the service leaves it out).
         const fresh = d.groups.filter(g => !g.seen), seenGroups = d.groups.filter(g => g.seen);
         const seen = fresh.length && !isModerator() ? postButton('/api/rechecked/seen', () => ({}), () => 'Marked as seen: they are off this list, and the banners on Today and Messages are gone, until something new is found.') : null;
         const shown = h('div', {}, fresh.map(group));
-        const more = seenGroups.length ? h('button', { class: 'linkbtn', type: 'button', text: `Show the ${num(seenGroups.length)} marked as seen` }) : null;
+        const more = seenGroups.length ? h('button', { class: 'linkbtn', type: 'button', text: `Show the ${num(seenGroups.length)} seen (answered or marked seen; each clears 7 days later)` }) : null;
         if (more) more.addEventListener('click', () => { more.remove(); seenGroups.forEach(g => shown.appendChild(group(g))); });
         return [h('h1', { text: 'Re-checked mail' }),
             h('p', { class: 'sub', text: 'Emails already delivered to an Inbox and found later to be phishing or suspicious: when a phishing list added one of their sites or senders, when the look-alike watch found a domain imitating yours that they came from, reply to or link to (or an admin marked one a threat), after an update that changed how email is checked, or on a second look an hour and a day after they arrived. Each is checked again in full, and moved as it would have been on arrival.' }),
@@ -2822,7 +2823,7 @@
                 d.queued ? kvRow('Waiting', `${num(d.queued)} emails to be checked again at the next hourly run.`) : null,
                 d.seenAt ? kvRow('Last marked seen', when(d.seenAt)) : null),
                 seen ? h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: seen }, 'Mark all as seen')) : null),
-            fresh.length ? shown : h('section', { class: 'card' }, h('div', { class: 'empty', text: d.groups.length ? 'Nothing new: everything found after delivery has been marked as seen.' : `Nothing was found after delivery in the last ${days} days.` })),
+            fresh.length ? shown : h('section', { class: 'card' }, h('div', { class: 'empty', text: d.groups.length ? 'Nothing new: everything found after delivery has been answered or marked as seen.' : `Nothing was found after delivery in the last ${days} days.` })),
             fresh.length ? null : shown, more ? h('p', {}, more) : null];
     }
 
