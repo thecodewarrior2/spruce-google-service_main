@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.40: Spam answers cover the same address, Spam senders by subdomain or address, a quieter Suspicious tab
+
+- **One Spam answer for one address:** answering Spam (Review, an email's page, Mail's ticked emails, a campaign's box)
+  also answers every other email from the same From address still waiting in Review, and moves it like the answer did
+  (enforce mode). The message says how many; **Undo** takes them back too.
+- **Spam senders by subdomain or address, not the whole company:** a Spam answer adds the mailing subdomain when the mail
+  comes from one (em.bigstore.example), else the address itself (deals@bigstore.example): the company's receipts and
+  support replies from its main domain stay checked as usual. An address at a personal provider is added as before. A
+  whole domain can still be added on Settings → Sender lists, and covers its subdomains; earlier entries stay as they are.
+  The Spam choice now shows exactly what it adds.
+- **Review leaves out senders already on a Sender list:** Trusted senders (not while suspended), Spam senders and Brand
+  senders, for mail Gmail confirmed came from them.
+- **Suspicious needs more than the rules for a confirmed sender:** mail from an outside sender Gmail confirmed (DMARC) is
+  recorded as suspicious only when the AI also scores it at the suspicious line or more; a rules score of 3 or 4 alone
+  no longer puts it in Review (newsletters and notices trip it). Staff mail, a platform's notification (a share: DMARC
+  confirms the platform, not the person) and a link check's verdict count as before; what moves doesn't change. Waiting
+  emails from before are judged the same way in Review.
+- **Review count:** updated right after an answer, and gone when nothing waits. New emails appear on the open Review page
+  by themselves (no more "Look again").
+- How email is judged changes (the suspicious line for confirmed senders, Spam senders' matching): checks level 34, so
+  recent delivered mail is checked again after the update. The demo's suspicious example changed with it.
+
+
 ## 0.6.39: The same four answers everywhere, Undo, one email in one Review tab, and plainer screens
 
 - **One email, one Review tab:** the copies of one email can be judged differently for each person (a first email from

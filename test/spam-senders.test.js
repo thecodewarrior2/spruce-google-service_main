@@ -24,12 +24,12 @@ test('a sender on Spam senders: its verified mail goes straight to Spam, as spam
     const svc = make();
     const before = await judge(svc, PAT);
     assert.equal(before.action, 'none', 'an ordinary newsletter: left alone');
-    assert.equal((await svc.addSpamSender('email.recipe-site.example', ADMIN)).key, 'recipe-site.example', 'kept as its organization\'s domain');
+    assert.equal((await svc.addSpamSender('email.recipe-site.example', ADMIN)).key, 'email.recipe-site.example', 'kept as typed (0.6.40)');
     const r = await judge(svc, PAT);
     assert.deepEqual([r.action, r.trigger], ['move', 'spam']);
     const rec = await svc.store.getRecord(r.key);
-    assert.equal(rec.spamSender, 'recipe-site.example');
-    assert.match(rec.why, /recipe-site\.example is on Settings → Sender lists → Spam senders/);
+    assert.equal(rec.spamSender, 'email.recipe-site.example');
+    assert.match(rec.why, /email\.recipe-site\.example is on Settings → Sender lists → Spam senders/);
     assert.notEqual((await judge(svc, PAT, { dmarc: 'fail' })).trigger, 'spam', 'forged: judged as usual, never straight to Spam');
     const monitor = make('monitor');
     await monitor.addSpamSender('recipe-site.example', ADMIN);
@@ -59,6 +59,23 @@ test('a Spam answer with "also send future mail straight to Spam" adds a verifie
         'From: "PayPal Recipes" <tips@email.recipe-site.example>', `To: ${PAT}`, 'Subject: Dinner deals', 'Message-ID: <f1@email.recipe-site.example>',
         'Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=email.recipe-site.example', 'Content-Type: text/plain', '', 'Deals.'].join('\r\n'))));
     const out = await svc.mark(flagged.key, false, ADMIN, { spam: true, addSender: true });
-    assert.equal(out.spamSenderAdded, 'recipe-site.example');
-    assert.ok((await svc.spamSenderList()).some(x => x.key === 'recipe-site.example' && x.from === 'review'));
+    assert.equal(out.spamSenderAdded, 'email.recipe-site.example', 'its mailing subdomain (0.6.40)');
+    assert.ok((await svc.spamSenderList()).some(x => x.key === 'email.recipe-site.example' && x.from === 'review'));
+});
+
+// (0.6.40) Which entry a Spam answer adds: a store's mailing subdomain, or the address at its main domain (receipts and
+// support replies come from there too), never the whole company. Every domain here is made up.
+test('a Spam answer adds the mailing subdomain or the address, not the whole company; a whole domain typed on the page covers all', async () => {
+    const svc = make();
+    assert.equal(svc.spamListKey('newsletters@em.bigstore.example'), 'em.bigstore.example');
+    assert.equal(svc.spamListKey('Reviews@Feedback.Bigstore.Example'), 'feedback.bigstore.example');
+    assert.equal(svc.spamListKey('deals@bigstore.example'), 'deals@bigstore.example');
+    assert.equal(svc.spamListKey('someone@gmail.com'), 'someone@gmail.com');
+    const all = { 'em.bigstore.example': {}, 'deals@bigstore.example': {} };
+    assert.equal(svc.spamListMatch(all, 'promo@em.bigstore.example'), 'em.bigstore.example');
+    assert.equal(svc.spamListMatch(all, 'promo@x.em.bigstore.example'), 'em.bigstore.example', 'its subdomains too');
+    assert.equal(svc.spamListMatch(all, 'deals@bigstore.example'), 'deals@bigstore.example');
+    assert.equal(svc.spamListMatch(all, 'help@bigstore.example'), null, 'the receipts and support address stays checked as usual');
+    assert.equal(svc.spamListMatch(all, 'photos@prints.bigstore.example'), null);
+    assert.equal(svc.spamListMatch({ 'bigstore.example': {} }, 'photos@prints.bigstore.example'), 'bigstore.example', 'a whole domain covers all');
 });

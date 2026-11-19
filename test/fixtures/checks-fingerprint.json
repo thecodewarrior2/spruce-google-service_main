@@ -1,5 +1,5 @@
 {
-  "checksLevel": 33,
-  "fingerprint": "48d0add96169989a1512bc7cf1b0793adea139407a25917863dbc0eb5d142838",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.39: reasons reworded in plain language (Trusted senders, the rule checks' score and the level that moves, the brake, monitor mode); no verdict changes"
+  "checksLevel": 34,
+  "fingerprint": "4a65f17f15864db89ea15d8d03ab54ccc00edd54258344614c6269b30ff6c93b",
+  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
 }

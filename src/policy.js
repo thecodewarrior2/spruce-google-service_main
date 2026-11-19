@@ -51,6 +51,22 @@ function suspiciousWhy(result, cfg) {
     return parts.join(', and ') || 'suspicious';
 }
 
+// (0.6.40) The rule checks alone don't make mail from a verified outside sender suspicious: when Gmail confirmed the sender
+// (DMARC) and the AI scored it under the suspicious line, a rules score of 3 or 4 is too weak to ask a reviewer about
+// (newsletters and notices trip it). It is still recorded when the rules move it (5 or more), or the AI agrees. A link
+// check's verdict (a threat list), staff mail (which the AI doesn't read by default) and a platform's notification (a
+// share: DMARC confirms the platform, not the person who shared) are as before.
+// Works on an analysis (verified) and on a stored record (its auth, for records from before).
+function rulesOnlyVerified(r, cfg) {
+    if (!r || r.status !== 'caution' || r.inside || r.platformNote || !(r.score >= 3)) return false;
+    const domain = String((r.sender && r.sender.address) || '').toLowerCase().split('@')[1] || '';
+    const verified = r.verified !== undefined ? !!r.verified : !!(r.auth && r.auth.dmarc === 'pass' && domain && (!r.auth.headerFrom || r.auth.headerFrom === domain));
+    if (!verified) return false;
+    const p = r.ai && typeof r.ai.probability === 'number' ? r.ai.probability : null;
+    const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : AI_SUSPICIOUS;
+    return p === null || p < line;
+}
+
 // The action for an analyzed email ({ action, trigger, why, braked }); state.brake: the domain-wide brake is on.
 function decide(result, cfg, state = {}) {
     if (result.status === 'trusted') return { action: 'none', trigger: null, why: 'the sender is on Trusted senders (Settings → Sender lists)' };
@@ -68,7 +84,7 @@ function decide(result, cfg, state = {}) {
     const spamMove = !ruleMove && !aiMove && cfg.moveOnRules && !!result.spam && !result.inside;
     if (!ruleMove && !aiMove && !spamMove) {
         const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : AI_SUSPICIOUS;
-        const byRules = result.status === 'caution' || result.status === 'flagged';
+        const byRules = (result.status === 'caution' && !rulesOnlyVerified(result, cfg)) || result.status === 'flagged';
         const byAi = p !== null && p >= line;
         const suspicious = byRules || aiHigh || byAi;
         return { action: suspicious ? 'flag' : 'none', trigger: null, why: noted(suspicious ? suspiciousWhy(result, cfg) : '') };
@@ -82,4 +98,4 @@ function decide(result, cfg, state = {}) {
     return { action: 'move', trigger, why };
 }
 
-module.exports = { decide, isAllowed, suspiciousWhy, AI_SUSPICIOUS };
+module.exports = { decide, isAllowed, suspiciousWhy, rulesOnlyVerified, AI_SUSPICIOUS };

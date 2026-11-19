@@ -109,6 +109,7 @@ For each new Inbox message:
 | The user moved it into the Inbox themselves, and the service hadn't checked it | Checked and recorded, never moved (an alert if flagged) |
 | Sender inside (your domains, DMARC passing), and the rules don't flag it | Nothing: the AI doesn't read it (with "AI on inside mail" on: a score of 90% or more is recorded as suspicious, not moved by the AI alone; with "AI alone moves inside mail" on: moved, as from outside) |
 | A rules score of 3 or more, or an AI score of **65%** or more (`AI_SUSPICIOUS_THRESHOLD`), below what moves it | Recorded as suspicious, not moved |
+| (0.6.40) The same rules score of 3 or more from an outside sender Gmail confirmed (DMARC), with the AI under the suspicious line | Nothing: the rules alone are too weak to ask about (newsletters and notices trip them). Staff mail, a platform's notification (a share) and a link check's verdict still count |
 | Allowlisted sender, DMARC passing | Nothing |
 
 It also looks things up (`src/intel/`; `docs/PRIVACY.md` says exactly what is sent where):
@@ -194,6 +195,16 @@ visible one counts 5 (0.6.33: flagged on its own), unless it goes to the sender'
 **Sender lists** (0.6.35; was Allowlist): Trusted senders (never moved), Spam senders (always to Spam: added with a Spam
 answer in Review, ticked by default for admins, or on the page; verified mail only), brand senders your reviewers
 confirmed, link sites, and spam people took back, each labeled with what it does. One search box looks through every list; each list has its own search and sorting (0.6.36).
+Review leaves out the emails of senders on Trusted senders, Spam senders or Brand senders (0.6.40): someone already
+decided about them.
+
+**Which entry a Spam answer adds** (0.6.40): mail from a subdomain adds that subdomain (newsletters@em.bigstore.example
+adds em.bigstore.example: a company's mailing host, all its mail alike); mail from a company's main domain adds the address
+only (deals@bigstore.example), so the same company's receipts and support replies (help@bigstore.example) stay checked as
+usual; an address at a personal mail provider adds that address. On the page you can still add a whole domain
+(bigstore.example), which covers all its addresses and subdomains. Entries from before 0.6.40 (whole domains) stay as they
+are. **A Spam answer also answers the same address's other emails waiting in Review** (moved, would move, or suspicious;
+nobody answered them yet), and moves them like the answer did; Undo takes them back too.
 
 **The allow lists' 30-day check** (0.6.30): every domain on an allow list is looked up again every 30 days (its registration
 and reputation). A change flags it for review (Settings → Sender lists, Today, and an email to every admin); registered
@@ -305,6 +316,9 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     box): **Phishing**, **Spam**, **Not phishing** and **Not sure**. When an answer moves the email in enforce mode,
     the button says so ("Phishing: move to the Spam folder", "Not phishing: move back to the Inbox"). **Spam**
     offers "also send future mail from this sender straight to Spam", ticked by default for admins.
+  - **The Review count** in the menu updates right after an answer, and is gone when nothing waits (0.6.40). New emails
+    to review appear on the open Review page by themselves: an empty queue reads them at once, a queue being answered
+    gets them at its end.
   - **Undo:** the message after an answer has an **Undo** button (for about 10 seconds; the service accepts an
     undo for an hour): the earlier answer comes back, the email goes back where it was, and a sender the answer
     added to Spam senders or Brand senders is taken off again. One step only.

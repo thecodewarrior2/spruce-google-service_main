@@ -588,7 +588,7 @@
         const answerAll = (action) => run('Answering every copy…', async () => {
             if (!window.confirm(`Mark every copy of "${c.label}" ${ANSWER[action].label}?${action === 'spam' && enforce ? ' Copies in the Inbox are moved to the Spam folder.' : ''} You can undo it for an hour.`)) return;
             const o = await api('/api/campaign/answer', { method: 'POST', body: { key, action, addSender: action === 'spam' && spamAddSender && !isModerator() } });
-            toast(answeredText(action, o, Math.max(2, o.done || 0)), { undo: undoKeys(o.keys || []) });
+            toast(answeredText(action, o, Math.max(2, o.done || 0)), { undo: undoKeys((o.keys || []).concat((o.sameSender && o.sameSender.keys) || [])) });
             render();
         });
         const decide = (action) => run('Answering every copy…', async () => {
@@ -1004,7 +1004,7 @@
             !isSpam || moves ? btn('spam', answerLabel('spam', moves)) : null,
             m.falseAlarm !== true || !reviewed ? btn('false-alarm', answerLabel('false-alarm', m.state === 'moved')) : null,
             !(m.unclear && reviewed) ? btn('unclear', ANSWER.unclear.label) : null,
-            (!isSpam || moves) && canSender ? spamSenderBox('its sender\'s') : null,
+            (!isSpam || moves) && canSender ? spamSenderBox(m.spamKey ? `${m.spamKey}'s` : 'its sender\'s') : null,
             rescanButton(m, 'btn'));
         const verdictText = pasted ? 'Checked from a pasted copy: nothing was stored, moved or counted.'
             : m.falseAlarm === true && m.releasedByUser && !m.markedBy ? 'Its reader moved it back to the Inbox, so it counts as Not phishing for now. No admin has looked at it yet: answer it below.'
@@ -1260,7 +1260,7 @@
                     : d.moveOnRules ? `only when the rules flag it (a rules score of 5 or more: its links, its headers and the rest), as they do for a staff account taken over. ${d.aiScansInside ? `The AI reads it too (Settings → Policy), but its score alone doesn't move it, even at ${pct(d.aiThreshold)} or more ("Let the AI alone move staff email" is off): it is recorded as suspicious.` : 'The AI doesn\'t read it (Settings → Policy, "AI reads staff email": off).'}`
                     : 'never (the AI score alone doesn\'t move inside mail: "Let the AI alone move staff email" is off; and moving on the rule checks is off).'),
                 kvRow('Inside or outside', `inside: the From address is in your own domains (${(d.orgDomains || []).join(', ') || 'none set up yet'}) and Gmail confirmed the sender is real (DMARC) for it. Anything else is outside, a forged staff address too. DMARC only decides this (and whether a Trusted sender counts): an outside sender doesn't have to pass or fail it. A failed DMARC check is also one of the rules' signs (2 or 3 points), never required.`),
-                kvRow('Suspicious, not moved', `a rules score of 3 or more, or an AI score of ${pct(d.aiSuspicious || 0.65)} or more, that doesn't move it${d.aiMovesInside ? '' : ' (an inside sender\'s high AI score included)'}: recorded for review (Review → Suspicious, not moved).`),
+                kvRow('Suspicious, not moved', `a rules score of 3 or more (from a sender Gmail confirmed, only when the AI also scores it ${pct(d.aiSuspicious || 0.65)} or more), or an AI score of ${pct(d.aiSuspicious || 0.65)} or more, that doesn't move it${d.aiMovesInside ? '' : ' (an inside sender\'s high AI score included)'}: recorded for review (Review → Suspicious, not moved).`),
                 kvRow('The rules', 'the rule checks add up signs: dangerous or brand-new links, a look-alike or impersonated sender, forged headers, a failed sender check, requests for passwords, codes or money, a new outside sender. Suspicious from 3, moved from 5. The AI score is separate.'),
                 kvRow('Campaign pause', `After ${num(d.campaignHoldAfter)} copies of one campaign are moved on weaker evidence, moving its other copies pauses until you confirm it as phishing or dismiss it as a false alarm; until then they stay in the Inbox, like any email not moved. Strong evidence never pauses (CAMPAIGN_HOLD_AFTER)`),
                 kvRow('Alerts', d.alertEmail ? `Emailed to ${d.alertEmail} by Cloud Monitoring` : 'Shown in Health → Activity; not emailed (ALERT_EMAIL, deploy/install.sh)'),
@@ -1356,7 +1356,7 @@
         let list = [];
         try { list = (await api('/api/spam-senders')).list || []; } catch (e) { return null; }
         const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Spam senders' }), listHead('spam'),
-            h('p', { class: 'sub', text: 'Add one when answering Spam in Review ("also send future mail from this sender straight to Spam"), or here: a domain (newsletter.example), or an address at a personal mail provider. The 30-day check looks at each domain too.' }));
+            h('p', { class: 'sub', text: 'Add one when answering Spam ("also send future mail … straight to Spam"), or here. A Spam answer adds the sending subdomain when the mail comes from one (em.store.example: a company\'s mailing host), else the address itself (deals@store.example: the company\'s main domain also sends receipts and support replies, which stay checked as usual). Here you can also add a whole domain (store.example), which covers all its addresses and subdomains. The 30-day check looks at each domain too.' }));
         const draw = (rows) => {
             card.querySelectorAll('table, p.empty').forEach(t => t.remove());
             const at = card.querySelector('.spam-add');
@@ -1862,6 +1862,9 @@
         t += '.';
         const added = one ? (o.spamSenderAdded ? [o.spamSenderAdded] : []) : (o.spamSendersAdded || []);
         if (added.length) t += ` ${added.join(', ')} ${added.length === 1 ? 'is' : 'are'} now on Spam senders: future mail goes straight to the Spam folder.`;
+        // (0.6.40) A Spam answer also answers the same address's other emails waiting for review.
+        const same = o.sameSender;
+        if (same && same.done) t += ` Also answered Spam: ${num(same.done)} other email${same.done === 1 ? '' : 's'} from the same address waiting for review${same.moved ? ` (${num(same.moved)} moved to the Spam folder)` : ''}.`;
         if (!one && o.failed) t += ` ${num(o.failed)} couldn't be marked.`;
         if (!one && o.skipped) t += ` ${num(o.skipped)} weren't found.`;
         return t;
@@ -1881,16 +1884,21 @@
             o = action === 'unclear' ? await api('/api/unclear', { method: 'POST', body: { key: keys[0] } })
                 : await api('/api/mark', { method: 'POST', body: { key: keys[0], falseAlarm: action === 'false-alarm', spam: action === 'spam', move: (action === 'phishing' || action === 'spam') && enforce, addSender } });
         } else {
-            o = { done: 0, moved: 0, released: 0, failed: 0, skipped: 0, spamSendersAdded: [] };
+            o = { done: 0, moved: 0, released: 0, failed: 0, skipped: 0, spamSendersAdded: [], sameSender: { done: 0, moved: 0, keys: [] } };
             for (let i = 0; i < n; i += 500) {
                 const r = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 500), action, addSender } });
                 for (const k of ['done', 'moved', 'released', 'failed', 'skipped']) o[k] += r[k] || 0;
                 for (const x of r.spamSendersAdded || []) if (!o.spamSendersAdded.includes(x)) o.spamSendersAdded.push(x);
+                if (r.sameSender) { o.sameSender.done += r.sameSender.done || 0; o.sameSender.moved += r.sameSender.moved || 0; o.sameSender.keys.push(...(r.sameSender.keys || [])); }
             }
         }
-        return { text: answeredText(action, o, n), keys };
+        return { text: answeredText(action, o, n), keys: keys.concat((o.sameSender && o.sameSender.keys) || []) };
     }
-    const undoKeys = (keys) => () => api('/api/undo', { method: 'POST', body: keys.length === 1 ? { key: keys[0] } : { keys: keys.slice(0, 500) } });
+    // Undo, in batches of 500.
+    const undoKeys = (keys) => async () => {
+        if (keys.length === 1) return api('/api/undo', { method: 'POST', body: { key: keys[0] } });
+        for (let i = 0; i < keys.length; i += 500) await api('/api/undo', { method: 'POST', body: { keys: keys.slice(i, i + 500) } });
+    };
     // A sign's weight as up to three marks (weak, medium, strong), for the evidence columns.
     const strength = (w) => (w >= 3 ? 3 : w >= 1.5 ? 2 : 1);
     function signDots(w, tone) {
@@ -1942,7 +1950,7 @@
             acting++; busyStart();
             try {
                 const done = await answerGroups(st, groups, action);
-                if (done) { toast(done.text, { undo: async () => { await undoKeys(done.keys)(); reviewStates[queue] = null; } }); render(); }
+                if (done) { toast(done.text, { undo: async () => { await undoKeys(done.keys)(); reviewStates[queue] = null; pendingAt = 0; refreshPending(); } }); render(); pendingAt = 0; refreshPending(); }
             } catch (e) { toast(`Couldn't save your answer: ${e.message}`, { error: true }); } finally { acting--; busyEnd(); }
         };
         const head = [h('div', { class: 'page-head' },
@@ -1954,7 +1962,7 @@
                 h('nav', { class: 'segmented', 'aria-label': 'Which emails to review' }, Object.entries(QUEUES).map(([k, x]) =>
                     h('a', { href: k === 'moved' ? '#/review' : `#/review?queue=${k}`, 'aria-current': k === queue ? 'page' : null, title: x.label }, `${x.short} · ${num(left(k))}`))),
                 h('span', { class: 'keys-hint' }, h('kbd', { text: 'P' }), ' phishing ', h('kbd', { text: 'S' }), ' spam ', h('kbd', { text: 'F' }), ' not phishing ', h('kbd', { text: 'I' }), ' not sure ', h('kbd', { text: 'N' }), ' skip ', h('kbd', { text: 'R' }), ' check again', ' (the open email)')),
-            queue === 'suspicious' ? h('p', { class: 'sub', text: 'Suspicious: the checks found signs (a rules score of 3 or more) or the AI scored it at least the suspicious line, but not enough to move it, so it is still in the Inbox. Marking them is the best way to see what the move rules miss, and what retraining needs (Health → Model health).' }) : null];
+            queue === 'suspicious' ? h('p', { class: 'sub', text: 'Suspicious: the checks found signs (a rules score of 3 or more; from a sender Gmail confirmed, only when the AI agrees) or the AI scored it at least the suspicious line, but not enough to move it, so it is still in the Inbox. Marking them is the best way to see what the move rules miss, and what retraining needs (Health → Model health).' }) : null];
         if (!st.groups.length) {
             return [...head, h('div', { class: 'alert good', role: 'status' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '✓' }),
                 h('div', { class: 'grow' }, h('b', { text: 'Nothing left to review.' }), ` ${num(st.done)} reviewed now; every ${Q.what} of the last ${days} days has been looked at.`)),
@@ -2084,9 +2092,9 @@
                 if (!can) return h('p', { class: 'small muted spam-sender-opt', text: 'Spam here labels this email only: its sender can\'t be added to Spam senders, as Gmail couldn\'t confirm the sender is real (or it is from inside).' });
                 const box = h('input', { type: 'checkbox', checked: spamAddSender });
                 box.addEventListener('change', () => { spamAddSender = box.checked; });
-                return h('label', { class: 'choice spam-sender-opt' }, box, h('span', {}, 'With Spam, also send future mail from ', h('b', { text: m.sender.domain || m.sender.address.split('@')[1] }), ' straight to Spam (Settings → Sender lists → Spam senders; it skips the other checks).'));
+                return h('label', { class: 'choice spam-sender-opt' }, box, h('span', {}, 'With Spam, also send future mail from ', h('b', { text: m.spamKey || m.sender.address }), ' straight to Spam (Settings → Sender lists → Spam senders; it skips the other checks).'));
             })(),
-            h('p', { class: 'small muted rv-help', text: `${g.keys.length > 1 ? `One answer covers all ${num(g.keys.length)} copies. ` : ''}Ignore takes it out of the queue and keeps it out of retraining; Skip leaves it here, undecided.${canRead ? ' Show the email reads it from Gmail now, the whole email and what the AI reads of it: nothing is kept.' : ''}${st.mode === 'enforce' ? '' : ' Monitor mode: nothing is moved.'}` }));
+            h('p', { class: 'small muted rv-help', text: `${g.keys.length > 1 ? `One answer covers all ${num(g.keys.length)} copies. ` : ''}Spam also answers this address's other emails waiting here. Not sure takes it out of the queue and keeps it out of AI training; Skip leaves it here, undecided.${canRead ? ' Show the email reads it from Gmail now, the whole email and what the AI reads of it: nothing is kept.' : ''}${st.mode === 'enforce' ? '' : ' Monitor mode: nothing is moved.'}` }));
     }
 
     // --- Health → Service status (0.6.0, as a status page): one line on how it is, each check with what to do,
@@ -2670,7 +2678,7 @@
     // mail back); the Review item in the menu (and in the phone's tab bar), how many emails wait for review.
     // Read at most every 25 s, from the live updates' tick (paused or not, but not while the person is away) and
     // after an action.
-    let pendingAt = 0, unreviewed = 0;
+    let pendingAt = 0, unreviewed = 0, suspiciousWaiting = 0, pendingSeen = false;
     function showUnreviewed() {
         for (const badge of [$('#reviewCount'), $('#reviewCountTab')]) {
             if (!badge) continue;
@@ -2691,14 +2699,33 @@
                 'Too many emails were moved within an hour, so emails the checks flag are not being moved to Spam: they stay in the Inbox. ',
                 isModerator() ? h('b', { text: 'Contact an administrator.' }) : ['Contact an administrator; an administrator resumes moving on ', h('a', { href: '#/overview', text: 'Today' }), '.']));
     }
+    // (0.6.40) New emails to review while Review is open: an empty queue reads them at once (no "Look again"), and a queue
+    // being answered gets them added at its end, without moving the email open now.
+    async function reviewArrived() {
+        const m = /^#\/?review(?:\?(.*))?$/.exec(currentHash());
+        if (!m || acting > 0 || popupOpen()) return;
+        const queue = new URLSearchParams(m[1] || '').get('queue') === 'suspicious' ? 'suspicious' : 'moved';
+        const st = reviewStates[queue];
+        if (!st || st.days !== days || !st.groups.length) { reviewStates[queue] = null; render({ quiet: true }); return; }
+        try {
+            const d = await api(`/api/review?${q({ days: String(days), queue })}`);
+            const have = new Set(st.groups.flatMap(g => g.keys));
+            const fresh = (d.groups || []).filter(g => !g.keys.some(k => have.has(k)));
+            st.counts = d.counts || st.counts;
+            if (fresh.length && reviewStates[queue] === st && !acting) { st.groups.push(...fresh); render({ quiet: true }); }
+        } catch (e) { /* the next tick tries again */ }
+    }
     async function refreshPending() {
         if (Date.now() - pendingAt < 25000) return;
         pendingAt = Date.now();
         try {
             const p = await api('/api/pending');
             document.title = p.total ? `(${p.total}) S.P.R.U.C.E Mail Protection Service` : 'S.P.R.U.C.E Mail Protection Service';
-            unreviewed = p.unreviewed || 0;
+            const was = unreviewed, wasSusp = suspiciousWaiting;
+            unreviewed = p.unreviewed || 0; suspiciousWaiting = p.suspicious || 0;
             showUnreviewed();
+            if (pendingSeen && (was !== unreviewed || wasSusp !== suspiciousWaiting)) reviewArrived();
+            pendingSeen = true;
             showBrake(!!p.brake);
         } catch (e) { /* the next tick tries again */ }
     }

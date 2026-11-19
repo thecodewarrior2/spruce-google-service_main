@@ -88,11 +88,12 @@ function campaignTemplates() {
         { id: 'newvendor', recipients: 6, daysAgo: 9, spread: 0.4, make: (to) => eml({ fromName: 'Pat Fictional', from: 'pat@brightpath-learning.example', to, dmarc: 'pass',
             subject: 'Quote for the reading program',
             html: '<p>Hi,</p><p>Following up on the conference. Could you send me the purchase order number and update our bank details on file for the invoice?</p><p>Thanks, Pat Fictional, Account Executive</p>' }) },
-        // Suspicious but below the move rules (a young sender or link domain, a rules score of 4.5, a low AI score):
-        // recorded only, left in the Inbox, for Review's "Suspicious, not moved".
+        // Suspicious but below the move rules (a young sender domain and a rules score of 3, the AI between its suspicious
+        // and move lines): recorded only, left in the Inbox, for Review's "Suspicious (not moved)". (0.6.40) The webinar
+        // isn't: its sender is confirmed (DMARC) and the AI scores it low, so the rules alone don't make it suspicious.
         { id: 'survey', recipients: 7, daysAgo: 3, spread: 0.3, make: (to) => eml({ fromName: 'Staff Benefits Team', from: 'benefits@staff-perks-portal.example', to, dmarc: 'pass',
-            subject: 'Complete the benefits survey and receive a $25 gift card',
-            html: '<p>Dear Staff Member,</p><p>Tell us about your benefits this year. Everyone who completes the survey receives a $25 gift card.</p><p><a href="https://forms.survey-host.example/s/benefits-2026">Start the survey</a></p>' }) },
+            subject: 'Complete the benefits survey',
+            html: '<p>Dear Staff Member,</p><p>Your benefits survey is waiting. Complete it this week to receive a $25 gift card.</p><p><a href="https://forms.survey-host.example/s/benefits-2026">Start the survey</a></p>' }) },
         { id: 'webinar', recipients: 5, daysAgo: 1, spread: 0.4, make: (to) => eml({ fromName: 'EdTech Summit', from: 'events@edtech-summit.example', to, dmarc: 'pass',
             subject: 'Last seats: free webinar on classroom AI tools',
             html: '<p>Join 2,000 educators for a free webinar on AI tools in the classroom.</p><p>Thursday, 4 PM. Seats are limited.</p><p><a href="https://summit-registration.example/edtech/register">Register now</a></p><p><a href="https://edtech-summit.example/unsubscribe">Unsubscribe</a></p>' }) },

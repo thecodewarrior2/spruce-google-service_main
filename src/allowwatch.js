@@ -58,7 +58,8 @@ function install(Service, { isAllowed }) {
             for (const d of this.cfg.allowLinkDomains || []) put(d, 'allowLinkDomains');
             for (const v of Object.values((await this.store.getState('brandSenders')) || {})) if (v && v.domain) put(v.domain, 'brandSenders');
             for (const [k, v] of Object.entries((await this.store.getState('spamRescued')) || {})) if (v && v.shared && !k.includes('@')) put(k, 'spamRescued');
-            for (const k of Object.keys((await this.store.getState('spamSenders')) || {})) if (!k.includes('@')) put(k, 'spamSenders');   // (0.6.35)
+            // (0.6.35) Spam senders; (0.6.40) a mailing subdomain or an address is looked up by its registrable domain.
+            for (const k of Object.keys((await this.store.getState('spamSenders')) || {})) { const d = k.split('@').pop(); put(E.registrableDomain(d) || d, 'spamSenders'); }
             return out;
         },
         // A domain's registration and reputation now.

@@ -196,6 +196,13 @@ after the policy's decision, a verified outside sender on it (`spamSenderFor`: D
 taken back by this person, not suspended by the 30-day check) gets trigger `spam`: moved (enforce) or would be
 (monitor), the brake holding it like any move.
 
+(0.6.40.) Keys: a Spam answer adds `spamListKey(address)` (the sending subdomain, or the address at a main or personal
+domain); the page adds a domain as typed. `spamListMatch` looks up the address, then its domain and each parent domain.
+`answerSameSender` answers the same From address's other emails waiting for review (the server passes its record cache).
+`senderListTest` gives the server a test that leaves out of Review the emails of senders on Trusted, Spam or Brand
+senders (DMARC passing). `rulesOnlyVerified` (`src/policy.js`) keeps a rules-only score of 3 or more from a verified
+outside sender out of "suspicious" unless the AI agrees; the server applies it to waiting records from before too.
+
 ## The allow lists' 30-day check
 
 (0.6.30, `src/allowwatch.js`.) The hourly job looks up the domains on the allow lists that are due (never looked up, or

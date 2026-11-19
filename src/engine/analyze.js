@@ -267,6 +267,8 @@ async function analyze(facts, ctx = {}) {
         inside,
         ownAddress,
         verified,
+        // (0.6.40) A platform's notification (a share, an invitation): DMARC confirms the platform, not the person behind it.
+        platformNote: relay ? true : undefined,
         confirmedBy,
         strong: verdict.status === 'flagged' && confirmedBy.length > 0,
         // (0.6.19) Spam, not phishing: moved to Spam by the policy (trigger 'spam') when nothing else is wrong.

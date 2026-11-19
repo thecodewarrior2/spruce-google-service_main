@@ -46,7 +46,7 @@ const training = require('./training');
 const { createReleases, parseChangelog, modelSourceOf } = require('./releases');
 const repos = require('./repos');
 const { updateInfo, startUpdate, checkNow } = require('./update');
-const { suspiciousWhy } = require('./policy');
+const { suspiciousWhy, rulesOnlyVerified } = require('./policy');
 
 const PUBLIC = path.resolve(__dirname, '..', 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
@@ -120,7 +120,15 @@ function movedTab(records) {
     return moved.concat(records.filter(r => suspiciousUnreviewed(r) && r.campaign && campaigns.has(r.campaign)));
 }
 // Review's other queue: suspicious emails (below what moves) still in the Inbox, nobody has reviewed.
-const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' && !r.markedBy;
+const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' && !r.markedBy && !rulesOnlyVerified(r, liveCfg || {});
+// (0.6.40) The settings the suspicious queue reads (records from before 0.6.40 judged by today's rule): set at start.
+let liveCfg = null;
+// What Review lists: the recent records, without the emails of senders on a Sender list (pipeline.js senderListTest).
+async function reviewRecords(service, cache, sinceMs) {
+    const records = await cache.list(sinceMs);
+    const listed = await service.senderListTest().catch(() => () => null);
+    return records.filter(r => !listed(r));
+}
 // A review queue as items: the copies of one campaign together (in the queue's order, where its first copy
 // is), each with its keys, recipients and senders (at most 2000 of each), and what the list shows of it
 // (src/dashboard/aggregate.js, shared with the clickable mockup).
@@ -210,6 +218,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     // when a page shows them (Last 90 days, plus the day before that `load` reads: 92), never past how long
     // records are kept (RETENTION_DAYS, or Settings → Policy: the copy forgets them too).
     const cache = new RecordCache(store, { keepDays: () => Math.min(92, cfg.retentionDays || 35) });
+    liveCfg = cfg;
     const events = new EventCache(store);   // (0.6.7) Activity's events, read once and then only the new ones
     const eventsSince = (sinceMs, limit) => events.list(sinceMs, { limit });
     // (0.6.7) Answers shared by every open dashboard for a few seconds (what several pages and the pending badge
@@ -604,7 +613,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             return { total: list.length, messages: list.slice(0, 500).map(brief), rechecked: A.recheckAlert(records, Date.now(), await store.getState('recheckSeenAt'), (await store.getState('recheckSeenCampaigns')) || {}) };
         },
         // An email's record, with the mode now (whether confirming it as phishing also moves it).
-        'GET /api/message': async (q) => { const r = await store.getRecord(String(q.get('key') || '')); return r ? { message: withPlainWhy(r, cfg), mode: cfg.mode } : { error: 'not found', status: 404 }; },
+        'GET /api/message': async (q) => { const r = await store.getRecord(String(q.get('key') || '')); return r ? { message: Object.assign(withPlainWhy(r, cfg), r.sender && r.sender.address ? { spamKey: service.spamListKey(r.sender.address) } : {}), mode: cfg.mode } : { error: 'not found', status: 404 }; },
         // Health → Model health: the AI's scores and how its moves were undone, the model in use, the threshold.
         'GET /api/health': async (q) => {
             const { records } = await load(q);
@@ -731,7 +740,12 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'POST /api/release': async (q, body, admin) => service.release(String(body.key || ''), admin.email),
         // move: phishing still in the Inbox is moved to Spam too (enforce mode).
         // (0.6.35) addSender: "Also send future mail from this sender straight to Spam" (admins only: it skips the checks).
-        'POST /api/mark': async (q, body, admin) => service.mark(String(body.key || ''), body.falseAlarm === true, admin.email, { move: body.move === true, spam: body.spam === true, addSender: body.addSender === true && admin.role !== 'moderator' }),
+        'POST /api/mark': async (q, body, admin) => {
+            const out = await service.mark(String(body.key || ''), body.falseAlarm === true, admin.email, { move: body.move === true, spam: body.spam === true, addSender: body.addSender === true && admin.role !== 'moderator' });
+            // (0.6.40) Spam: the same sender's other emails waiting for review are answered Spam too.
+            if (out && out.record && body.spam === true && body.falseAlarm !== true) { out.sameSender = await service.answerSameSender([String(body.key)], admin.email, await cache.list(Date.now() - 35 * A.DAY)); cache.stale(); }
+            return out;
+        },
         // (0.6.26) Spam several people took back out of Spam: the list, and an admin's "keep moving it" (or undoing it).
         'GET /api/spam-rescued': async () => ({ list: await service.spamRescuedList() }),
         'POST /api/spam-rescued': async (q, body, admin) => service.setSpamKeep(String(body.sender || ''), body.keep === true, admin.email),
@@ -757,7 +771,11 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // (0.6.39) Undo an answer: one email (key) or several (keys, at most 500).
         'POST /api/undo': async (q, body, admin) => (Array.isArray(body.keys) ? service.undoMany([...new Set(body.keys.map(String))].slice(0, 500), admin.email) : service.undoAnswer(String(body.key || ''), admin.email)),
         // (0.6.39) Spam or Not sure for every copy of a campaign (as Confirm and False alarm do).
-        'POST /api/campaign/answer': async (q, body, admin) => service.answerCampaign(String(body.key || ''), String(body.action || ''), admin.email, { addSender: body.addSender === true && admin.role !== 'moderator' }),
+        'POST /api/campaign/answer': async (q, body, admin) => {
+            const out = await service.answerCampaign(String(body.key || ''), String(body.action || ''), admin.email, { addSender: body.addSender === true && admin.role !== 'moderator' });
+            if (body.action === 'spam' && out && out.done) { out.sameSender = await service.answerSameSender(out.keys, admin.email, await cache.list(Date.now() - 35 * A.DAY)); cache.stale(); }
+            return out;
+        },
         // Re-scan one email (Review, Messages): judged again now, recorded beside the on-arrival result, never
         // moved. One email again only 30 s after its last re-scan (kept on its record, so every instance knows),
         // and 2 at a time per instance (pipeline.js rescan).
@@ -839,7 +857,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // groups: the copies of one campaign (the same email to many people) are one item, decided together:
         // its keys, who received it and who sent it. An email of no campaign is an item of its own.
         'GET /api/review': async (q) => {
-            const records = await cache.list(since(q));
+            const records = await reviewRecords(service, cache, since(q));
             const queue = q.get('queue') === 'suspicious' ? 'suspicious' : 'moved';
             // (0.6.39) One email in one tab: its copies can be judged differently (a first-time sender for one person
             // only), some "would move", some only suspicious. An email with any copy in the moved tab is only there,
@@ -858,16 +876,19 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'POST /api/bulk': async (q, body, admin) => {
             const keys = Array.isArray(body.keys) ? [...new Set(body.keys.map(String))].slice(0, 500) : [];
             if (!['release', 'false-alarm', 'phishing', 'spam', 'unclear'].includes(body.action) || !keys.length) return { error: 'Choose emails and what to do with them.', status: 400 };
-            return service.bulk(keys, body.action, admin.email, { addSender: body.addSender === true && admin.role !== 'moderator' });
+            const out = await service.bulk(keys, body.action, admin.email, { addSender: body.addSender === true && admin.role !== 'moderator' });
+            if (body.action === 'spam' && out.done) { out.sameSender = await service.answerSameSender(keys, admin.email, await cache.list(Date.now() - 35 * A.DAY)); cache.stale(); }
+            return out;
         },
         // What needs an admin (the browser tab's title shows the count): the brake, held campaigns, users
         // who took flagged mail back; and how many emails wait for review.
         'GET /api/pending': async () => {
-            const records = await cache.list(Date.now() - 30 * A.DAY);
+            const records = await reviewRecords(service, cache, Date.now() - 30 * A.DAY);
             const brake = !!(await shortLived('brake', 15000, () => store.getState('brake')));
             const held = (await shortLived('held', 15000, () => store.listHeldCampaigns())).filter(c => !c.decision).length;
             const rescues = records.filter(rescueToCheck).length;
-            return { brake, held, rescues, unreviewed: movedTab(records).length, total: (brake ? 1 : 0) + held + rescues };
+            const inMoved = movedTab(records), movedKeys = new Set(inMoved.map(r => r.key));
+            return { brake, held, rescues, unreviewed: inMoved.length, suspicious: records.filter(r => suspiciousUnreviewed(r) && !movedKeys.has(r.key)).length, total: (brake ? 1 : 0) + held + rescues };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).
         // (0.6.7) Shared by every open dashboard for a minute: each look asks Cloud Run, Cloud Scheduler and the lists.

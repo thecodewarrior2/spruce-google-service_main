@@ -375,7 +375,9 @@ test('re-scan (0.5.4): a second re-scan keeps the first arrival values; a record
     // rules score, the young link site included (it counts only with a new or unverified sender).
     const { intel } = await buildDemo({ cfg, now: Date.now() });
     const svc = new Service({ cfg, store, gmail: gm, intel });
-    const fresh = (await store.listRecords({ sinceMs: 0, limit: 1000 })).find(x => !x.rescan && raws.has(x.messageId) && (x.signals || []).some(sg => sg.kind === 'first-time') && (x.signals || []).some(sg => sg.kind === 'young-link-domain'));
+    // (0.6.40) Not the demo's look-alike domain's emails, nor the QR-code one linking to it: the look-alike is found after
+    // they arrived, so a re-scan counts it then.
+    const fresh = (await store.listRecords({ sinceMs: 0, limit: 1000 })).find(x => !x.rescan && raws.has(x.messageId) && !(x.signals || []).some(sg => sg.kind === 'qr-code') && !/maple-schools-/.test(x.sender.address) && (x.signals || []).some(sg => sg.kind === 'first-time') && (x.signals || []).some(sg => sg.kind === 'young-link-domain'));
     assert.ok(fresh, 'a demo email from a new sender, with a young link site');
     await svc.rescanNow(fresh.key, 'a@maple-schools.example');
     let f = await store.getRecord(fresh.key);

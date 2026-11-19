@@ -28,7 +28,7 @@ test('Undo puts back the answer, the move it made and the sender it added', asyn
     const r = await judge(svc, PAT);
     assert.equal(r.action, 'would-move');
     const out = await svc.mark(r.key, false, ADMIN, { spam: true, addSender: true });
-    assert.equal(out.spamSenderAdded, 'points-club.example');
+    assert.equal(out.spamSenderAdded, 'mail.points-club.example');
     let rec = await svc.store.getRecord(r.key);
     assert.deepEqual([rec.falseAlarm, rec.spam, rec.markedBy], [false, true, ADMIN]);
     const undone = await svc.undoAnswer(r.key, ADMIN);

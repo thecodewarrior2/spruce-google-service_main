@@ -891,7 +891,7 @@ class Service {
             subject: this.cfg.storeSubjects ? facts.subject.slice(0, 300) : '',
             campaign: campaign.key, campaignLabel,
             status: result.status, score: result.score, signals: result.signals.slice(0, 20), links: result.links.slice(0, 10), checks: result.checks || null,
-            ai: aiRecord(result.ai, this.cfg), ...(result.allowSuspended ? { allowSuspended: result.allowSuspended } : {}), ...(result.spamSender ? { spamSender: result.spamSender } : {}),
+            ai: aiRecord(result.ai, this.cfg), ...(result.allowSuspended ? { allowSuspended: result.allowSuspended } : {}), ...(result.spamSender ? { spamSender: result.spamSender } : {}), ...(result.platformNote ? { platformNote: true } : {}),
             auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.headerFrom ? { headerFrom: facts.auth.headerFrom } : {}, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
@@ -1010,7 +1010,8 @@ class Service {
     // (0.6.35) Spam senders: an admin's list (Settings → Sender lists → Spam senders) of senders whose verified mail goes
     // straight to Spam, as spam, whatever the other checks find: added from a Spam answer in Review ("Also send future
     // mail from this sender straight to Spam", ticked by default for admins) or on the page. A sender is its
-    // organization's domain, or the address itself at a personal mail provider (spamSenderKey). Only when Gmail's DMARC
+    // mailing subdomain, or the address itself (spamListKey, 0.6.40; before, the organization's domain), or a domain typed
+    // on the page; an entry covers its subdomains (spamListMatch). Only when Gmail's DMARC
     // check passed for it (a forged copy is judged as usual), never mail from inside or an allowlisted sender, not for a
     // person who took that sender's spam back out of Spam, nor while the 30-day check has it suspended. State spamSenders.
     async spamSenderList() {
@@ -1018,10 +1019,31 @@ class Service {
         return Object.entries(all).map(([key, v]) => ({ key, by: v.by, at: v.at, from: v.from || 'page', count: v.count || 0, last: v.last || null }))
             .sort((a, b) => (b.at || 0) - (a.at || 0));
     }
+    // (0.6.40) The Spam senders entry a Spam answer adds for an address: the address's own domain when it is a subdomain
+    // (em.brand.example: a mailing host, its mail all alike), else the address itself (a company's main domain also sends
+    // its receipts and support replies: help@brand.example stays checked as usual when deals@brand.example is spam), and
+    // always the address at a personal mail provider.
+    spamListKey(address) {
+        const a = String(address || '').trim().toLowerCase(), d = a.split('@')[1] || '';
+        if (!d) return '';
+        const E = spruce.load();
+        if (E.isPersonalMailDomain(d)) return a;
+        return d !== (E.registrableDomain(d) || d) ? d : a;
+    }
+    // The Spam senders entry an address is on: the address itself, its domain, or a parent domain of it.
+    spamListMatch(all, address) {
+        const a = String(address || '').toLowerCase(), d = a.split('@')[1] || '';
+        if (!d) return null;
+        if (all[a]) return a;
+        const parts = d.split('.');
+        for (let i = 0; i < parts.length - 1; i++) { const k = parts.slice(i).join('.'); if (all[k]) return k; }
+        return null;
+    }
     async addSpamSender(sender, by, { from = 'page' } = {}) {
         const E = spruce.load();
-        const raw = String(sender || '').trim().toLowerCase();
-        const key = raw.includes('@') ? this.spamSenderKey(raw) : (E.registrableDomain(raw) || raw);
+        const raw = String(sender || '').trim().toLowerCase().replace(/\.$/, '');
+        // An address: spamListKey. A domain typed on the page: kept as typed (a whole domain, or one subdomain of it).
+        const key = raw.includes('@') ? this.spamListKey(raw) : raw;
         if (!key || /\s/.test(key) || !/\.[a-z]{2,}$/.test(key)) return { error: 'Give a domain (newsletter.example) or, at a personal mail provider, an address.', status: 400 };
         if (this.cfg.orgDomains.some(o => key === o || key.endsWith('.' + o) || key.endsWith('@' + o))) return { error: 'Your own domains can\'t be spam senders.', status: 400 };
         if (!key.includes('@') && E.isPersonalMailDomain(key)) return { error: 'A personal mail provider is everyone\'s: give the address instead.', status: 400 };
@@ -1053,11 +1075,11 @@ class Service {
     async spamSenderFor(user, facts, result, allowlisted) {
         if (allowlisted || !result || result.inside || !result.verified) return null;
         if (!this._spamSenders || this.now() - this._spamSenders.at > 60000) this._spamSenders = { at: this.now(), all: (await this.store.getState('spamSenders')) || {} };
-        const key = this.spamSenderKey(facts.senderAddress);
+        const key = this.spamListMatch(this._spamSenders.all, facts.senderAddress);
         const e = key && this._spamSenders.all[key];
         if (!e) return null;
         if (await this.allowSuspendedFor(String(facts.senderAddress || '').toLowerCase().split('@')[1] || '')) return null;
-        if (await this.store.getCached('spamok', `${senderHash(user)}|${senderHash(key)}`)) return null;
+        if (await this.store.getCached('spamok', `${senderHash(user)}|${senderHash(this.spamSenderKey(facts.senderAddress))}`)) return null;
         return Object.assign({ key }, e);
     }
     // (0.6.29) Brand senders the organization's reviewers confirmed: "False alarm" on an email whose only sign was a brand's
@@ -1261,6 +1283,48 @@ class Service {
         });
         await this.store.addEvent({ kind: 'campaign', campaign: key, text: `${by} answered every copy of "${recs[0].campaignLabel}" ${action === 'spam' ? 'Spam' : 'Not sure'}: ${out.done} copies${out.moved ? `, ${out.moved} moved to the Spam folder` : ''}.` });
         return Object.assign(out, { keys: recs.map(r => r.key) });
+    }
+    // (0.6.40) Review leaves out the emails of senders already on a Sender list (an admin decided about them): Trusted
+    // senders (not while suspended), Spam senders, Brand senders. Only when Gmail confirmed the sender (DMARC), as the lists
+    // themselves. A test for records: (r) => the list's name, or null.
+    async senderListTest() {
+        const E = spruce.load();
+        const spam = (await this.store.getState('spamSenders')) || {};
+        const brands = new Set(Object.values((await this.store.getState('brandSenders')) || {}).map(v => v && String(v.domain || '').toLowerCase()).filter(Boolean));
+        const suspended = [...(await this.allowSuspendedSet())];
+        return (r) => {
+            if (!r || !r.sender || !r.auth || r.auth.dmarc !== 'pass') return null;
+            const a = String(r.sender.address || '').toLowerCase(), d = a.split('@')[1] || '';
+            if (!d || (r.auth.headerFrom && r.auth.headerFrom !== d)) return null;
+            if (isAllowed(this.cfg, a) && !suspended.some(x => d === x || d.endsWith('.' + x))) return 'Trusted senders';
+            if (!r.inside && this.spamListMatch(spam, a)) return 'Spam senders';
+            if (!r.inside && brands.has(E.registrableDomain(d) || d)) return 'Brand senders';
+            return null;
+        };
+    }
+    // (0.6.40) Spam from one address is spam wherever it waits: a Spam answer also answers every other email from the same
+    // From address still waiting for review (moved or would move by the checks, or suspicious and still in the Inbox; nobody
+    // answered it yet), and moves it like the answer did. keys: the emails just answered Spam; records: the recent records
+    // (the dashboard's cache), else read. { done, moved, keys } (the keys, for Undo).
+    async answerSameSender(keys, by, records = null) {
+        const out = { done: 0, moved: 0, keys: [] };
+        const answered = new Set(keys), addrs = new Set();
+        for (const k of keys) { const r = await this.store.getRecord(k); if (r && r.spam && r.sender && r.sender.address) addrs.add(String(r.sender.address).toLowerCase()); }
+        if (!addrs.size) return out;
+        const list = records || await this.store.listRecords({ sinceMs: this.now() - 35 * DAY, limit: 20000 });
+        const waits = (r) => !r.markedBy && (((r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin') || (r.action === 'flag' && r.state === 'inbox'));
+        const todo = list.filter(r => r && !answered.has(r.key) && r.sender && addrs.has(String(r.sender.address || '').toLowerCase()) && waits(r)).slice(0, 2000);
+        await pool(todo, 10, async (r) => {
+            try {
+                const fresh = await this.store.getRecord(r.key);
+                if (!fresh || !waits(fresh)) return;
+                const m = await this.mark(r.key, false, by, { move: true, quiet: true, spam: true });
+                if (m && m.record) { out.done++; out.keys.push(r.key); }
+                if (m && m.moved === 'moved') out.moved++;
+            } catch (e) { this.log.error(`same sender ${r.key}:`, e); }
+        });
+        if (out.done) await this.store.addEvent({ kind: 'mark', text: `${by}'s Spam answer also answered ${out.done} other email${out.done === 1 ? '' : 's'} from ${[...addrs].slice(0, 3).join(', ')}${addrs.size > 3 ? '…' : ''} waiting for review${out.moved ? ` (${out.moved} moved to the Spam folder)` : ''}.` });
+        return out;
     }
     // A false alarm: every moved copy is released, every copy marked a false alarm, and later copies
     // aren't moved.
