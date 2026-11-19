@@ -1899,11 +1899,18 @@
         if (keys.length === 1) return api('/api/undo', { method: 'POST', body: { key: keys[0] } });
         for (let i = 0; i < keys.length; i += 500) await api('/api/undo', { method: 'POST', body: { keys: keys.slice(i, i + 500) } });
     };
-    // A sign's weight as up to three marks (weak, medium, strong), for the evidence columns.
-    const strength = (w) => (w >= 3 ? 3 : w >= 1.5 ? 2 : 1);
-    function signDots(w, tone) {
-        const n = strength(Math.abs(w));
-        return h('span', { class: `dots ${tone}`, role: 'img', 'aria-label': ['', 'Weak sign', 'Medium sign', 'Strong sign'][n] }, [1, 2, 3].map(i => h('span', { class: i <= n ? 'on' : '' })));
+    // (0.6.42) A sign as a heat box, like a heat index: its points inside (the AI's score for the AI), its color how strong
+    // it is: pale yellow (weak) to red (strong) for phishing or spam, pale to deep blue for safe.
+    const heatLevel = (w) => { const a = Math.abs(w); return a >= 5 ? 5 : a >= 3 ? 4 : a >= 2 ? 3 : a >= 1 ? 2 : 1; };
+    const HEAT_WORDS = ['', 'Very weak', 'Weak', 'Medium', 'Strong', 'Very strong'];
+    // The key under the evidence: what a box's number and color mean.
+    function heatLegend() {
+        return h('div', { class: 'heat-legend small muted' }, 'Each box: the sign\'s points toward the rules score (the AI\'s own score for the AI). Color: how strong ',
+            h('span', { class: 'heat-scale', 'aria-hidden': 'true' }, [1, 2, 3, 4, 5].map(n => h('span', { class: `heat hot h${n} mini` }))), ' weak to strong; blue points to safe.');
+    }
+    function heatBox(w, tone, label) {
+        const n = heatLevel(w);
+        return h('span', { class: `heat ${tone === 'safe' ? 'cool' : 'hot'} h${n}`, role: 'img', 'aria-label': `${HEAT_WORDS[n]} sign${label ? `, ${label}` : ''}` }, label || '');
     }
     // (0.6.35) "Also send future mail from this sender straight to Spam", under Review's buttons: ticked by default for
     // admins, remembered while the page is open; a Spam answer adds the sender (verified, outside) to Spam senders.
@@ -2034,25 +2041,25 @@
         const moves = st.mode === 'enforce' && m.state === 'inbox' && m.action !== 'move';
         // (0.6.41) A rule sign carries its points (they add up to the rules score); the others (the AI, a link's verdict, the
         // sender check) are shown by strength only.
-        const against = (m.signals || []).filter(x => x.weight > 0).sort((a, b) => b.weight - a.weight).map(x => [x.weight, x.text, x.weight]);
+        const against = (m.signals || []).filter(x => x.weight > 0).sort((a, b) => b.weight - a.weight).map(x => [x.weight, x.text, `+${x.weight}`]);
         // (0.6.27) Taken for spam: the column says spam, not phishing, and starts with what made it spam (the hidden
         // filler in list mail counts for no rules score, so it isn't among the weighted signs).
         const spamItem = kindOf(m) === 'spam';
-        if (spamItem && (m.trigger === 'spam' || (m.signals || []).some(x => x && x.kind === 'hidden-filler'))) against.unshift([2, 'It is list or marketing mail that hides a block of unrelated text below the message: a spam trick.']);
+        if (spamItem && (m.trigger === 'spam' || (m.signals || []).some(x => x && x.kind === 'hidden-filler'))) against.unshift([3, 'It is list or marketing mail that hides a block of unrelated text below the message: a spam trick.', 'spam']);
         const againstTitle = spamItem ? 'Points to spam' : 'Points to phishing';
-        for (const l of m.links || []) against.push([l.severity === 'danger' ? 3 : 1.5, `Link: ${l.reason || l.url}`]);
-        if (ai !== null && ai >= 0.5) against.unshift([ai >= aiThreshold ? 3 : ai >= aiSuspicious ? 2 : 1, `The AI scores it ${pct(ai)}: it reads like phishing`]);
-        const pro = (m.signals || []).filter(x => x.weight < 0).map(x => [x.weight, x.text, x.weight]);
-        if (ai !== null && ai < 0.5) pro.unshift([ai < 0.2 ? 3 : 2, `The AI scores it ${pct(ai)}: it reads as genuine`]);
-        if (m.auth && m.auth.dmarc === 'pass') pro.push([1, 'Gmail confirmed the sender is real (DMARC)']);
-        if (m.inside) pro.push([1, 'It comes from inside your organization']);
+        for (const l of m.links || []) against.push([l.severity === 'danger' ? 5 : 2, `Link: ${l.reason || l.url}`, 'link']);
+        if (ai !== null && ai >= 0.5) against.unshift([ai >= aiThreshold ? 5 : ai >= aiSuspicious ? 3 : 1.5, `The AI scores it ${pct(ai)}: it reads like phishing`, `AI ${pct(ai)}`]);
+        const pro = (m.signals || []).filter(x => x.weight < 0).map(x => [x.weight, x.text, `−${Math.abs(x.weight)}`]);
+        if (ai !== null && ai < 0.5) pro.unshift([ai < 0.2 ? 5 : 2, `The AI scores it ${pct(ai)}: it reads as genuine`, `AI ${pct(ai)}`]);
+        if (m.auth && m.auth.dmarc === 'pass') pro.push([2, 'Gmail confirmed the sender is real (DMARC)', '✓']);
+        if (m.inside) pro.push([2, 'It comes from inside your organization', '✓']);
         // (0.6.3) A sender check that neither passed nor failed: said beside the evidence, not counted either way.
         const dm = m.auth ? m.auth.dmarc : undefined;
         const dmarcNote = !m.auth ? 'Sender check (DMARC): not recorded for this email. Not counted either way.'
             : !dm ? 'Sender check (DMARC): Gmail wrote no result for this email. Not counted either way.'
             : dm === 'none' ? 'Sender check (DMARC): none. The sender\'s domain publishes no DMARC policy, so nothing confirms who sent it. Not counted either way.'
             : dm !== 'pass' && dm !== 'fail' ? `Sender check (DMARC): ${dm} (neither a pass nor a failure). Not counted either way.` : '';
-        const list = (items, tone, none) => (items.length ? h('ul', { class: 'ev-list' }, items.map(([w, t, pts]) => h('li', {}, signDots(w, tone), h('span', { text: t }), typeof pts === 'number' ? h('span', { class: 'sign-pts', title: 'Points toward the rules score', text: `${pts > 0 ? '+' : '−'}${Math.abs(pts)}` }) : null)))
+        const list = (items, tone, none) => (items.length ? h('ul', { class: 'ev-list' }, items.map(([w, t, label]) => h('li', {}, heatBox(w, tone, label), h('span', { text: t }))))
             : h('p', { class: 'small muted', text: none }));
         const lean = ai === null ? null : h('div', { class: 'lean-box' },
             h('div', { class: 'lean-ends', 'aria-hidden': 'true' }, h('span', { text: 'Reads as genuine' }), h('span', { text: 'Reads like phishing' })),
@@ -2076,6 +2083,7 @@
                 h('section', { class: `ev against${spamItem ? ' spam' : ''}`, 'aria-label': againstTitle }, h('h3', { text: againstTitle }), list(against, spamItem ? 'spam' : 'phish', `Nothing found that ${againstTitle.toLowerCase()}.`)),
                 h('section', { class: 'ev for', 'aria-label': 'Points to safe' }, h('h3', { text: 'Points to safe' }), list(pro, 'safe', 'Nothing found that points to safe.'),
                     quotes ? h('div', { class: 'ev-quotes' }, h('div', { class: 'small muted', text: 'What the AI weighed most:' }), quotes) : null)),
+            heatLegend(),
             dmarcNote ? h('p', { class: 'small muted rv-note', text: dmarcNote }) : null,
             h('div', { class: 'rv-actions' },
                 h('button', { class: 'btn big phish', type: 'button', title: ANSWER.phishing.help, onclick: () => act([g], 'phishing') }, answerLabel('phishing', moves), h('kbd', { text: 'P' })),

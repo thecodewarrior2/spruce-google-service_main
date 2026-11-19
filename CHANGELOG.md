@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.42: Each sign as a heat box
+
+- **Review's evidence** shows each sign as a colored box, like a heat index, instead of dots: the box holds the sign's
+  points toward the rules score (+5, +1.5…; the AI's own score for the AI, ✓ for a confirmed sender), and its color says
+  how strong it is: pale yellow (weak) to red (strong) for phishing or spam, pale to deep blue for safe. A key under the
+  evidence says so. The same colors in light and dark mode.
+- Dashboard only: how email is judged doesn't change.
+
+
 ## 0.6.41: The hidden link counts fully only toward another site; Review shows each sign's points
 
 - **A hidden, empty link** (the link-scanner trick, 0.6.32) counts its full 5 only when it goes to another site than the

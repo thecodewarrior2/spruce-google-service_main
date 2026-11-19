@@ -325,8 +325,8 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   - Each row shows the AI score, the subject, the sender, how many copies and people, when it arrived and its
     heaviest sign, with quick **Phishing**, **Spam**, **Not phishing** and **Not sure** buttons for the clear
     cases. Tick several to answer them all at once (more than 50 asks first).
-  - **Open one** to weigh the evidence (0.6.41: each rule sign shows its points, which add up to the rules score; the
-    marks beside it are its strength): who sent it to whom (the first two, **…show more** for everyone), where
+  - **Open one** to weigh the evidence (0.6.42: each sign is a heat box holding its points, which add up to the rules
+    score; its color, pale yellow to red, or blue for safe, is how strong it is): who sent it to whom (the first two, **…show more** for everyone), where
     the AI score and the rules score stand, the signs that **point to phishing** and those that **point to safe**
     (each weak, medium or strong), and what the AI weighed most. Under the evidence, a note says when the
     sender check (DMARC) neither passed nor failed (no result from Gmail, a "none" policy, another result such as

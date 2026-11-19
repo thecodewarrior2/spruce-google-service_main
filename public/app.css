@@ -882,3 +882,15 @@ tr[hidden], .row-cards tr[hidden] { display: none !important; }
 .intro-more > p.sub { margin-top: 6px; }
 /* 0.6.41: a rule sign's points, so the rules score adds up on the page. */
 .ev-list li .sign-pts { margin-left: auto; padding-left: 10px; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+/* 0.6.42: a sign as a heat box (like a heat index): the points inside, the color how strong. The same colors in light and
+   dark mode, with dark text, so each box reads the same everywhere. */
+.heat { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 42px; height: 24px; padding: 0 6px;
+  border-radius: 6px; font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; color: #1b1b1b; white-space: nowrap; }
+.heat.hot.h1 { background: #fff2b3; } .heat.hot.h2 { background: #ffe066; } .heat.hot.h3 { background: #ffbf47; }
+.heat.hot.h4 { background: #ff8c3a; } .heat.hot.h5 { background: #f0532b; }
+.heat.cool.h1 { background: #e6f0fd; } .heat.cool.h2 { background: #c9defb; } .heat.cool.h3 { background: #a5c8f7; }
+.heat.cool.h4 { background: #7fb0f1; } .heat.cool.h5 { background: #5d98ea; }
+.heat.mini { min-width: 14px; width: 14px; height: 10px; padding: 0; border-radius: 2px; }
+.heat-scale { display: inline-flex; gap: 2px; vertical-align: middle; margin: 0 4px; }
+.heat-legend { margin: 6px 0 0; }
+.ev-list li { align-items: flex-start; } .ev-list li .heat { min-width: 56px; }
