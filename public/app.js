@@ -1390,13 +1390,28 @@
     }
     // (0.6.36) Each list's own search and sorting (a table's headers sort by their column; a list of entries A–Z or as
     // kept), and the page's search across every list. Rows are found again whenever a list is drawn again.
+    // (0.6.45) How many entries a Sender list shows on the page; the rest open in a popup (Show all).
+    const LIST_ROWS = 8;
     function listTools(card, name) {
         if (!card) return null;
-        const st = { q: '', col: -1, dir: 1, az: 0 };
+        // (0.6.45) On the page, a list shows its first LIST_ROWS entries (or matches); "Show all" opens the whole list, the
+        // same card with its search, sorting and buttons, in a popup over the page (full), and puts it back on close.
+        const st = { q: '', col: -1, dir: 1, az: 0, full: false };
         const input = h('input', { type: 'search', class: 'list-search', placeholder: `Search ${name}`, 'aria-label': `Search ${name}`, autocomplete: 'off', spellcheck: 'false' });
         const count = h('span', { class: 'small muted list-count', 'aria-live': 'polite' });
         const az = h('button', { class: 'btn small-btn', type: 'button', title: 'Sort the entries' }, 'Sort A–Z');
-        const bar = h('div', { class: 'list-tools' }, input, card.querySelector('ul.entries') ? az : null, count);
+        const all = h('button', { class: 'linkbtn list-all', type: 'button', hidden: true });
+        const bar = h('div', { class: 'list-tools' }, input, card.querySelector('ul.entries') ? az : null, count, all);
+        all.addEventListener('click', () => {
+            const here = document.createComment('list');
+            card.before(here);
+            st.full = true; apply();
+            const title = (card.querySelector('h2') || {}).textContent || name;
+            const dlg = popup(title, card);
+            dlg.classList.add('popup-wide');
+            dlg.addEventListener('close', () => { here.replaceWith(card); st.full = false; apply(); });
+            setTimeout(() => input.focus(), 0);
+        });
         (card.querySelector('.list-head') || card.querySelector('h2')).after(bar);
         const sortKey = (td) => { const v = td && (td.dataset.sort !== undefined ? td.dataset.sort : td.textContent.trim().toLowerCase()); return v !== '' && !isNaN(Number(v)) ? Number(v) : v || ''; };
         const cmp = (a, b) => (typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b)));
@@ -1404,22 +1419,25 @@
         const apply = () => {
             busy = true;
             const q = st.q.trim().toLowerCase();
-            let shown = 0, total = 0;
+            let shown = 0, total = 0, visible = 0;
+            const room = () => st.full || visible < LIST_ROWS;
             for (const tb of card.querySelectorAll('table tbody')) {
                 const rows = [...tb.children];
                 if (st.col >= 0) rows.sort((a, b) => st.dir * cmp(sortKey(a.children[st.col]), sortKey(b.children[st.col]))).forEach(r => tb.append(r));
-                for (const r of rows) { total++; const ok = !q || r.textContent.toLowerCase().includes(q); r.hidden = !ok; if (ok) shown++; }
+                for (const r of rows) { total++; const ok = !q || r.textContent.toLowerCase().includes(q); const show = ok && room(); r.hidden = !show; if (ok) shown++; if (show) visible++; }
             }
             for (const ul of card.querySelectorAll('ul.entries')) {
                 const lis = [...ul.children];
                 if (!ul.dataset.order) lis.forEach((li, i) => { li.dataset.i = String(i); });
                 ul.dataset.order = '1';
                 lis.sort((a, b) => (st.az ? st.az * a.textContent.localeCompare(b.textContent) : Number(a.dataset.i) - Number(b.dataset.i))).forEach(li => ul.append(li));
-                [...ul.children].forEach((li, i) => { total++; const ok = q ? li.textContent.toLowerCase().includes(q) : i < 30; li.hidden = !ok; if (ok && q) shown++; });
+                [...ul.children].forEach((li) => { total++; const ok = !q || li.textContent.toLowerCase().includes(q); const show = ok && room(); li.hidden = !show; if (ok) shown++; if (show) visible++; });
             }
-            card.querySelectorAll('.entries-more').forEach(m => { m.hidden = !!q; });
+            card.querySelectorAll('.entries-more').forEach(m => { m.hidden = true; });
+            all.hidden = st.full || shown <= visible;
+            all.textContent = q ? `Show all ${num(shown)} matches` : `Show all ${num(total)}`;
             card.querySelectorAll('table thead th').forEach((th, i) => { if (th.textContent.trim()) th.setAttribute('aria-sort', i === st.col ? (st.dir > 0 ? 'ascending' : 'descending') : 'none'); });
-            count.textContent = q ? `${num(shown)} of ${num(total)} match` : `${num(total)} entr${total === 1 ? 'y' : 'ies'}`;
+            count.textContent = (q ? `${num(shown)} of ${num(total)} match` : `${num(total)} entr${total === 1 ? 'y' : 'ies'}`) + (shown > visible ? ` · ${num(visible)} shown here` : '');
             card.classList.toggle('no-match', !!q && !shown);
             // (0.6.39) Nothing to search in an empty list: no search box.
             bar.hidden = !total && !q;

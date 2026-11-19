@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.45: Brand ownership from shared DMARC reporting; Sender lists show 8 entries, the rest in a popup
+
+- **Brand ownership** (the public-records lookup, 0.5.64): a domain whose DMARC reports go to the very same mailbox as the
+  brand's own (one company's account at a report service), registered through a corporate registrar, is proven the
+  brand's. Either alone proves nothing (anyone can copy a report address; a corporate registrar serves many companies).
+  Capital One Shopping is proven Capital One's this way, so 0.6.44's hand-added Capital One domains are taken out again:
+  the lookup handles it, and any company set up the same way.
+- **Sender lists:** each list shows its first 8 entries (or matches). **Show all** opens the whole list in a popup over
+  the page, with the same search, sorting and buttons (Remove, Keep…); closing it puts the list back.
+- How email is judged changes (brand ownership): checks level 37, so recent delivered mail is checked again.
+
+
 ## 0.6.44: Review's filter bar, answers that can't hang, Capital One Shopping, and a fix for 0.6.40
 
 - **Review's filter bar:** a search box (sender, domain, display name or subject, as you type) and quick filters for the
@@ -15,7 +27,8 @@
   Sender lists, and verified senders' older rules-only emails stayed in Suspicious. Both work now; Review's items carry
   the sender check for the new tag and filter.
 - **Capital One Shopping and Capital One Travel** mail from their own domains (capitaloneshopping.com,
-  capitalonetravel.com) under Capital One's name: no longer counted as an imitation of Capital One.
+  capitalonetravel.com) under Capital One's name: no longer counted as an imitation of Capital One. (Replaced in 0.6.45 by
+  the ownership lookup.)
 - **Campaigns** show **Emails** beside **People**: one person can get the same email twice, and Moved and Would move
   count emails.
 - How email is judged changes (Capital One's domains): checks level 36, so recent delivered mail is checked again.

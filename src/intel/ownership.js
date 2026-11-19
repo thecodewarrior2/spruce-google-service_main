@@ -10,7 +10,9 @@
 //       vouches for no one, so it doesn't count);
 //     • its name servers are under the brand's domain (ns1-pchnet.paypal.com), or the same set as the brand's
 //       (not at providers whose servers every customer shares, nor a per-customer pool's names);
-//     • a corporate brand-protection registrar (MarkMonitor, CSC…) and a registrant naming the brand.
+//     • a corporate brand-protection registrar (MarkMonitor, CSC…) and a registrant naming the brand;
+//     • (0.6.45) a corporate registrar and DMARC reports sent to the very same mailbox as the brand's (one company's
+//       account at a report service).
 //   likely — a corporate registrar plus one more link to the brand (reports sent to it, a registrant naming
 //     it, the same per-customer name servers, or a year or more of age): a caution, never moved.
 //   unknown — anything less: judged as before.
@@ -35,6 +37,15 @@ function reportDomains(tags, registrable) {
     if (tags) for (const k of ['rua', 'ruf']) for (const part of String(tags[k] || '').split(',')) {
         const m = /mailto:[^@\s!,;]+@([a-z0-9.-]+)/i.exec(part.trim());
         if (m) { const d = registrable(m[1].toLowerCase()); if (d) out.add(d); }
+    }
+    return out;
+}
+// (0.6.45) The mailboxes (whole addresses) a DMARC record's reports go to, lowercased.
+function reportMailboxes(tags) {
+    const out = new Set();
+    if (tags) for (const k of ['rua', 'ruf']) for (const part of String(tags[k] || '').split(',')) {
+        const m = /mailto:([^@\s!,;]+@[a-z0-9.-]+)/i.exec(part.trim());
+        if (m) out.add(m[1].toLowerCase());
     }
     return out;
 }
@@ -121,9 +132,16 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
         const proof = [], hints = [];
         const homes = (brand.home || brand.domains || []).slice(0, 3).filter(h => h !== reg);
         // 1. DMARC reporting, either way.
-        const mine = reportDomains(await settle(() => dmarcTags(reg)), E.registrableDomain);
+        const myTags = await settle(() => dmarcTags(reg));
+        const mine = reportDomains(myTags, E.registrableDomain), myBoxes = reportMailboxes(myTags);
+        let sameBox = '';
         for (const home of homes) {
-            if (reportDomains(await settle(() => dmarcTags(home)), E.registrableDomain).has(reg)) { proof.push(`${home} sends its own DMARC reports to it`); break; }
+            const homeTags = await settle(() => dmarcTags(home));
+            if (reportDomains(homeTags, E.registrableDomain).has(reg)) { proof.push(`${home} sends its own DMARC reports to it`); break; }
+            // (0.6.45) Both send their reports to the very same mailbox at a report service (brand@rua.reports.example):
+            // one company's account there. Anyone could copy that address into their own record, so it counts only
+            // with a corporate registrar (below), which a forger can't use.
+            if (!sameBox) { const box = [...reportMailboxes(homeTags)].find(x => myBoxes.has(x)); if (box) sameBox = `its DMARC reports go to the same mailbox as ${home}'s (${box})`; }
             if (mine.has(home)) {
                 if (await settle(() => authorized(reg, home))) proof.push(`its DMARC reports go to ${home}, which publishes the authorization for them`);
                 else hints.push(`its DMARC reports go to ${home}`);
@@ -148,7 +166,9 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
         const corporate = !!info.registrar && CORPORATE_REGISTRARS.test(info.registrar);
         const named = !!info.registrant && registrantNamesBrand(E, info.registrant, brand);
         if (corporate && named) proof.push(`registered to ${info.registrant} through ${info.registrar}`);
+        else if (corporate && sameBox) proof.push(`${sameBox}, and it is registered through ${info.registrar}, a corporate registrar`);
         else {
+            if (sameBox) hints.push(sameBox);
             if (named) hints.push(`registered to ${info.registrant}`);
             if (corporate) hints.push(`registered through ${info.registrar}, a corporate registrar`);
         }
@@ -203,4 +223,4 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
     return { of, ofCompany };
 }
 
-module.exports = { createOwnership, sameOperatorNs, registrantNamesBrand, CORPORATE_REGISTRARS };
+module.exports = { createOwnership, sameOperatorNs, registrantNamesBrand, reportMailboxes, CORPORATE_REGISTRARS };

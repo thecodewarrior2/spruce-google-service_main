@@ -909,3 +909,5 @@ tr[hidden], .row-cards tr[hidden] { display: none !important; }
 .rv-only { flex: none; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-2); cursor: pointer; font-size: 15px; line-height: 1; }
 .rv-only:hover { color: var(--accent); border-color: var(--accent); }
 @media (min-width: 861px) { .rv-title { min-width: 260px; } .rv-sign { min-width: 0; flex: 0 1 220px; } }
+dialog.popup.popup-wide { width: min(1040px, calc(100vw - 32px)); } dialog.popup .popup-body > .card { margin: 0; border: 0; box-shadow: none; }
+dialog.popup .popup-body > .card > h2:first-child { display: none; }

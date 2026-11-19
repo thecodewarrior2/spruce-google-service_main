@@ -68,6 +68,20 @@ test('the registry: a corporate registrar and a registrant naming the brand is p
     assert.equal((await own.of('pp-transfers.example', 'PayPal')).state, 'unknown', 'any registrar, a registrant anyone can type');
 });
 
+test('0.6.45: the same DMARC report mailbox as the brand\'s, through a corporate registrar, is proof; either alone isn\'t', async () => {
+    const reports = { '_dmarc.paypal.com|TXT': ['v=DMARC1; p=reject; rua=mailto:paypal-account@rua.reports-service.example'],
+        '_dmarc.pp-shopping.example|TXT': ['v=DMARC1; p=reject; rua=mailto:paypal-account@rua.reports-service.example; ruf=mailto:x@ruf.reports-service.example'] };
+    let { own } = make(Object.assign({ rdap: { 'pp-shopping.example': { registrar: 'MarkMonitor Inc.', created: YEARS(6) } } }, reports));
+    const r = await own.of('pp-shopping.example', 'PayPal');
+    assert.equal(r.state, 'owned');
+    assert.match(r.how, /same mailbox as paypal\.com's \(paypal-account@rua\.reports-service\.example\), and it is registered through MarkMonitor Inc\./);
+    ({ own } = make(Object.assign({ rdap: { 'pp-shopping.example': { registrar: 'Cheap Names LLC', created: YEARS(6) } } }, reports)));
+    assert.equal((await own.of('pp-shopping.example', 'PayPal')).state, 'unknown', 'anyone can copy the report address into their own record');
+    ({ own } = make({ rdap: { 'pp-shopping.example': { registrar: 'MarkMonitor Inc.', created: YEARS(6) } },
+        '_dmarc.paypal.com|TXT': ['v=DMARC1; rua=mailto:paypal-account@rua.reports-service.example'], '_dmarc.pp-shopping.example|TXT': ['v=DMARC1; rua=mailto:other@rua.reports-service.example'] }));
+    assert.equal((await own.of('pp-shopping.example', 'PayPal')).state, 'likely', 'the same report service, another account: a corporate registrar and its age only');
+});
+
 test('asked once: the answer is kept (also an unknown one, for a day); personal mail and unknown brands are never asked', async () => {
     const { http, own } = make({ 'xoom.com|NS': ['ns1-pchnet.paypal.com'] });
     await own.of('service.xoom.com', 'PayPal');

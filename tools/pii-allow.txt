@@ -56,5 +56,3 @@ no-reply@trevipay.app
 walmartbusinesssupport@trevipay.app
 # (0.6.33) A made-up card-offers mailbox at a bank's own domain (a company's role address, no person's), in test/training-miss-and-lures.test.js.
 card@cards.tdbank.com
-# (0.6.44) A made-up offers mailbox at Capital One's shopping service's own domain (a company's role address, no person's), in test/training-miss-and-lures.test.js.
-offers@capitaloneshopping.com
