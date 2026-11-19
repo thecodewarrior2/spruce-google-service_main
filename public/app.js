@@ -94,6 +94,7 @@
         const badge = $('#modeBadge');
         if (!badge || !mode) return;
         badge.hidden = false;
+        currentMode = mode;
         badge.className = `mode ${mode}`;
         badge.textContent = mode === 'enforce' ? 'Enforce mode' : 'Monitor mode';
         // (0.6.0) And a card in the menu: what the mode means, and where to go from it.
@@ -165,10 +166,19 @@
         if (busyEl) busyEl.hidden = true;
     }
 
-    function toast(msg) {
-        const t = h('div', { class: 'toast', role: 'status', text: msg });
+    // (0.6.39) A message after an action; with undo, an Undo button and 10 seconds to use it. An error stays until closed.
+    function toast(msg, { undo = null, error = false } = {}) {
+        document.querySelectorAll('.toast').forEach(t => t.remove());
+        const t = h('div', { class: `toast${error ? ' error' : ''}${undo ? ' with-undo' : ''}`, role: error ? 'alert' : 'status' }, h('span', { text: msg }));
+        const close = () => t.remove();
+        if (undo) t.append(h('button', { class: 'toast-btn', type: 'button', onclick: async (e) => {
+            e.target.disabled = true;
+            try { await undo(); close(); toast('Undone: the answer before is back.'); render(); }
+            catch (err) { toast(`Couldn't undo it: ${err.message}`, { error: true }); }
+        } }, 'Undo'));
+        if (error) t.append(h('button', { class: 'toast-btn', type: 'button', 'aria-label': 'Close', onclick: close }, '✕'));
         document.body.append(t);
-        setTimeout(() => t.remove(), 3200);
+        if (!error) setTimeout(close, undo ? 10000 : 4000);
     }
 
     // --- Popup: an in-page dialog over the page (Escape or Close closes it; the page's keys wait meanwhile) ----
@@ -501,49 +511,50 @@
         };
     }
     // A campaign's state and an admin's decisions for every copy (Messages, filtered to a campaign).
-    // (0.6.37) Answers every recorded copy of a campaign Spam or Ignore (the same as ticking them all on Mail).
-    function campaignAnswer(key, action, label) {
-        return async (e) => {
-            const what = action === 'spam' ? 'spam (moved to Spam in enforce mode)' : 'unclear: left as they are, not used for retraining';
-            if (!confirm(`Answer every recorded copy of "${label}" as ${what}?`)) return;
-            const btn = e.currentTarget; btn.disabled = true; acting++; busyStart(action === 'spam' ? 'Marking every copy as spam…' : 'Setting every copy aside…');
-            try {
-                const keys = ((await api(`/api/messages?${q({ campaign: key, days: '35' })}`)).messages || []).map(m => m.key).filter(Boolean);
-                const sum = { done: 0, moved: 0 };
-                for (let i = 0; i < keys.length; i += 500) {
-                    const o = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 500), action, addSender: action === 'spam' && spamAddSender && !isModerator() } });
-                    sum.done += o.done || 0; sum.moved += o.moved || 0;
-                }
-                toast(action === 'spam' ? `Confirmed as spam: ${num(sum.done)} copies${sum.moved ? `, ${num(sum.moved)} moved to Spam` : ''}.` : `Set aside: ${num(sum.done)} copies, not used for retraining.`);
-                render();
-            } catch (err) { toast(`Couldn't do that: ${err.message}`); btn.disabled = false; }
-            finally { acting--; busyEnd(); }
-        };
-    }
+    // (0.6.39) A campaign's box: the same four answers as anywhere else, for every copy (the last 90 days). Phishing
+    // ("confirm": later copies are moved too) and Not phishing ("dismiss": moved copies back, later ones not moved)
+    // decide the campaign; Spam and Not sure answer its copies, with Undo, until it is decided. "Move" only in enforce mode.
     async function campaignBar(key) {
         let c;
         try { ({ campaign: c } = await api(`/api/campaign?${q({ key })}`)); } catch (e) { return null; }
-        const status = c.decision === 'confirmed' ? `Confirmed as phishing by ${c.decidedBy}: every copy is moved, and later ones too.`
-            : c.decision === 'released' ? `Dismissed as a false alarm by ${c.decidedBy}: its moved copies went back to the Inbox, and later ones aren't moved.`
-            : c.held ? `Moving is paused: ${num(c.held)} copies were left in the Inbox, because over ${num(c.holdAfter)} were moved on evidence nothing outside the email confirms. Confirm it as phishing, or dismiss it as a false alarm.`
-            : `${num(c.copies)} copies recorded: ${num(c.moved)} in Spam, ${num(c.recorded)} in the Inbox, ${num(c.released)} moved back.`;
+        const enforce = currentMode === 'enforce';
+        const status = c.decision === 'confirmed' ? `Marked Phishing by ${c.decidedBy}: every copy is ${enforce ? 'moved to the Spam folder' : 'marked'}, and later copies too.`
+            : c.decision === 'released' ? `Marked Not phishing by ${c.decidedBy}: its copies went back to the Inbox, and later copies aren't moved.`
+            : c.held ? `Moving is paused: ${num(c.held)} copies were left in the Inbox, because more than ${num(c.holdAfter)} were moved on weaker evidence (only the email itself looked bad). Mark it Phishing or Not phishing.`
+            : `${num(c.copies)} copies: ${num(c.moved)} in the Spam folder, ${num(c.recorded)} in the Inbox, ${num(c.released)} moved back.`;
         const search = h('input', { type: 'checkbox', checked: true });
         const found = (f) => (f ? `; ${num(f.found)} more found in ${num(f.searched)} of ${num(f.of)} mailboxes${f.moved ? `, ${num(f.moved)} moved` : ''}` : '');
+        const run = (label, fn) => async (e) => {
+            const btn = e.currentTarget; btn.disabled = true; acting++; busyStart(label);
+            try { await fn(); } catch (err) { toast(`Couldn't save your answer: ${err.message}`, { error: true }); btn.disabled = false; } finally { acting--; busyEnd(); }
+        };
+        const answerAll = (action) => run('Answering every copy…', async () => {
+            if (!window.confirm(`Mark every copy of "${c.label}" ${ANSWER[action].label}?${action === 'spam' && enforce ? ' Copies in the Inbox are moved to the Spam folder.' : ''} You can undo it for an hour.`)) return;
+            const o = await api('/api/campaign/answer', { method: 'POST', body: { key, action, addSender: action === 'spam' && spamAddSender && !isModerator() } });
+            toast(answeredText(action, o, Math.max(2, o.done || 0)), { undo: undoKeys(o.keys || []) });
+            render();
+        });
+        const decide = (action) => run('Answering every copy…', async () => {
+            const back = action === 'false-alarm';
+            if (!window.confirm(back ? `Mark every copy of "${c.label}" Not phishing?${enforce ? ' Copies in the Spam folder go back to the Inbox,' : ''} and later copies aren't moved.`
+                : `Mark every copy of "${c.label}" Phishing?${enforce ? ' Every copy is moved to the Spam folder,' : ''} and later copies are treated the same${search.checked ? '. Every watched mailbox is also searched for copies not recorded' : ''}.`)) return;
+            const o = await api(back ? '/api/campaign/release' : '/api/campaign/confirm', { method: 'POST', body: back ? { key } : { key, search: search.checked } });
+            toast(back ? `Marked Not phishing: every copy${o.released ? `, ${num(o.released)} moved back to the Inbox` : ''}.`
+                : `Marked Phishing: every copy${o.moved && !o.moved.monitor && o.moved.moved ? `, ${num(o.moved.moved)} moved to the Spam folder` : ''}${found(o.found)}.`);
+            render();
+        });
+        const label = (action) => `${ANSWER[action].label}${enforce && action === 'phishing' ? ': move every copy to the Spam folder' : enforce && action === 'false-alarm' ? ': move every copy back' : ' (every copy)'}`;
         return h('section', { class: `card campaign-bar${c.held && !c.decision ? ' held' : ''}` },
             h('div', {}, h('b', { text: c.label }), h('div', { class: 'small muted', text: status })),
             h('div', { class: 'actions' },
-                c.decision !== 'confirmed' ? [
-                    h('button', { class: 'btn primary', type: 'button', onclick: postButton('/api/campaign/confirm', () => ({ key, search: search.checked }),
-                        (o) => (o.moved && o.moved.monitor ? `Confirmed as phishing. Monitor mode: nothing moved${found(o.found)}.` : `Confirmed: ${num(o.moved.moved)} copies moved to Spam${found(o.found)}${o.moved.left ? `; ${num(o.moved.left)} left, press again` : ''}.`),
-                        `Confirm "${c.label}" as phishing and move every copy to Spam${search.checked ? ', searching every watched mailbox for more' : ''}?`) }, 'Confirm phishing: move every copy'),
-                    h('label', { class: 'small' }, search, ' also search every watched mailbox for copies not recorded')] : null,
-                // (0.6.37) Spam, or Ignore, for every copy recorded (the campaign's records, in batches of 500).
-                h('button', { class: 'btn', type: 'button', onclick: campaignAnswer(key, 'spam', c.label) }, 'Spam: every copy'),
-                spamSenderBox('its sender\'s'),
-                h('button', { class: 'btn', type: 'button', onclick: campaignAnswer(key, 'unclear', c.label) }, 'Ignore every copy'),
-                c.decision !== 'released' ? h('button', { class: 'btn', type: 'button', onclick: postButton('/api/campaign/release', () => ({ key }), (o) => `Moved back: ${num(o.released)} copies in the Inbox again.`,
-                    `Move every copy of "${c.label}" back to the Inbox, and stop moving it?`) }, 'False alarm: move every copy back') : null,
-                c.decision === 'confirmed' ? h('button', { class: 'btn', type: 'button', onclick: postButton('/api/campaign/find', () => ({ key }), (o) => `Searched: ${num(o.found.found)} more found in ${num(o.found.searched)} of ${num(o.found.of)} mailboxes${o.found.moved ? `, ${num(o.found.moved)} moved` : ''}.`) }, 'Find other copies') : null));
+                c.decision !== 'confirmed' ? h('button', { class: 'btn phish', type: 'button', title: ANSWER.phishing.help, onclick: decide('phishing') }, label('phishing')) : null,
+                !c.decision ? h('button', { class: 'btn', type: 'button', title: ANSWER.spam.help, onclick: answerAll('spam') }, label('spam')) : null,
+                c.decision !== 'released' ? h('button', { class: 'btn safe', type: 'button', title: ANSWER['false-alarm'].help, onclick: decide('false-alarm') }, label('false-alarm')) : null,
+                !c.decision ? h('button', { class: 'btn', type: 'button', title: ANSWER.unclear.help, onclick: answerAll('unclear') }, label('unclear')) : null),
+            h('div', { class: 'actions small' },
+                c.decision !== 'confirmed' ? h('label', { class: 'small' }, search, ' with Phishing, also search every watched mailbox for copies not recorded') : null,
+                !c.decision ? spamSenderBox('its sender\'s') : null,
+                c.decision === 'confirmed' ? h('button', { class: 'btn', type: 'button', onclick: postButton('/api/campaign/find', () => ({ key }), (o) => `Searched: ${num(o.found.found)} more found in ${num(o.found.searched)} of ${num(o.found.of)} mailboxes${o.found.moved ? `, ${num(o.found.moved)} moved` : ''}.`) }, 'Search every mailbox for more copies') : null));
     }
     const kpi = (label, value, note) => h('div', { class: 'card kpi' }, h('div', { class: 'label', text: label }), h('div', { class: 'value', text: value }), note ? h('div', { class: 'note', text: note }) : null);
 
@@ -659,16 +670,15 @@
         };
         const all = h('input', { type: 'checkbox', 'aria-label': 'Select every email on this page' });
         all.addEventListener('change', () => { for (const [m, c] of boxes) { c.checked = all.checked; if (all.checked) selected.add(m.key); else selected.delete(m.key); } changed(); });
-        const bulk = (action, done, ask) => postButton('/api/bulk', () => ({ action, keys: [...selected], addSender: action === 'spam' && spamAddSender && !isModerator() }),
-            (o) => `${done}: ${num(o.done)}${o.skipped ? ` (${num(o.skipped)} skipped: not in Spam, or already so)` : ''}${o.failed ? `, ${num(o.failed)} failed` : ''}.`, ask);
+        // (0.6.39) The same four answers as Review, the same message after them, with Undo; asked first when it is many.
+        const bulk = (action) => async (ev) => {
+            const btnEl = ev.currentTarget; btnEl.disabled = true; acting++; busyStart('Saving your answers…');
+            try { const done = await answerKeys([...selected], action); if (done) { toast(done.text, { undo: undoKeys(done.keys) }); selected.clear(); render(); } }
+            catch (err) { toast(`Couldn't save your answers: ${err.message}`, { error: true }); } finally { btnEl.disabled = false; acting--; busyEnd(); }
+        };
         bulkBar.append(count,
-            isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: bulk('release', 'Moved back to the Inbox', 'Move the selected emails that are in Spam back to the Inbox?') }, 'Move back to Inbox'),
-            h('button', { class: 'btn', type: 'button', onclick: bulk('false-alarm', 'Marked as false alarms') }, 'Mark false alarm'),
-            h('button', { class: 'btn', type: 'button', onclick: bulk('phishing', 'Confirmed as phishing') }, 'Confirm phishing'),
-            // (0.6.37) Spam and Ignore here too, as in Review.
-            h('button', { class: 'btn', type: 'button', onclick: bulk('spam', 'Confirmed as spam') }, 'Mark spam'),
-            h('button', { class: 'btn', type: 'button', onclick: bulk('unclear', 'Set aside as unclear (not used for retraining)') }, 'Ignore, unclear'),
-            spamSenderBox('their senders\''),
+            ...['phishing', 'spam', 'false-alarm', 'unclear'].map(a => h('button', { class: `btn ${ANSWER[a].cls}`, type: 'button', title: ANSWER[a].help, onclick: bulk(a) }, ANSWER[a].label)),
+            spamSenderBox('their senders\'') || '',
             h('button', { class: 'linkbtn', type: 'button', onclick: () => { selected.clear(); all.checked = false; for (const [, c] of boxes) c.checked = false; changed(); } }, 'Clear'));
         return [h('h1', { text: `Messages ${scope}`.trim() }),
             h('p', { class: 'sub' }, `${num(d.total)} recorded in the last ${days} days. `, (filt.user || filt.campaign) ? h('a', { href: '#/messages', text: 'Show all' }) : null),
@@ -911,17 +921,25 @@
         // mode, phishing still in the Inbox is moved to Spam when confirmed.
         const notMoved = m.action === 'flag';
         const moves = opts.mode === 'enforce' && m.state === 'inbox' && m.action !== 'move';
-        const actions = quiet ? null : h('div', { class: 'actions' },
-            rescanButton(m, 'btn'),
-            m.state === 'moved' && !isModerator() ? h('button', { class: 'btn primary', type: 'button', onclick: () => act('/api/release', { key: m.key }, 'Moved back to the Inbox.') }, 'Move back to Inbox') : null,
-            m.falseAlarm !== true ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: true }, (o) => `${notMoved ? 'Marked as not phishing' : 'Marked as a false alarm'}${o && o.released ? ', and moved back to the Inbox' : ''}.`) }, m.state === 'moved' ? 'False alarm: move back to Inbox' : notMoved ? 'Mark not phishing' : 'Mark false alarm') : null,
-            m.falseAlarm !== false || moves ? h('button', { class: `btn${moves ? ' primary' : ''}`, type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, move: moves }, (out) => phishedText(out.moved)) }, moves ? 'Confirm phishing: move to Spam' : 'Confirm phishing') : null,
-            // (0.6.26) Spam, not phishing: unwanted bulk mail. Moved to Spam the same way; the retraining export's class says spam.
-            // (0.6.38) With the spam-senders choice, as in Review (a verified outside sender; admins).
-            !m.spam || moves ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/mark', { key: m.key, falseAlarm: false, spam: true, move: moves, addSender: spamAddSender && !isModerator() && !!(m.auth && m.auth.dmarc === 'pass' && !m.inside) },
-                (out) => `${out.moved === 'moved' ? 'Confirmed as spam and moved to Spam.' : 'Confirmed as spam.'}${out.spamSenderAdded ? ` ${out.spamSenderAdded} is now on Spam senders: its mail goes straight to Spam.` : ''}`), title: 'Unwanted bulk mail (marketing, political, newsletters nobody signed up for), not phishing' }, moves ? 'Spam: move to Spam' : 'Confirm spam') : null,
-            (!m.spam || moves) && m.auth && m.auth.dmarc === 'pass' && !m.inside ? spamSenderBox('its sender\'s') : null,
-            !(m.unclear && m.markedBy) ? h('button', { class: 'btn', type: 'button', onclick: () => act('/api/unclear', { key: m.key }, 'Set aside: left as it is for the reader to decide, and not used for retraining.'), title: 'Neither clearly phishing nor clearly safe' }, 'Ignore, treat as suspicious') : null);
+        // (0.6.39) The same four answers as Review, worded the same, each shown unless it is already this email's answer
+        // (so any answer can be changed); Not phishing also for an email its reader took back, which no admin has
+        // looked at yet. None is styled as the page's main button; Undo is in the message after.
+        const isPhish = m.falseAlarm === false && !m.spam, isSpam = m.falseAlarm === false && !!m.spam;
+        const reviewed = !!m.markedBy;
+        const answer = (action) => async () => {
+            acting++; busyStart();
+            try { const done = await answerKeys([m.key], action); if (done) { toast(done.text, { undo: undoKeys(done.keys) }); render(); } }
+            catch (e) { toast(`Couldn't save your answer: ${e.message}`, { error: true }); } finally { acting--; busyEnd(); }
+        };
+        const btn = (action, label) => h('button', { class: `btn ${ANSWER[action].cls}`, type: 'button', title: ANSWER[action].help, onclick: answer(action) }, label);
+        const canSender = m.auth && m.auth.dmarc === 'pass' && !m.inside;
+        const actions = quiet ? null : h('div', { class: 'actions answer-actions' },
+            !isPhish || moves ? btn('phishing', answerLabel('phishing', moves)) : null,
+            !isSpam || moves ? btn('spam', answerLabel('spam', moves)) : null,
+            m.falseAlarm !== true || !reviewed ? btn('false-alarm', answerLabel('false-alarm', m.state === 'moved')) : null,
+            !(m.unclear && reviewed) ? btn('unclear', ANSWER.unclear.label) : null,
+            (!isSpam || moves) && canSender ? spamSenderBox('its sender\'s') : null,
+            rescanButton(m, 'btn'));
         const verdictText = pasted ? 'Checked from a pasted copy: nothing was stored, moved or counted.'
             : m.falseAlarm === true && m.releasedByUser && !m.markedBy ? 'Counted as a false alarm because the user moved it back. No admin has reviewed it yet.'
             : m.falseAlarm === true ? (notMoved ? 'An admin marked this as not phishing.' : 'An admin marked this a false alarm.') : m.falseAlarm === false ? (m.spam ? 'An admin confirmed this as spam (not phishing).' : m.spam === false ? 'An admin confirmed this as phishing.' : 'An admin confirmed this as phishing or spam.')
@@ -1743,13 +1761,64 @@
     // queue, never used for retraining), N skip (stays in the queue, undecided), R re-scan. Several items can be
     // ticked and answered together. In enforce mode, Phishing also moves an email still in the Inbox to Spam.
     let reviewStates = {}, reviewKeys = null;
+    // (0.6.39) R only where the Check again button is shown (not in the demo's clickable mockup).
+    const canRescanReview = (g) => !!(g && g.keys && g.keys[0]) && !MEMORY;
     const QUEUES = {
-        moved: { label: 'Moved or would move', short: 'Would move', what: 'moved or "would move" emails', order: 'oldest first', no: 'False alarm', noDone: 'Marked as a false alarm.', ignore: 'Ignore, unclear' },
-        suspicious: { label: 'Suspicious, not moved', short: 'Suspicious', what: 'suspicious emails not moved', order: 'newest first', no: 'Not phishing', noDone: 'Marked as not phishing.', ignore: 'Ignore, treat as suspicious' }
+        moved: { label: 'Moved, or would be moved', short: 'Moved', what: 'moved, or would-be-moved, emails', order: 'oldest first' },
+        suspicious: { label: 'Suspicious (not moved)', short: 'Suspicious', what: 'suspicious emails (not moved)', order: 'newest first' }
     };
-    const phishedText = (moved) => moved === 'moved' ? 'Confirmed as phishing, and moved to Spam.'
-        : moved === 'gone' ? 'Confirmed as phishing. It isn\'t in the Inbox any more, so nothing was moved.' : 'Confirmed as phishing.';
-    const SET_ASIDE = 'Set aside: left as it is for the reader to decide, and not used for retraining.';
+    // (0.6.39) The four answers, worded the same everywhere (Review, Mail, an email's page, a campaign's box). When the
+    // click moves mail (enforce mode), the button says where to.
+    const ANSWER = {
+        phishing: { label: 'Phishing', moved: 'Phishing: move to the Spam folder', cls: 'phish', help: 'A scam or an attack: it tries to trick the reader.' },
+        spam: { label: 'Spam', moved: 'Spam: move to the Spam folder', cls: '', help: 'Unwanted bulk mail (ads, newsletters nobody asked for, political mail): annoying, not dangerous.' },
+        'false-alarm': { label: 'Not phishing', moved: 'Not phishing: move back to the Inbox', cls: 'safe', help: 'A genuine email: nothing wrong with it.' },
+        unclear: { label: 'Not sure', moved: 'Not sure', cls: '', help: 'You can\'t tell: it is left as it is, and not used to train the AI.' }
+    };
+    const answerLabel = (action, moves) => (moves ? ANSWER[action].moved : ANSWER[action].label);
+    let currentMode = null;   // (set by showMode)
+    // What happened, in one sentence: for one email (o from /api/mark) or several (o from /api/bulk, n emails).
+    function answeredText(action, o, n) {
+        const one = n === 1, a = ANSWER[action].label;
+        let t = one ? `Marked ${a}` : `Marked ${a}: ${num(o.done || 0)} email${o.done === 1 ? '' : 's'}`;
+        if (action === 'phishing' || action === 'spam') {
+            if (one) t += o.moved === 'moved' ? ', and moved to the Spam folder' : o.moved === 'gone' ? '. It isn\'t in the Inbox any more, so nothing was moved' : '';
+            else if (o.moved) t += `, ${num(o.moved)} moved to the Spam folder`;
+        }
+        if (action === 'false-alarm' && o.released) t += one ? ', and moved back to the Inbox' : `, ${num(o.released)} moved back to the Inbox`;
+        if (action === 'unclear') t += one ? ': left as it is, and not used to train the AI' : ', left as they are and not used to train the AI';
+        t += '.';
+        const added = one ? (o.spamSenderAdded ? [o.spamSenderAdded] : []) : (o.spamSendersAdded || []);
+        if (added.length) t += ` ${added.join(', ')} ${added.length === 1 ? 'is' : 'are'} now on Spam senders: future mail goes straight to the Spam folder.`;
+        if (!one && o.failed) t += ` ${num(o.failed)} couldn't be marked.`;
+        if (!one && o.skipped) t += ` ${num(o.skipped)} weren't found.`;
+        return t;
+    }
+    // Answers emails (one: its own call, so Activity names it; several: in batches of 500), asking first when it is many
+    // or moves several back to the Inbox. Returns { text, keys } for the message and its Undo, or null when cancelled.
+    async function answerKeys(keys, action, { addSender = action === 'spam' && spamAddSender && !isModerator() } = {}) {
+        const n = keys.length;
+        if (!n) return null;
+        const enforce = currentMode === 'enforce';
+        if (n > 50 || (n > 1 && action === 'false-alarm' && enforce)) {
+            const effect = !enforce ? '' : action === 'false-alarm' ? ' Those in the Spam folder go back to the Inbox.' : action === 'unclear' ? '' : ' Those still in the Inbox are moved to the Spam folder.';
+            if (!window.confirm(`Mark ${num(n)} emails ${ANSWER[action].label}?${effect} You can undo it for an hour.`)) return null;
+        }
+        let o;
+        if (n === 1) {
+            o = action === 'unclear' ? await api('/api/unclear', { method: 'POST', body: { key: keys[0] } })
+                : await api('/api/mark', { method: 'POST', body: { key: keys[0], falseAlarm: action === 'false-alarm', spam: action === 'spam', move: (action === 'phishing' || action === 'spam') && enforce, addSender } });
+        } else {
+            o = { done: 0, moved: 0, released: 0, failed: 0, skipped: 0, spamSendersAdded: [] };
+            for (let i = 0; i < n; i += 500) {
+                const r = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 500), action, addSender } });
+                for (const k of ['done', 'moved', 'released', 'failed', 'skipped']) o[k] += r[k] || 0;
+                for (const x of r.spamSendersAdded || []) if (!o.spamSendersAdded.includes(x)) o.spamSendersAdded.push(x);
+            }
+        }
+        return { text: answeredText(action, o, n), keys };
+    }
+    const undoKeys = (keys) => () => api('/api/undo', { method: 'POST', body: keys.length === 1 ? { key: keys[0] } : { keys: keys.slice(0, 500) } });
     // A sign's weight as up to three marks (weak, medium, strong), for the evidence columns.
     const strength = (w) => (w >= 3 ? 3 : w >= 1.5 ? 2 : 1);
     function signDots(w, tone) {
@@ -1769,31 +1838,9 @@
     };
     // Answers every copy of the items given (one copy: its own endpoint, so Activity names it; more: in batches of 500).
     async function answerGroups(st, groups, action) {
-        const addSender = action === 'spam' && spamAddSender && !isModerator();
-        const Q = QUEUES[st.queue];
         const keys = groups.flatMap(g => g.keys);
-        let msg;
-        if (keys.length === 1) {
-            const key = keys[0];
-            if (action === 'unclear') { await api('/api/unclear', { method: 'POST', body: { key } }); msg = SET_ASIDE; }
-            else {
-                // Moved only in enforce mode, as the button said (the server checks the mode, and the Inbox, again).
-                const out = await api('/api/mark', { method: 'POST', body: { key, falseAlarm: action === 'false-alarm', spam: action === 'spam', move: (action === 'phishing' || action === 'spam') && st.mode === 'enforce', addSender } });
-                msg = action === 'false-alarm' ? (out.released ? `${Q.noDone.replace(/\.$/, '')}, and moved back to the Inbox.` : Q.noDone)
-                    : action === 'spam' ? `${out.moved === 'moved' ? 'Confirmed as spam and moved to Spam.' : 'Confirmed as spam.'}${out.spamSenderAdded ? ` ${out.spamSenderAdded} is now on Spam senders: its mail goes straight to Spam.` : ''}` : phishedText(out.moved);
-            }
-        } else {
-            const sum = { done: 0, moved: 0, released: 0, failed: 0 };
-            for (let i = 0; i < keys.length; i += 500) {
-                const out = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 500), action, addSender } });
-                sum.done += out.done || 0; sum.moved += out.moved || 0; sum.released += out.released || 0; sum.failed += out.failed || 0;
-            }
-            msg = action === 'unclear' ? `Set aside: ${num(sum.done)} copies left as they are, not used for retraining.`
-                : action === 'false-alarm' ? `${Q.noDone.replace(/\.$/, '')}: ${num(sum.done)} copies${sum.released ? `, ${num(sum.released)} moved back to the Inbox` : ''}.`
-                : action === 'spam' ? `Confirmed as spam: ${num(sum.done)} copies${sum.moved ? `, ${num(sum.moved)} moved to Spam` : ''}.`
-                : `Confirmed as phishing: ${num(sum.done)} copies${sum.moved ? `, ${num(sum.moved)} moved to Spam` : ''}.`;
-            if (sum.failed) msg += ` ${num(sum.failed)} couldn't be marked.`;
-        }
+        const done = await answerKeys(keys, action);
+        if (!done) return null;
         const openGroup = st.groups[st.open];
         st.groups = st.groups.filter(g => !groups.includes(g));
         for (const g of groups) st.picked.delete(g);
@@ -1801,7 +1848,7 @@
         // The item that was open stays open unless it was answered; then the next one opens.
         if (openGroup && !groups.includes(openGroup)) st.open = st.groups.indexOf(openGroup);
         else st.open = Math.min(st.open, st.groups.length - 1);
-        return msg;
+        return done;
     }
     async function review(params) {
         const queue = params.get('queue') === 'suspicious' ? 'suspicious' : 'moved', Q = QUEUES[queue];
@@ -1821,17 +1868,20 @@
         const left = (k) => { const o = reviewStates[k]; return o && o.days === days && o.groups ? emails(o) : (st.counts[k] || 0); };
         const act = async (groups, action) => {
             acting++; busyStart();
-            try { toast(await answerGroups(st, groups, action)); render(); }
-            catch (e) { toast(`Couldn't do that: ${e.message}`); } finally { acting--; busyEnd(); }
+            try {
+                const done = await answerGroups(st, groups, action);
+                if (done) { toast(done.text, { undo: async () => { await undoKeys(done.keys)(); reviewStates[queue] = null; } }); render(); }
+            } catch (e) { toast(`Couldn't save your answer: ${e.message}`, { error: true }); } finally { acting--; busyEnd(); }
         };
         const head = [h('div', { class: 'page-head' },
             h('div', {}, h('h1', { text: 'Review' }),
                 h('p', { class: 'sub' }, st.groups.length ? [`${num(emails(st))} ${Q.what} in `, h('b', { text: `${num(st.groups.length)} item${st.groups.length === 1 ? '' : 's'}` }), `, last ${days} days, ${Q.order}. One answer covers every copy of an email. Open one to weigh the evidence.`] : `Every ${Q.what} of the last ${days} days has been looked at.`)),
-            st.mode !== 'enforce' ? h('span', { class: 'mode-note', text: 'Monitor mode: answers move nothing' }) : null),
+            // (0.6.39) What an answer moves, said once above the list (the quick buttons are short).
+            h('span', { class: 'mode-note', text: st.mode !== 'enforce' ? 'Monitor mode: answers move nothing' : 'Enforce mode: Phishing and Spam move emails to the Spam folder; Not phishing moves them back to the Inbox. Each answer can be undone.' })),
             h('div', { class: 'review-tools' },
                 h('nav', { class: 'segmented', 'aria-label': 'Which emails to review' }, Object.entries(QUEUES).map(([k, x]) =>
                     h('a', { href: k === 'moved' ? '#/review' : `#/review?queue=${k}`, 'aria-current': k === queue ? 'page' : null, title: x.label }, `${x.short} · ${num(left(k))}`))),
-                h('span', { class: 'keys-hint' }, h('kbd', { text: 'P' }), ' phishing ', h('kbd', { text: 'S' }), ' spam ', h('kbd', { text: 'F' }), ` ${Q.no.toLowerCase()} `, h('kbd', { text: 'I' }), ' ignore ', h('kbd', { text: 'N' }), ' skip ', h('kbd', { text: 'R' }), ' re-scan')),
+                h('span', { class: 'keys-hint' }, h('kbd', { text: 'P' }), ' phishing ', h('kbd', { text: 'S' }), ' spam ', h('kbd', { text: 'F' }), ' not phishing ', h('kbd', { text: 'I' }), ' not sure ', h('kbd', { text: 'N' }), ' skip ', h('kbd', { text: 'R' }), ' check again', ' (the open email)')),
             queue === 'suspicious' ? h('p', { class: 'sub', text: 'Suspicious: the checks found signs (a rules score of 3 or more) or the AI scored it at least the suspicious line, but not enough to move it, so it is still in the Inbox. Marking them is the best way to see what the move rules miss, and what retraining needs (Health → Model health).' }) : null];
         if (!st.groups.length) {
             return [...head, h('div', { class: 'alert good', role: 'status' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '✓' }),
@@ -1852,7 +1902,7 @@
             if (mode) st.mode = mode;
         }
         const skip = () => { st.open = st.open + 1 < st.groups.length ? st.open + 1 : -1; render(); };
-        if (g) reviewKeys = { p: () => act([g], 'phishing'), s: () => act([g], 'spam'), f: () => act([g], 'false-alarm'), i: () => act([g], 'unclear'), n: skip, r: () => rescanEmail(g.keys[0]) };
+        if (g) reviewKeys = { p: () => act([g], 'phishing'), s: () => act([g], 'spam'), f: () => act([g], 'false-alarm'), i: () => act([g], 'unclear'), n: skip, ...(canRescanReview(g) ? { r: () => rescanEmail(g.keys[0]) } : {}) };
         // Several at once: the ticked items.
         const bar = h('div', { class: 'bulk-review', role: 'region', 'aria-label': 'Ticked items', hidden: !st.picked.size });
         const drawBar = () => {
@@ -1862,10 +1912,9 @@
             if (!picked.length) return;
             const n = picked.reduce((a, x) => a + x.keys.length, 0);
             bar.append(h('span', { class: 'grow', text: `${num(picked.length)} item${picked.length === 1 ? '' : 's'} ticked · ${num(n)} email${n === 1 ? '' : 's'}` }),
-                h('button', { class: 'btn phish', type: 'button', onclick: () => act(picked, 'phishing') }, 'All phishing'),
-                h('button', { class: 'btn', type: 'button', onclick: () => act(picked, 'spam') }, 'All spam'),
-                h('button', { class: 'btn safe', type: 'button', onclick: () => act(picked, 'false-alarm') }, `All ${Q.no.toLowerCase()}`),
-                h('button', { class: 'btn', type: 'button', onclick: () => act(picked, 'unclear') }, 'Ignore all'),
+                // (0.6.39) The same four answers for every ticked item, and the Spam-senders choice shown here too.
+                ...['phishing', 'spam', 'false-alarm', 'unclear'].map(a => h('button', { class: `btn ${ANSWER[a].cls}`, type: 'button', title: ANSWER[a].help, onclick: () => act(picked, a) }, `All: ${ANSWER[a].label}`)),
+                spamSenderBox('their senders\'') || '',
                 h('button', { class: 'linkbtn', type: 'button', onclick: () => { st.picked.clear(); for (const c of document.querySelectorAll('.rv-pick')) c.checked = false; drawBar(); } }, 'Clear'));
         };
         drawBar();
@@ -1891,9 +1940,8 @@
                     h('span', { class: 'rv-subject' }, kindTag(g.kind), h('span', { text: g.subject || g.label || '(subject not stored)' })), h('span', { class: 'rv-meta', text: meta })),
                 sign,
                 open ? null : h('div', { class: 'rv-quick', role: 'group', 'aria-label': 'Quick answer' },
-                    h('button', { class: 'btn sm phish', type: 'button', onclick: () => act([g], 'phishing') }, 'Phishing'),
-                    h('button', { class: 'btn sm safe', type: 'button', onclick: () => act([g], 'false-alarm') }, Q.no),
-                    h('button', { class: 'btn sm', type: 'button', onclick: () => act([g], 'unclear'), title: 'Unclear: left as it is, out of the queue, never used for retraining' }, 'Ignore')),
+                    // (0.6.39) The four answers, as on the open item (Spam too); what they move is said above the list.
+                    ['phishing', 'spam', 'false-alarm', 'unclear'].map(a => h('button', { class: `btn sm ${ANSWER[a].cls}`, type: 'button', title: ANSWER[a].help, onclick: () => act([g], a) }, ANSWER[a].label))),
                 h('button', { class: 'rv-chevron', type: 'button', 'aria-label': open ? 'Close' : 'Open and weigh the evidence', 'aria-expanded': String(open), onclick: toggle },
                     s('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, s('path', { d: 'm6 9 6 6 6-6' })))),
             evidence);
@@ -1948,11 +1996,11 @@
                     quotes ? h('div', { class: 'ev-quotes' }, h('div', { class: 'small muted', text: 'What the AI weighed most:' }), quotes) : null)),
             dmarcNote ? h('p', { class: 'small muted rv-note', text: dmarcNote }) : null,
             h('div', { class: 'rv-actions' },
-                h('button', { class: 'btn big phish', type: 'button', onclick: () => act([g], 'phishing') }, moves ? 'Phishing: move to Spam' : 'Phishing', h('kbd', { text: 'P' })),
-                h('button', { class: 'btn big', type: 'button', onclick: () => act([g], 'spam'), title: 'Unwanted bulk mail (marketing, political, newsletters nobody signed up for), not phishing' }, moves ? 'Spam: move to Spam' : 'Spam', h('kbd', { text: 'S' })),
-                h('button', { class: 'btn big safe', type: 'button', onclick: () => act([g], 'false-alarm') }, Q.no, h('kbd', { text: 'F' })),
-                h('button', { class: 'btn big', type: 'button', onclick: () => act([g], 'unclear'), title: 'Neither clearly phishing nor clearly safe: left as it is, out of the queue, never used for retraining' }, Q.ignore, h('kbd', { text: 'I' })),
-                h('button', { class: 'btn big ghost', type: 'button', onclick: skip, title: 'Go to the next one; this one stays in the queue, undecided' }, 'Skip for now', h('kbd', { text: 'N' })),
+                h('button', { class: 'btn big phish', type: 'button', title: ANSWER.phishing.help, onclick: () => act([g], 'phishing') }, answerLabel('phishing', moves), h('kbd', { text: 'P' })),
+                h('button', { class: 'btn big', type: 'button', title: ANSWER.spam.help, onclick: () => act([g], 'spam') }, answerLabel('spam', moves), h('kbd', { text: 'S' })),
+                h('button', { class: 'btn big safe', type: 'button', title: ANSWER['false-alarm'].help, onclick: () => act([g], 'false-alarm') }, answerLabel('false-alarm', st.mode === 'enforce' && m.state === 'moved'), h('kbd', { text: 'F' })),
+                h('button', { class: 'btn big', type: 'button', title: ANSWER.unclear.help, onclick: () => act([g], 'unclear') }, ANSWER.unclear.label, h('kbd', { text: 'I' })),
+                h('button', { class: 'btn big ghost', type: 'button', onclick: skip, title: 'Go to the next one; this one stays here, unanswered' }, 'Skip for now (answer later)', h('kbd', { text: 'N' })),
                 h('span', { class: 'grow' }),
                 h('a', { class: 'rv-link', href: `#/message?${q({ key: m.key })}` }, 'More details'),
                 canRead ? h('button', { class: 'rv-link', type: 'button', onclick: () => showAiReading(m), title: 'Read from Gmail now: the whole email as received, and what the AI reads of it (nothing is kept)' }, 'Show the email') : null,
@@ -3158,7 +3206,8 @@
         // The review queue's keys (not while typing, nor with Ctrl, Alt or Cmd).
         document.addEventListener('keydown', (e) => {
             if (!reviewKeys || !/^#\/?review/.test(currentHash()) || e.ctrlKey || e.metaKey || e.altKey || acting || popupOpen()) return;
-            if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+            // (0.6.39) A ticked box keeps the keys working (only typing in a field stops them).
+            if (e.target && (/^(TEXTAREA|SELECT)$/.test(e.target.tagName) || (e.target.tagName === 'INPUT' && !/^(checkbox|radio)$/.test(e.target.type)))) return;
             const f = reviewKeys[String(e.key).toLowerCase()];
             if (f) { e.preventDefault(); f(); }
         });
