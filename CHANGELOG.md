@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.6.39: The same four answers everywhere, Undo, one email in one Review tab, and plainer screens
+
+- **One email, one Review tab:** the copies of one email can be judged differently for each person (a first email from
+  a sender counts for one person only), so some copies were moved and others only suspicious, and the same email sat in
+  both tabs: answered in Moved, it came back in Suspicious. Now, when any copy is in **Moved, or would be moved**, its
+  other copies are there too, and an answer covers every copy.
+- **The same four answers everywhere** (Review, an email's page, Mail's ticked emails, a campaign's box): **Phishing**,
+  **Spam**, **Not phishing**, **Not sure**. In enforce mode a button that moves the email says so ("Phishing: move to
+  the Spam folder", "Not phishing: move back to the Inbox"). **Spam** keeps "also send future mail from this sender
+  straight to Spam", ticked by default for admins. A campaign's **Spam** and **Not sure** answer every copy; its **Not
+  phishing** answers each copy as its own page would. Confirming phishing clears an earlier Spam or Not sure; Not sure
+  clears an earlier Spam. More than 50 emails at once asks first.
+- **Undo:** the message after an answer has an **Undo** button: the earlier answer comes back, the email goes back where
+  it was, and a sender the answer added to Spam senders or Brand senders is taken off again (one step, within an hour).
+  Errors stay on screen until closed.
+- **Plainer words:** Trusted senders (no more "allowlist"), "Check again" (was Re-scan), "Not sure" (was Ignore,
+  unclear), "Moved to the Spam folder" / "Would be moved" / "Suspicious (not moved)", "Gmail confirmed the sender is
+  real (DMARC)", "suspicious from 3, moved from 5", "the brake", "AI move level"; settings' environment names moved
+  into "for IT" notes; the reasons on an email say what scored how much and the level that moves it.
+- **Screens:** tables sort by any column (Emails, Users, Campaigns and more), and Users and Campaigns have a search box.
+  The Emails table shows the email, who got it, what happened, where it is now, its scores and when; an old move made
+  in enforce mode says so while the service is in monitor mode. An email's page says first when the rule checks or a
+  list moved it, not the AI, so a low AI number beside a red verdict isn't confusing. Look-alikes, Model health and
+  Re-checked no longer cut off their buttons and columns. On a phone, rows are cards, Mail is in the tab bar, the
+  "Live" label shows, and no page scrolls sideways. The period buttons show only on pages they change. Clicking the
+  Enforce card (Settings → Policy) opens the switch with Enforce chosen. Weekly summary and Retraining show On/Off
+  like the other services; Phishing training's "On" is no longer green (it lets mail through). A long page
+  introduction shows its first sentence, the rest under "How this works". Check an email's file picker is a button.
+- How email is judged doesn't change (the reasons' wording only: recorded as cosmetic).
+
+
 ## 0.6.38: Confirm spam on an email's page can add its sender to Spam senders too
 
 - **An email's own page** (Mail → an email): its **Confirm spam** button didn't offer "also send its sender's future mail

@@ -297,29 +297,38 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   what triggered it: rules + AI, the AI score alone, the rules alone, an admin's confirmation; **Zoom in to the
   moved ones** fits the scale to them. In monitor mode the big number says how many would move by each trigger.
 - **Review**, with the number of emails waiting for review beside it: every email nobody has reviewed, in one
-  list, in two queues: **Would move** (moved or would move, oldest first) and **Suspicious** (not moved, newest
-  first). The copies of one email (a campaign: the same email to many people) are one item, answered together.
+  list, in two tabs: **Moved, or would be moved** (oldest first) and **Suspicious (not moved)** (newest first). The
+  copies of one email (a campaign: the same email to many people) are one item, answered together, and in one tab
+  only (0.6.39): when any copy is in the first tab, the copies that were only suspicious are there too, so an
+  answer is never asked twice.
+  - **The same four answers everywhere** (0.6.39: Review, an email's page, Mail's ticked emails, a campaign's
+    box): **Phishing**, **Spam**, **Not phishing** and **Not sure**. When an answer moves the email in enforce mode,
+    the button says so ("Phishing: move to the Spam folder", "Not phishing: move back to the Inbox"). **Spam**
+    offers "also send future mail from this sender straight to Spam", ticked by default for admins.
+  - **Undo:** the message after an answer has an **Undo** button (for about 10 seconds; the service accepts an
+    undo for an hour): the earlier answer comes back, the email goes back where it was, and a sender the answer
+    added to Spam senders or Brand senders is taken off again. One step only.
   - Each row shows the AI score, the subject, the sender, how many copies and people, when it arrived and its
-    heaviest sign, with quick **Phishing**, **False alarm** (**Not phishing** for a suspicious email) and
-    **Ignore** buttons for the clear cases. Tick several to answer them all at once.
+    heaviest sign, with quick **Phishing**, **Spam**, **Not phishing** and **Not sure** buttons for the clear
+    cases. Tick several to answer them all at once (more than 50 asks first).
   - **Open one** to weigh the evidence: who sent it to whom (the first two, **…show more** for everyone), where
     the AI score and the rules score stand, the signs that **point to phishing** and those that **point to safe**
     (each weak, medium or strong), and what the AI weighed most. Under the evidence, a note says when the
     sender check (DMARC) neither passed nor failed (no result from Gmail, a "none" policy, another result such as
     temperror): it is not counted either way (0.6.4). Its answers, with their keys:
-    - **P Phishing**; **F False alarm** (**Not phishing**): an email in Spam goes back to the Inbox too (0.6.1); **I Ignore, unclear** (0.5.60): for an email that is
+    - **P Phishing**; **S Spam**; **F Not phishing**: an email in Spam goes back to the Inbox too (0.6.1); **I Not sure** (0.5.60): for an email that is
       neither clearly phishing nor clearly safe, such as an outside request for access to a form, where only the
       reader can tell. It is left as it is (still in the Inbox, with its Suspicious label), counts as reviewed so it
       leaves the queue, is never used for retraining, and the later checks and the re-check after an update leave
       it alone. Marking it phishing or not phishing afterwards replaces it;
-    - **N Skip for now**: the next item opens, and this one stays in the queue, undecided;
-    - **R Re-scan:** the email is read again from the mailbox and judged with today's checks and AI model (after
+    - **N Skip for now (answer later)**: the next item opens, and this one stays in the queue, undecided;
+    - **R Check again:** the email is read again from the mailbox and judged with today's checks and AI model (after
       a model update, say). Its scores, AI opinion, model and signs become the re-scan's, beside what they were on
       arrival; what happened to it (moved, flagged) stays. A re-scan never moves anything. Activity notes who
       re-scanned what. Its limits (0.6.6): one email is re-scanned again only 30 seconds after its last re-scan
       (kept on its record, so every instance knows), and the same email is refused while its re-scan runs; each
       instance runs 2 at a time, with up to 8 more waiting, then says to try again in a moment. The button is
-      greyed out while it runs. A mailbox owner's own sent copy is never judged (0.6.3), and Re-scan says so;
+      greyed out while it runs. A mailbox owner's own sent copy is never judged (0.6.3), and Check again says so;
     - **More details** opens the email's own page (Mail → Messages); **Show the email** reads it from Gmail at that
       moment and shows it as text only (0.6.6): who sent it to whom (with Cc and Reply-To), the date and subject,
       all its text, the earlier messages quoted below it and any text hidden from the reader (folded away), every
@@ -338,8 +347,9 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     period, colored by whether they were moved (or would be) or only suspicious; pick one to see its people,
     moved, would move, moved back, highest AI score, top reason, first and last seen, and **Open every copy**.
     Every campaign is in the table below; each opens the list of emails behind it, with **Confirm phishing: move
-    every copy** (optionally searching every watched mailbox for copies the service didn't record), **False
-    alarm: move every copy back**, and **Find other copies**.
+    every copy** (optionally searching every watched mailbox for copies the service didn't record), **Spam
+    (every copy)**, **Not sure (every copy)**, **Not phishing: move every copy back** (each copy answered Not
+    phishing, as on its own page), and **Find other copies**.
   - **Re-checked** (0.5.35): emails already delivered and found later to be phishing or suspicious, one
     card per email (all its copies): why (which list added which site, or a second look), when it was first
     delivered and re-checked, and for each person who got it: when it arrived, whether they had opened it,
@@ -348,21 +358,21 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     all as seen**, takes it off the page (a link shows the ones marked) and off the red banner on Today and
     Messages, until something new is found in it (0.6.17).
   - **Look-alikes** (0.5.36): the look-alike watch's progress and each domain found that imitates yours
-    (when, registered, mail servers, website, how it counts in mail), with **It's ours**, **Harmless**, **A
+    (when, registered, whether it has mail servers or a website, how it counts in mail), with **It's ours**, **Harmless**, **A
     threat** and **Watch as found** (each with the project ID, noted in Activity). A new one is a red banner
     on Today and an alert.
 - **Mail:**
-  - **Messages:** search and filters (also by Message-ID), opening each email's decision. **Download
-    CSV** gives the same list. An email found to be phishing after it was delivered has a red mark and
-    "found later".
-    - Tick several to **move back to the Inbox**, **mark false alarm** or **confirm phishing** them at once
-      (in enforce mode, confirming also moves those still in the Inbox to Spam).
-    - Each email shows the signs found with their weights, flagged links, the AI score with what weighed
-      most, the sender check, and how strong the evidence was. Buttons: **Re-scan**, **Move back to Inbox**, **Mark
-      false alarm** (**False alarm: move back to Inbox** for an email in Spam, 0.6.1; **Mark not phishing** for a
-      suspicious email), **Confirm phishing** (**Confirm phishing: move to Spam** for one still in the Inbox, in
-      enforce mode), **Confirm spam** (0.6.26: unwanted bulk mail, not phishing; moved the same way, and the
-      retraining export says spam). Review has **Spam** too (key **S**).
+  - **Emails:** search and filters (also by Message-ID), opening each email's decision. **Download
+    CSV** gives the same list. The table (0.6.39) shows the email (subject and sender), who got it, what happened
+    (with "in enforce mode" for an old move while the service is in monitor mode now), where it is now, its scores
+    and when; every column sorts. On a phone each email is a card. An email found to be phishing after it was
+    delivered has a red mark and "found later".
+    - Tick several to answer them at once: **Phishing**, **Spam**, **Not phishing** or **Not sure**, with Undo.
+    - Each email's page leads with why it was moved or flagged (when the rule checks or a list did it, not the AI,
+      it says so above the AI's number), then the signs found with their weights, flagged links, what the AI
+      thought with what weighed most, the sender check, and how strong the evidence was. Buttons: the four
+      answers (the email's current answer is left out) and **Check again**. **Spam** (0.6.26: unwanted bulk mail,
+      not phishing) is moved the same way as Phishing, and the retraining export says spam.
     - Each email also shows its **Message-ID** and Gmail ID, each with a **Copy** button. The Message-ID
       is what Google Workspace's Email log search and the security investigation tool look an email
       up by. **Copy for Vault** copies it as Google Vault's search writes it: `rfc822msgid:<Message-ID>`.

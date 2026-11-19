@@ -36,8 +36,8 @@ protect.
   name is stored; Firestore keeps only how many there are and when they were read (`state/colleagueNames`).
 - **Shares from outside, counted:** for the mass-share sign and alert, one counter per outside account and
   hour (in `moveCounts`, deleted after 2 days), holding only one-way hashes of the recipients' addresses.
-- **An email again, when an admin or moderator asks:** Re-scan, and **Show the email** (also **…show more** on
-  an email's AI opinion), read that one email from Gmail again.
+- **An email again, when an admin or moderator asks:** Check again (called Re-scan before 0.6.39), and **Show the
+  email** (also **…show more** under what the AI thought), read that one email from Gmail again.
   - Show the email (0.6.6) shows the email itself, as text only: the addresses (From, To, Cc, Reply-To), the
     date and subject, all its text (the earlier messages quoted in it and any text hidden from the reader
     included), its links with where they really go, and its attachments' names, types and sizes. Its HTML is
@@ -102,10 +102,13 @@ It also keeps, shared by every instance:
 And:
 - **an update from the dashboard:** who asked for which version and when, and how it went
   (`state/updateRequest`, deleted when the build ends; `state/update`, the latest one);
+- **an answer's Undo** (0.6.39): when an admin or moderator answers an email, its record keeps the answer it had
+  before (phishing, spam, not phishing or not sure, and by whom), where the email was, and which sender the answer
+  added to a list, so Undo (for an hour) can put them back; nothing of the email itself, and deleted with the record;
 - **sender history:** a hash of each sender address, to tell "first email from this sender";
 - **mailbox state:** each watched mailbox's sync position;
-- **a re-scan** (Review, Messages: Re-scan): the email's record takes what an admin's re-scan found (the
-  scores, the AI opinion and model, the rule findings' descriptions), with when and by whom, and keeps its
+- **a re-scan** (Review, Mail → Emails: Check again): the email's record takes what an admin's re-scan found (the
+  scores, the AI's opinion and model, the rule findings' descriptions), with when and by whom, and keeps its
   scores from arrival beside them. The email is read again from Gmail for it, like on arrival, and its
   body isn't kept;
 - **the worker's AI engine:** the model, engine version and self-check of the newest worker instance, and the
