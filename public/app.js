@@ -81,6 +81,13 @@
     const STATE = { moved: ['In the Spam folder', 'moved'], released: ['Moved back to the Inbox', 'released'], inbox: ['In the Inbox', 'inbox'] };
     const stateOf = (m) => (m.state === 'released' && m.releasedByUser ? ['Moved back by its reader', 'released'] : STATE[m.state] || [m.state, '']);
     const pill = ([label, cls]) => h('span', { class: `pill ${cls}`, text: label });
+    // (0.6.39) What happened to an email; a move made while the service was in enforce mode says so, so it doesn't seem
+    // to contradict a "Monitor mode" badge after switching back.
+    const actionPill = (m) => {
+        const [label, cls] = ACTION[m.action] || [m.action, ''];
+        const old = m.action === 'move' && m.mode === 'enforce' && currentMode && currentMode !== 'enforce';
+        return pill([old ? `${label} (in enforce mode)` : label, cls]);
+    };
     // (0.6.27) Spam or phishing, plainly: what the service took the email for (its trigger, or an admin's "Spam"
     // answer), as a coloured label beside the subject and at the top of an opened email.
     const kindOf = (m) => (!m ? null : m.kind !== undefined ? m.kind : m.spam || m.trigger === 'spam' ? 'spam' : ['move', 'would-move', 'flag'].includes(m.action) ? 'phishing' : null);
@@ -336,11 +343,31 @@
         svg.append(s('text', { class: 'thresh-label', x: tx - 6, y: T - 2, 'text-anchor': 'end' }, `Moves at ${Math.round(threshold * 100)}%`));
         return svg;
     }
+    // (0.6.39) Every table sorts the same way: click a column's heading (again for the other way). A column may give
+    // its own value to sort by (c.sort(r): a date's time, a number); otherwise numbers sort as numbers, text as text.
+    function sortable(table) {
+        let col = -1, dir = 1;
+        const key = (td) => { if (!td) return ''; const v = td.dataset.sort !== undefined ? td.dataset.sort : td.textContent.trim().toLowerCase().replace(/[%,]/g, ''); return v !== '' && !isNaN(Number(v)) ? Number(v) : v; };
+        table.querySelectorAll('thead th').forEach((th, i) => {
+            if (!th.textContent.trim()) return;
+            th.setAttribute('aria-sort', 'none'); th.tabIndex = 0;
+            const go = () => {
+                dir = col === i ? -dir : 1; col = i;
+                const tb = table.querySelector('tbody');
+                [...tb.children].sort((a, b) => { const x = key(a.children[i]), y = key(b.children[i]); return dir * (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))); }).forEach(r => tb.append(r));
+                table.querySelectorAll('thead th').forEach((t, j) => { if (t.hasAttribute('aria-sort')) t.setAttribute('aria-sort', j === i ? (dir > 0 ? 'ascending' : 'descending') : 'none'); });
+            };
+            th.addEventListener('click', go);
+            th.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+        });
+        return table;
+    }
+    const cell = (c, r, cls) => h('td', { class: cls, 'data-sort': c.sort ? String(c.sort(r)) : null }, c.get(r));
     // rowClass: a row's class (or ''), for a row that needs attention.
     function dataTable(cols, rows, rowClass = null) {
-        return h('div', { class: 'table-wrap' }, h('table', {},
+        return h('div', { class: 'table-wrap' }, sortable(h('table', {},
             h('thead', {}, h('tr', {}, cols.map(c => h('th', { class: c.num ? 'num' : '', text: c.name })))),
-            h('tbody', {}, rows.map(r => h('tr', { class: (rowClass && rowClass(r)) || '' }, cols.map(c => h('td', { class: c.num ? 'num' : '' }, c.get(r))))))));
+            h('tbody', {}, rows.map(r => h('tr', { class: (rowClass && rowClass(r)) || '' }, cols.map(c => cell(c, r, c.num ? 'num' : ''))))))));
     }
     // The red alert icon, beside something that needs an admin (a phishing list that missed its download).
     const alertIcon = (label) => h('span', { class: 'alert-icon', role: 'img', 'aria-label': label, title: label, text: '!' });
@@ -366,10 +393,10 @@
     // A table whose rows open something (mouse or keyboard).
     function clickTable(cols, rows, open, empty = 'Nothing in this period.', rowClass = null) {
         if (!rows.length) return h('div', { class: 'empty', text: empty });
-        return h('div', { class: 'table-wrap' }, h('table', {},
-            h('thead', {}, h('tr', {}, cols.map(c => h('th', { class: c.num ? 'num' : '', text: c.name })))),
+        return h('div', { class: 'table-wrap' }, sortable(h('table', {},
+            h('thead', {}, h('tr', {}, cols.map(c => h('th', { class: c.num ? 'num' : '', text: c.name })), h('th', { class: 'opens', 'aria-label': 'Opens' }))),
             h('tbody', {}, rows.map(r => h('tr', { class: `clickable ${(rowClass && rowClass(r)) || ''}`.trim(), tabindex: 0, onclick: () => open(r), onkeydown: (e) => { if (e.key === 'Enter') open(r); } },
-                cols.map(c => h('td', { class: `${c.num ? 'num' : ''} ${c.cls || ''}` }, c.get(r))))))));
+                cols.map(c => cell(c, r, `${c.num ? 'num' : ''} ${c.cls || ''}`.trim())), h('td', { class: 'opens', 'aria-hidden': 'true', text: '›' })))))));
     }
     // Where the page is: the address bar's #/route, or, in the clickable mockup (which runs inside a frame
     // that keeps the address bar to itself), a route kept in the page with its own Back stack.
@@ -443,7 +470,7 @@
         const urgent = need.filter(n => n.tone !== 'info').length;
         out.push(h('header', { class: 'hello' },
             h('div', { class: 'hello-date', text: new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) }),
-            h('h1', { text: `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}. ${urgent ? `${num(urgent)} thing${urgent === 1 ? ' needs' : 's need'} you.` : need.length ? 'Nothing urgent.' : 'All clear.'}` })));
+            h('h1', { text: `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}. ${urgent ? `${num(urgent)} thing${urgent === 1 ? ' needs' : 's need'} you${unreviewed ? `, and ${num(unreviewed)} email${unreviewed === 1 ? ' waits' : 's wait'} for an answer` : ''}.` : unreviewed ? `${num(unreviewed)} email${unreviewed === 1 ? ' waits' : 's wait'} for an answer.` : 'All clear.'}` })));
         if (need.length) out.push(h('section', { class: 'card attention', 'aria-labelledby': 'needs-title' }, h('h2', { id: 'needs-title', text: 'Needs attention' }),
             need.map(n => h('div', { class: `need ${n.tone}`, role: n.tone === 'critical' ? 'alert' : null },
                 h('span', { class: 'need-icon', 'aria-hidden': 'true', text: n.tone === 'info' ? num(unreviewed) : '!' }),
@@ -453,8 +480,9 @@
             h('div', { class: 'grow' }, h('b', { text: 'Nothing needs you right now.' }), ' No paused moving, no list behind, nothing found after delivery, and the review queue is empty.')));
         const movedBack = `${num(sm.released)} moved back (${pct(sm.releaseRate, 1)}): ${num(sm.released - (sm.userReleased || 0))} by admins, ${num(sm.userReleased || 0)} by users`;
         const wb = sm.wouldMoveBy || {};
-        const hero = d.mode === 'enforce' ? { label: 'Moved to Spam', value: sm.moved, note: movedBack }
-            : { label: 'Would be moved', value: sm.wouldMove, note: `monitor mode, recorded only: ${num(wb['rules+ai'] || 0)} by rules + AI, ${num(wb.ai || 0)} by the AI score alone, ${num(wb.rules || 0)} by the rules alone${wb.spam ? `, ${num(wb.spam)} as spam` : ''}` };
+        // (0.6.39) Each count says what it covers: these are this period's emails (the Review tab counts those still to answer).
+        const hero = d.mode === 'enforce' ? { label: `Moved to the Spam folder, last ${days} days`, value: sm.moved, note: movedBack }
+            : { label: `Would be moved, last ${days} days`, value: sm.wouldMove, note: `monitor mode, nothing moved: ${num(wb['rules+ai'] || 0)} by rules + AI, ${num(wb.ai || 0)} by the AI score alone, ${num(wb.rules || 0)} by the rules alone${wb.spam ? `, ${num(wb.spam)} as spam` : ''}` };
         out.push(h('div', { class: 'grid kpis' },
             h('div', { class: 'card kpi hero' }, h('div', { class: 'label', text: hero.label }), h('div', { class: 'value', text: num(hero.value) }), h('div', { class: 'note', text: hero.note })),
             kpi('Emails checked', compact(sm.scanned), `last ${days} days`),
@@ -628,8 +656,8 @@
                 { name: 'Moved back', num: true, get: c => num(c.released) },
                 { name: 'Highest AI score', num: true, get: c => pct(c.maxAi) },
                 { name: 'Top reason', get: c => c.topReason },
-                { name: 'First seen', get: c => when(c.firstAt) },
-                { name: 'Last seen', get: c => when(c.lastAt) }
+                { name: 'First seen', sort: c => c.firstAt || 0, get: c => when(c.firstAt) },
+                { name: 'Last seen', sort: c => c.lastAt || 0, get: c => when(c.lastAt) }
             ], list, c => go(`#/messages?${q({ campaign: c.campaign })}`)))];
     }
 
@@ -642,7 +670,7 @@
                 { name: 'Would move', num: true, get: u => num(u.wouldMove) },
                 { name: 'Suspicious', num: true, get: u => num(u.flagged) },
                 { name: 'Moved back', num: true, get: u => num(u.released) },
-                { name: 'Last', get: u => when(u.last) }
+                { name: 'Last', sort: u => u.last || 0, get: u => when(u.last) }
             ], d.users, u => go(`#/messages?${q({ user: u.user })}`)))];
     }
 
@@ -692,16 +720,16 @@
                 d.messages.length ? h('label', { class: 'small select-all' }, all, ' Select all on this page') : null),
             bulkBar,
             h('section', { class: 'card' }, clickTable([
+                // (0.6.39) What happened stays in view: the email (subject and sender together), what happened and where it
+                // is now, then the scores and when; fewer columns, so nothing hides off to the right.
                 { name: '', get: m => box(m) },
-                { name: 'When', get: m => when(m.processedAt) },
-                { name: 'To', get: m => m.user },
-                { name: 'From', cls: 'trunc', get: m => h('div', {}, h('div', { text: m.sender.name || m.sender.address }), h('div', { class: 'muted small', text: m.sender.address })) },
-                { name: 'Subject', cls: 'trunc', get: m => m.subject || '(not stored)' },
-                { name: 'AI', num: true, get: m => (m.ai === null ? '–' : pct(m.ai)) },
-                { name: 'Score', num: true, get: m => (m.score === null || m.score === undefined ? '–' : m.score) },
-                { name: 'Action', get: m => (m.recheck ? h('span', { class: 'found-later' }, alertIcon(`Found after it was delivered (re-checked ${when(m.recheck.at)})${m.recheck.clicked ? ': a link in it was clicked' : m.recheck.opened ? ': it had been opened' : ''}`), pill(ACTION[m.action] || [m.action, '']), h('span', { class: 'small muted', text: ' found later' }))
-                    : h('span', {}, pill(ACTION[m.action] || [m.action, '']), ' ', kindTag(kindOf(m)))) },
-                { name: 'Now', get: m => pill(stateOf(m)) }
+                { name: 'Email', cls: 'trunc', sort: m => (m.subject || '').toLowerCase(), get: m => h('div', {}, h('div', { class: 'msg-subject', text: m.subject || '(subject not stored)' }), h('div', { class: 'muted small', text: `${m.sender.name ? `${m.sender.name} · ` : ''}${m.sender.address}` })) },
+                { name: 'To', cls: 'trunc', get: m => m.user },
+                { name: 'What happened', get: m => h('div', { class: 'what-happened' }, actionPill(m), kindTag(kindOf(m)),
+                    m.recheck ? h('span', { class: 'found-later small' }, alertIcon(`Found after it was delivered (checked again ${when(m.recheck.at)})${m.recheck.clicked ? ': a link in it was clicked' : m.recheck.opened ? ': it had been opened' : ''}`), ' found later') : null) },
+                { name: 'Now', get: m => pill(stateOf(m)) },
+                { name: 'Scores', num: true, sort: m => (m.score || 0) * 1000 + (m.ai || 0), get: m => h('div', { class: 'scores' }, h('div', { text: `AI ${m.ai === null ? '–' : pct(m.ai)}` }), h('div', { class: 'muted small', text: `rules ${m.score === null || m.score === undefined ? '–' : m.score}` })) },
+                { name: 'When', sort: m => m.processedAt || 0, get: m => h('span', { class: 'nowrap', text: when(m.processedAt) }) }
             ], d.messages, m => go(`#/message?${q({ key: m.key })}`), 'No messages match.', m => (m.recheck && RECHECK_BAD.includes(m.recheck.outcome) ? 'row-alert' : '')))];
     }
 
@@ -806,6 +834,15 @@
     // mail, what weighed most, and "…show more" (showAiReading: the email itself, then what the model reads of
     // it, sentence by sentence; read from Gmail on demand, the service keeps no email text). No score: why
     // (mail from inside, or a language it doesn't read).
+    // (0.6.39) Said first: when the rule checks or a list moved or flagged the email, not the AI, so a low AI number
+    // next to a red verdict doesn't read as a contradiction.
+    function aiNotTheCause(m) {
+        const t = m.trigger;
+        if (!['move', 'would-move'].includes(m.action) || !['rules', 'spam', 'admin'].includes(t)) return null;
+        const by = t === 'rules' ? 'the rule checks' : t === 'admin' ? 'an admin\'s answer' : m.spamSender ? 'the Spam senders list' : 'the spam check';
+        const what = m.action === 'move' ? 'Moved' : 'Would be moved';
+        return h('p', { class: 'ai-cause' }, h('b', { text: `${what} because of ${by}, not the AI.` }), ' The AI\'s number below is its own opinion; a low number doesn\'t mean the checks were wrong.');
+    }
     function aiOpinion(m, ai, opts = {}) {
         if (ai === null) {
             if (m.ai && m.ai.skipped === 'inside') return h('div', { class: 'ai-none' },
@@ -829,7 +866,7 @@
         const more = canRead ? h('button', { class: 'linkbtn', type: 'button', text: '…show more' }) : null;
         if (more) more.addEventListener('click', () => showAiReading(m));
         return [
-            h('div', { class: 'kpi' }, h('div', { class: 'value', text: pct(ai) }), h('div', { class: 'note', text: `${m.ai.model}: how likely it is phishing` })),
+            h('div', { class: 'kpi kpi-small' }, h('div', { class: 'value', text: pct(ai) }), h('div', { class: 'note', text: `${m.ai.model}: how likely it is phishing` })),
             m.rescan && m.arrival ? h('div', { class: 'small muted', text: `Checked again ${when(m.rescan.at)}. On arrival: ${m.arrival.ai ? `${pct(m.arrival.ai.probability)}, ${m.arrival.ai.model || 'an unknown model'}` : 'no AI score'}.` }) : null,
             (() => { const mt = h('div', { class: `meter ${ai >= aiThreshold ? 'hot' : ''}`, role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Math.round(ai * 100), 'aria-label': 'AI score' }, h('div')); mt.firstChild.style.width = pct(ai); return mt; })(),
             h('div', { class: 'small ai-where', text: `Where it stands: ${pct(ai)} is ${where}.` }),
@@ -968,13 +1005,13 @@
                         actions),
                     h('section', { class: 'card' }, h('h2', { text: 'Signs found' }), h('div', { class: 'sub', text: `The rule checks: score ${m.score === null || m.score === undefined ? '–' : m.score} (suspicious from 3, moved from 5).` }),
                         m.signals.length ? h('ul', { class: 'signals' }, m.signals.slice().sort((a, b) => b.weight - a.weight).map(sg => h('li', {}, h('span', { class: `weight ${sg.weight >= 3 ? 'high' : ''}`, text: String(sg.weight) }), h('span', { text: sg.text })))) : h('div', { class: 'empty', text: 'No signs.' })),
-                    m.links && m.links.length ? h('section', { class: 'card' }, h('h2', { text: 'Flagged links' }), h('ul', { class: 'signals' }, m.links.map(l => h('li', {}, h('span', { class: `weight ${l.severity === 'danger' ? 'high' : ''}`, text: l.severity === 'danger' ? '!' : '?' }), h('span', {}, h('div', { text: l.reason || '' }), h('div', { class: 'muted small', text: `${l.from ? `${l.from[0].toUpperCase()}${l.from.slice(1)}: ` : ''}${l.finalUrl && l.finalUrl !== l.url ? `${l.url} → ${l.finalUrl}` : l.url}` })))))) : null),
+                    m.links && m.links.length ? h('section', { class: 'card' }, h('h2', { text: 'Links the checks found' }), h('ul', { class: 'signals' }, m.links.map(l => h('li', {}, h('span', { class: `weight ${l.severity === 'danger' ? 'high' : ''}`, text: l.severity === 'danger' ? '!' : '?' }), h('span', {}, h('div', { text: l.reason || '' }), h('div', { class: 'muted small', text: `${l.from ? `${l.from[0].toUpperCase()}${l.from.slice(1)}: ` : ''}${l.finalUrl && l.finalUrl !== l.url ? `${l.url} → ${l.finalUrl}` : l.url}` })))))) : null),
                 h('div', { class: 'grid' },
-                    h('section', { class: 'card' }, h('h2', { text: 'AI opinion' }), aiOpinion(m, ai, opts)),
+                    h('section', { class: 'card' }, h('h2', { text: 'What the AI thought' }), aiNotTheCause(m), aiOpinion(m, ai, opts)),
                     h('section', { class: 'card' }, h('h2', { text: 'Details' }), h('dl', { class: 'kv' },
                         h('dt', { text: 'Sender check' }), h('dd', { text: m.auth ? `DMARC ${m.auth.dmarc || '–'}${m.auth.derived ? ` (worked out from ${m.auth.derived}: Gmail wrote no DMARC result)` : ''}, SPF ${m.auth.spf || '–'}, DKIM ${m.auth.dkim || '–'}` : 'not recorded' }),
                         h('dt', { text: 'What moved it' }), h('dd', { text: m.trigger ? ({ rules: 'Rules', ai: 'AI score', 'rules+ai': 'Rules and AI', admin: 'An admin\'s search for a campaign' })[m.trigger] || m.trigger : m.state === 'moved' && m.heldMovedBy ? `none: ${m.heldMovedBy} confirmed it as phishing` : 'none' }),
-                        h('dt', { text: 'Mode' }), h('dd', { text: m.mode }),
+                        h('dt', { text: 'Mode when it arrived' }), h('dd', { text: m.mode === 'enforce' ? 'Enforce (moves mail)' : m.mode === 'monitor' ? 'Monitor (moves nothing)' : (m.mode || '–') }),
                         h('dt', { text: 'Looked up' }), h('dd', { text: m.checks ? [m.checks.cloudflare ? `Cloudflare: ${m.checks.cloudflare} site${m.checks.cloudflare === 1 ? '' : 's'}` : '', m.checks.safeBrowsing ? `Safe Browsing: ${m.checks.safeBrowsing} link${m.checks.safeBrowsing === 1 ? '' : 's'}` : '', m.checks.lists ? 'phishing lists' : '', m.checks.ages ? `site age: ${m.checks.ages}` : '', m.checks.notChecked ? `${m.checks.notChecked} not checked` : ''].filter(Boolean).join(' · ') || 'nothing to look up' : 'offline checks only' }),
                         h('dt', { text: 'Attachments' }), h('dd', { text: m.attachments && m.attachments.length ? m.attachments.map(a => a.name || a.type).join(', ') : 'none' }),
                         // What the attachment checks found (0.5.34): a QR code's site, a form, a script…

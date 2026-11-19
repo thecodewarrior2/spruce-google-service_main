@@ -792,3 +792,48 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .card thead th[aria-sort] { cursor: pointer; user-select: none; }
 .card thead th[aria-sort="ascending"]::after { content: " ▲"; font-size: 10px; }
 .card thead th[aria-sort="descending"]::after { content: " ▼"; font-size: 10px; }
+
+/* (0.6.39) One colour per meaning: red = danger, green = safe or fine, amber = needs you, grey = a record. */
+.pill.moved::before { background: var(--text-2); }          /* moved to the Spam folder: done, a record */
+.pill.would::before { background: var(--warning); }          /* would be moved: needs you (monitor mode) */
+.pill.flag::before { background: var(--warning); }           /* suspicious: needs you */
+.pill.released::before { background: var(--good); }
+.kind-tag.needs { color: color-mix(in srgb, var(--warning) 55%, var(--text)); border-color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, transparent); }
+.kind-tag.changed { color: var(--text-2); border-color: var(--border); background: var(--surface-2); }
+.allow-review:has(.review-row.suspended) { border-left-color: var(--warning); }
+.allow-review:not(:has(.review-row.suspended)) { border-left-color: var(--border); }
+/* Readable small tags in both themes (4.5:1 and up). */
+.kind-tag.phishing { color: color-mix(in srgb, var(--critical) 72%, var(--text)); }
+.kind-tag.spam, .list-label.spam { color: color-mix(in srgb, var(--s5) 70%, var(--text)); }
+/* Marked rows: a left bar and a light tint, so rows stay apart in dark mode. */
+tr.row-alert > td { background: color-mix(in srgb, var(--critical) 7%, var(--surface)); }
+/* Keyboard focus on rows that open something stays visible. */
+tbody tr.clickable:focus { outline: none; }
+tbody tr.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The message after an action: an Undo button, and errors that stay until closed. */
+.toast { display: flex; align-items: center; gap: 12px; font-size: 14px; max-width: min(640px, calc(100vw - 32px)); }
+.toast.error { background: var(--critical); color: #fff; }
+.toast-btn { background: transparent; color: inherit; border: 1px solid currentColor; border-radius: 6px; padding: 4px 10px; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.toast-btn:hover { background: color-mix(in srgb, currentColor 14%, transparent); }
+/* Answer buttons on an email's page: in one row where they fit; the Spam-senders choice under them. */
+.answer-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.answer-actions .spam-sender-opt { flex-basis: 100%; }
+/* A project-ID box beside the button it confirms, styled like every other field. */
+.project.inline { display: inline-flex; align-items: center; gap: 6px; }
+.project-input, .spam-add input, .list-search { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); padding: 7px 10px; font: inherit; }
+/* (0.6.39) Sortable headings, and the arrow on rows that open something. */
+thead th[aria-sort] { cursor: pointer; user-select: none; }
+thead th[aria-sort="ascending"]::after { content: " ▲"; font-size: 10px; }
+thead th[aria-sort="descending"]::after { content: " ▼"; font-size: 10px; }
+th.opens, td.opens { width: 18px; padding-left: 0; padding-right: 8px; color: var(--muted); text-align: right; }
+td.opens { font-size: 18px; }
+/* (0.6.39) Mail: the email in one column, what happened in view. */
+.msg-subject { font-weight: 600; }
+.what-happened { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.what-happened .kind-tag { margin-right: 0; }
+.scores { white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+/* 0.6.39: the email page leads with the reason; the AI number is smaller. */
+.kpi.kpi-small .value { font-size: 1.4rem; }
+.ai-cause { margin: 0 0 .6rem; padding: .5rem .7rem; border-left: 3px solid var(--border, #ccc); background: color-mix(in srgb, var(--text-2, #666) 6%, transparent); border-radius: 4px; }
+.answer-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
