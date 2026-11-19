@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.47: Ownership reads WHOIS when RDAP hides the registrant
+
+- **The ownership lookup asks WHOIS** (port 43) for the registrant organization when the registry's and the registrar's
+  RDAP records leave it blank. Some registrars blank it in RDAP but still publish it in WHOIS: Com Laude's record for
+  sharepoint.com names Microsoft Corporation only there. With a corporate registrar, that is proof, as before. Only the
+  domain name is sent (to IANA's WHOIS for its ending, the registry's, then the registrar's), each answer within 4
+  seconds, and kept with the ownership answer (60 days). A WHOIS server that doesn't answer changes nothing: the lookup
+  goes on without it. docs/PRIVACY.md lists it.
+- How email is judged changes: checks level 39, so recent delivered mail is checked again after the update.
+
+
 ## 0.6.46: No hand-kept brand domains: public records prove them, "likely" counts half a point
 
 - **The brand list keeps only each brand's main domain.** The 39 other domains it listed by hand (Instagram for Meta,

@@ -5,6 +5,7 @@ const { createThreats } = require('./threats');
 const { createFeeds } = require('./feeds');
 const { createRdap } = require('./rdap');
 const { createOwnership } = require('./ownership');
+const { createWhois } = require('./whois');
 const { createSafeBrowsingKey } = require('./sbkey');
 const { createDnsCheck } = require('../lookalike');
 const { createApiKey } = require('./apikey');
@@ -42,7 +43,8 @@ function createIntel({ cfg, store, engine, fetch: fetchImpl, version = '0', log 
         feeds: cfg.phishingLists ? createFeeds({ http, store, engine, log, extra: () => abusechFeeds({ cfg, key: keys.abusech, http }) }) : null,
         rdap: cfg.siteAge ? rdap : null,
         // (0.5.64) Whether a sender's domain is the brand its name claims, from public records (DNS, RDAP); always on.
-        ownership: createOwnership({ http, store, engine, rdapServer: (tld) => rdap.serverFor(tld) }),
+        // (0.6.47) With WHOIS for a registrant RDAP leaves blank (port 43; the domain name only).
+        ownership: createOwnership({ http, store, engine, rdapServer: (tld) => rdap.serverFor(tld), whois: offline || fetchImpl ? null : createWhois() }),   // (none with a made-up fetch: tests)
         // the look-alike watch's lookups (0.5.36): candidate names only, to Cloudflare's public resolver
         dnsCheck: cfg.lookalikeWatch ? createDnsCheck({ http }) : null,
         http

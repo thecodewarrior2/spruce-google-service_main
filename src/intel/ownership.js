@@ -122,7 +122,8 @@ function registrarLink(data, base) {
 }
 
 // http: src/intel/http.js; rdapServer(tld): the registry's RDAP base (src/intel/rdap.js).
-function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.now() }) {
+// whois (0.6.47): src/intel/whois.js, for a registrant RDAP leaves blank; null: RDAP only.
+function createOwnership({ http, store, engine: E, rdapServer, whois = null, now = () => Date.now() }) {
     const memo = new TtlCache(5000);
     const flights = new Map();
     const settle = async (f) => { try { return await f(); } catch (e) { return null; } };
@@ -153,6 +154,11 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
         if (more) {
             const r2 = await settle(() => http.request(more, { headers: { accept: 'application/rdap+json' } }, WAIT_MS));
             if (r2 && r2.ok) { const d2 = await settle(() => r2.json()); if (d2) { out.registrant = rdapWho(d2, 'registrant'); out.registrar = out.registrar || rdapWho(d2, 'registrar'); } }
+        }
+        // (0.6.47) Blank in RDAP (some registrars blank the organization there): WHOIS, which may still give it.
+        if (!out.registrant && whois) {
+            const org = await settle(() => whois.registrantOrg(reg));
+            if (org) { out.registrant = org; out.registrantFrom = 'WHOIS'; }
         }
         return out;
     }
@@ -203,7 +209,7 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
         const info = (await settle(() => registration(reg))) || {};
         const corporate = !!info.registrar && CORPORATE_REGISTRARS.test(info.registrar);
         const named = !!info.registrant && registrantNamesBrand(E, info.registrant, brand);
-        if (corporate && named) proof.push(`registered to ${info.registrant} through ${info.registrar}`);
+        if (corporate && named) proof.push(`registered to ${info.registrant} through ${info.registrar}${info.registrantFrom ? ` (${info.registrantFrom})` : ''}`);
         else if (corporate && sameBox) proof.push(`${sameBox}, and it is registered through ${info.registrar}, a corporate registrar`);
         else {
             if (sameBox) hints.push(sameBox);
