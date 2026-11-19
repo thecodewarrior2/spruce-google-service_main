@@ -203,6 +203,15 @@ domain); the page adds a domain as typed. `spamListMatch` looks up the address, 
 senders (DMARC passing). `rulesOnlyVerified` (`src/policy.js`) keeps a rules-only score of 3 or more from a verified
 outside sender out of "suspicious" unless the AI agrees; the server applies it to waiting records from before too.
 
+## Proven company domains
+
+(0.6.46–0.6.48.) The brand list (`SENDER_NAME_BRANDS`, `vendor/spruce/shared.js`) keeps only each brand's main domain;
+there is no other hand-kept company list. `src/intel/ownership.js` proves a domain a brand's from public records (name
+servers, DMARC reporting, the registrant from RDAP or WHOIS, a corporate registrar), kept 60 days in the store
+(refreshed after 50; no proof 7 days; a failure 6 hours). Every owned or likely answer is passed to
+`src/intel/companies.js`, which keeps them for every instance (`state/provenDomains`, read at start and every 30
+minutes) and loads them into the engine (`learnCompanyDomains`): owned counts everywhere, likely only for the link checks.
+
 ## The allow lists' 30-day check
 
 (0.6.30, `src/allowwatch.js`.) The hourly job looks up the domains on the allow lists that are due (never looked up, or

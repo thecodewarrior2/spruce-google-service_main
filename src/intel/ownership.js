@@ -123,7 +123,7 @@ function registrarLink(data, base) {
 
 // http: src/intel/http.js; rdapServer(tld): the registry's RDAP base (src/intel/rdap.js).
 // whois (0.6.47): src/intel/whois.js, for a registrant RDAP leaves blank; null: RDAP only.
-function createOwnership({ http, store, engine: E, rdapServer, whois = null, now = () => Date.now() }) {
+function createOwnership({ http, store, engine: E, rdapServer, whois = null, learn = null, now = () => Date.now() }) {
     const memo = new TtlCache(5000);
     const flights = new Map();
     const settle = async (f) => { try { return await f(); } catch (e) { return null; } };
@@ -253,14 +253,18 @@ function createOwnership({ http, store, engine: E, rdapServer, whois = null, now
         return ask(key, reg, brand);
     }
     // { state: 'owned' | 'likely' | 'unknown', how } for a domain and the brand a sender's name claims.
-    async function of(domain, brandName) {
+    // (0.6.48) link: asked for a link check, where a personal mail provider's own domain can be its company's (gmail.com is
+    // Google's); a sender's name is never proven by one (anyone has an address there). What is proven or likely is
+    // passed to learn(domain, brand, state), for the link checks' company index.
+    async function of(domain, brandName, { link = false } = {}) {
         const brand = (E.SENDER_NAME_BRANDS || []).find(b => b.name === brandName);
         const reg = E.registrableDomain(String(domain || '').toLowerCase());
-        if (!brand || !reg || !E.SENDER_DOMAIN_RE.test(reg) || E.isPersonalMailDomain(reg)) return { state: 'unknown', how: '' };
+        if (!brand || !reg || !E.SENDER_DOMAIN_RE.test(reg) || (!link && E.isPersonalMailDomain(reg))) return { state: 'unknown', how: '' };
         const key = `${reg}|${brand.name}`;
         const mem = memo.get(key);
-        if (mem) return mem;
-        return answer(key, reg, brand);
+        const v = mem || await answer(key, reg, brand);
+        if (v.state !== 'unknown' && learn) { try { learn(reg, brand.name, v.state); } catch (e) { /* the index only */ } }
+        return v;
     }
     // (0.6.17) The same proof for a company that isn't in the brand table: a link's own domain, named after the
     // company (email-lakeviewhotels.example: "lakeviewhotels"), against that company's name and main site(s). { state, how }.

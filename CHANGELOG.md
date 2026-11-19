@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.48: The old company list is gone: the service learns which domains are a company's
+
+- **No hand-kept company families any more** (the list carried over from the browser extension: Google's youtube.com
+  and g.co, Microsoft's office.com and aka.ms, Amazon's amzn.to…). A company's other domains are proven from public
+  records when a link or a sender's name involves them, and learned: kept for every instance in the shared store for 60
+  days (read at start and every 30 minutes), so the link checks know them instantly afterwards.
+- **Links:** "likely" (a corporate registrar plus a link to the company) is enough for a link; a sender's name still needs
+  proof. When neither side of a link is a company's main domain (text outlook.com, link office.com in Microsoft's own
+  mail), both are proven against the sender's company. A personal mail provider's own domain can be its company's for a
+  link (gmail.com is Google's), never for a sender's name.
+- **X (Twitter)** joins the brand list with twitter.com, for its links (t.co is proven its).
+- Checked live: office.com, outlook.com, gmail.com, youtube.com, amzn.to, t.co, icloud.com and lnkd.in are proven;
+  sharepoint.com through WHOIS on the server. amzn.eu, a.co and x.com can't be proven from public records: links between
+  them and the company's other domains are judged like any other link.
+- How email is judged changes: checks level 40, so recent delivered mail is checked again after the update.
+
+
 ## 0.6.47: Ownership reads WHOIS when RDAP hides the registrant
 
 - **The ownership lookup asks WHOIS** (port 43) for the registrant organization when the registry's and the registrar's

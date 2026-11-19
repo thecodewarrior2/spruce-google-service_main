@@ -195,7 +195,7 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         j.brandToBrand = reg;
     }
     // (0.6.46) A link whose text shows one domain and which goes to another, where one of them is a well-known brand's own
-    // and public records prove the other is that brand's too (the ownership lookup, kept 60 days): the same company's
+    // (0.6.48: or neither, both proven the sender's company's) and public records prove the other is that brand's too (the ownership lookup, kept 60 days): the same company's
     // two domains (quickbooks.com text on an intuit.com link), not a disguise. Not counted; one note. No list by hand.
     const sameCompany = [];
     const sameCandidates = intel.ownership && intel.ownership.of ? web.filter(j => (j.severity === 'danger' || j.severity === 'caution') && !j.network && !j.mailer && !j.ownBrand && !j.brandToBrand) : [];
@@ -205,17 +205,26 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         const destReg = host && E.registrableDomain(host), textReg = text && E.registrableDomain(text);
         if (!destReg || !textReg || destReg === textReg) continue;
         const destBrand = E.brandOfDomain(destReg), textBrand = E.brandOfDomain(textReg);
-        if (!!destBrand === !!textBrand) continue;      // both known (another check) or neither (nothing to prove against)
-        const brand = destBrand || textBrand, other = destBrand ? textReg : destReg;
-        if (!(E.SENDER_NAME_BRANDS || []).some(b => b.name === brand)) continue;
-        const key = `${other}|${brand}`;
-        if (!proofs.has(key)) {
-            let timer;
-            const late = new Promise(r => { timer = setTimeout(() => r(null), OWN_LINK_WAIT_MS); });
-            proofs.set(key, Promise.race([intel.ownership.of(other, brand), late]).catch(() => null).finally(() => clearTimeout(timer)));
-        }
-        const proof = await proofs.get(key);
-        if (!proof || proof.state !== 'owned') continue;
+        if (destBrand && textBrand) continue;           // both known: the link check already compared them
+        // (0.6.48) One side a known company's: the other proven its. Neither: both proven the sender's company's (the
+        // company its address or its name is), the common case of a company's own mail (outlook.com text, office.com link).
+        const senderBrand = (() => { try { return E.brandOfDomain(senderReg) || ((E.displayNameBrand(facts.senderName, facts.senderAddress) || {}).name) || null; } catch (e) { return null; } })();
+        const brand = destBrand || textBrand || senderBrand;
+        if (!brand || !(E.SENDER_NAME_BRANDS || []).some(b => b.name === brand)) continue;
+        const toProve = [textReg, destReg].filter(d => E.brandOfDomain(d) !== brand);
+        const ask = (d) => {
+            const key = `${d}|${brand}`;
+            if (!proofs.has(key)) {
+                let timer;
+                const late = new Promise(r => { timer = setTimeout(() => r(null), OWN_LINK_WAIT_MS); });
+                proofs.set(key, Promise.race([intel.ownership.of(d, brand, { link: true }), late]).catch(() => null).finally(() => clearTimeout(timer)));
+            }
+            return proofs.get(key);
+        };
+        const answers = await Promise.all(toProve.map(ask));
+        // (0.6.48) Likely (a corporate registrar plus a link to the company) is enough for a link: not for a sender's name.
+        if (!answers.length || answers.some(p => !p || (p.state !== 'owned' && p.state !== 'likely'))) continue;
+        const proof = answers.find(p => p.state === 'owned') || answers[0];
         sameCompany.push({ text, dest: destReg, brand, how: proof.how });
         j.severity = null;
         j.reason = `${j.reason}: both ${brand}'s, as public records prove (${proof.how}); not counted`;

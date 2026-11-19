@@ -137,20 +137,9 @@ const FILE_EXTENSION_TLDS = new Set([
 //            its name alone: amber until public records show it.
 // ---------------------------------------------------------------------------
 
-// Companies that own several domains, including their own short-link domains. Link text and destination
-// within one family are consistent (text "gmail.com" pointing to google.com, or Google's c.gle).
-// labels: the company's name, which it also uses under many endings (amazon.de, google.co.uk). Until
-// 5.90 any domain with that name counted as the company's; now it needs evidence (companyNameOf, [5.90-4]).
-const BRAND_FAMILIES = [
-    { name: 'Google',    labels: ['google'], domains: ['google.com', 'gmail.com', 'youtube.com', 'youtu.be', 'android.com', 'withgoogle.com', 'blogger.com', 'googleblog.com', 'c.gle', 'g.co', 'goo.gle', 'goo.gl', 'gle'] },
-    { name: 'Microsoft', labels: [], domains: ['microsoft.com', 'microsoftonline.com', 'live.com', 'office.com', 'outlook.com', 'microsoft365.com', 'office365.com', 'azure.com', 'windows.com', 'xbox.com', 'bing.com', 'skype.com', 'sharepoint.com', 'aka.ms', 'msft.it', 'onedrive.com', '1drv.ms', 'sharepointonline.com', 'microsoftpersonalcontent.com', 'svc.ms', 'microsoftstore.com', 'msn.com', 'azure.net', 'powerbi.com', 'dynamics.com', 'visualstudio.com'] },
-    { name: 'Amazon',    labels: ['amazon'], domains: ['amazon.com', 'amzn.to', 'amzn.eu', 'a.co', 'primevideo.com', 'audible.com'] },
-    { name: 'Meta',      labels: [], domains: ['facebook.com', 'facebookmail.com', 'fb.com', 'fb.me', 'instagram.com', 'whatsapp.com', 'messenger.com', 'meta.com', 'threads.net'] },
-    { name: 'PayPal',    labels: ['paypal'], domains: ['paypal.com'] },
-    { name: 'Apple',     labels: [], domains: ['apple.com', 'icloud.com', 'apple.co', 'me.com'] },
-    { name: 'LinkedIn',  labels: [], domains: ['linkedin.com', 'lnkd.in'] },
-    { name: 'X',         labels: [], domains: ['twitter.com', 'x.com', 't.co'] }
-];
+// (0.6.48) The hand-kept company families (Google's youtube.com, Microsoft's office.com, Amazon's amzn.to…) are gone. A
+// company's other domains are proven from public records (src/intel/ownership.js) and learned here (learnCompanyDomains):
+// owned (proof) for everything, likely (a corporate registrar plus a link to the company) for the link checks only.
 
 // fewer in a download: not the real list (the previous copy is kept)
 const companyEndings = { byEnding: new Map(), byOperator: new Map() };
@@ -183,16 +172,38 @@ function sameCompanyByEnding(a, b) {
     return false;
 }
 
-// Every known company domain → its company: the families above and [5.90-1] the sender check's brands
-// (SENDER_NAME_BRANDS, further down). Built on first use, after this whole file has loaded.
+// Every known company domain → its company: [5.90-1] the sender check's brands' main domains (SENDER_NAME_BRANDS,
+// further down) and (0.6.48) the domains proven theirs (learnCompanyDomains). Built on first use, after this file loaded.
 let companyIndexMemo = null;
+const learnedCompanies = new Map();     // domain → { name, state: 'owned' | 'likely' }
 function companyIndex() {
     if (companyIndexMemo) return companyIndexMemo;
     const index = new Map();
     const add = (d, name) => { if (d && !index.has(d)) index.set(d, name); };
-    for (const b of BRAND_FAMILIES) b.domains.forEach(d => add(d, b.name));
     for (const b of SENDER_NAME_BRANDS) [...(b.home || []), ...(b.domains || [])].forEach(d => add(d, b.name));   // [5.90-1]
+    for (const [d, v] of learnedCompanies) add(d, v.name);
     return (companyIndexMemo = index);
+}
+// (0.6.48) Domains public records proved a company's ([{ domain, name, state }]; state 'owned' or 'likely'); replace:
+// the whole list (a reload), else added. A main domain is never replaced.
+function learnCompanyDomains(list, replace = false) {
+    if (replace) learnedCompanies.clear();
+    for (const x of [].concat(list || [])) {
+        const d = String((x && x.domain) || '').toLowerCase();
+        if (!d || !x.name || !['owned', 'likely'].includes(x.state)) continue;
+        const had = learnedCompanies.get(d);
+        if (!had || had.state !== 'owned' || x.state === 'owned') learnedCompanies.set(d, { name: x.name, state: x.state });
+    }
+    companyIndexMemo = null;
+    return learnedCompanies.size;
+}
+// 'main' (a brand's own domain), 'owned', 'likely' or null: how a domain is known to be its company's.
+function companyDomainState(regDomain) {
+    const d = String(regDomain || '').toLowerCase();
+    if (!d) return null;
+    if (SENDER_NAME_BRANDS.some(b => [...(b.home || []), ...(b.domains || [])].includes(d))) return 'main';
+    const l = learnedCompanies.get(d);
+    return l ? l.state : null;
 }
 // The company a registrable domain is known to belong to, or null.
 function companyOfDomain(regDomain) {
@@ -207,7 +218,7 @@ function companyNameOf(regDomain) {
     const d = String(regDomain || '').toLowerCase();
     if (!d || companyOfDomain(d)) return null;
     const label = d.split('.')[0];
-    const f = BRAND_FAMILIES.find(b => b.labels.includes(label));
+    const f = SENDER_NAME_BRANDS.find(b => (b.labels || []).includes(label));
     return f ? f.name : null;
 }
 // The company a registrable domain belongs to, or null.
@@ -614,11 +625,11 @@ function brandOfSender(domain) {
 // kept 60 days), never listed by hand here; one the records can't prove is learned from a reviewer's Not phishing
 // (Brand senders).
 const SENDER_NAME_BRANDS = [
-    { name: 'Google', tokens: ['google', 'gmail', 'google workspace', 'youtube'], home: ['google.com'] },
+    { name: 'Google', labels: ['google'], tokens: ['google', 'gmail', 'google workspace', 'youtube'], home: ['google.com'] },
     { name: 'Microsoft', tokens: ['microsoft', 'office 365', 'microsoft 365', 'outlook', 'onedrive', 'sharepoint', 'teams'], ambiguousTokens: ['outlook', 'teams'], home: ['microsoft.com'] },
     { name: 'Apple', tokens: ['apple', 'icloud', 'itunes', 'app store'], ambiguousTokens: ['apple'], home: ['apple.com'] },
-    { name: 'Amazon', tokens: ['amazon', 'amazon prime', 'aws'], domains: [], home: ['amazon.com'] },
-    { name: 'PayPal', tokens: ['paypal'], home: ['paypal.com'] },
+    { name: 'Amazon', labels: ['amazon'], tokens: ['amazon', 'amazon prime', 'aws'], domains: [], home: ['amazon.com'] },
+    { name: 'PayPal', labels: ['paypal'], tokens: ['paypal'], home: ['paypal.com'] },
     { name: 'Meta', tokens: ['facebook', 'instagram', 'whatsapp', 'meta'], ambiguousTokens: ['meta'], home: ['facebook.com'] },
     { name: 'LinkedIn', tokens: ['linkedin'], home: ['linkedin.com'] },
     { name: 'Netflix', tokens: ['netflix'], domains: ['netflix.com'] },
@@ -643,6 +654,7 @@ const SENDER_NAME_BRANDS = [
     { name: 'eBay', tokens: ['ebay'], domains: ['ebay.com'] },
     { name: 'Walmart', tokens: ['walmart'], domains: ['walmart.com'] },
     { name: 'Xero', tokens: ['xero'], domains: ['xero.com'] },   // (0.6.32) accounting software, a common bank-connection lure
+    { name: 'X', tokens: ['twitter'], domains: ['twitter.com'] },   // (0.6.48) X (Twitter), for its links (t.co is proven its)
     { name: 'Costco', tokens: ['costco'], domains: ['costco.com'] },
     // (0.6.33) The banks that issue stores' co-branded cards (a store's card mail comes from them, under the store's name).
     { name: 'TD Bank', tokens: ['td bank'], domains: ['tdbank.com'] },
@@ -738,7 +750,7 @@ function nameOnOtherEnding(brand, domain) {
 function senderDomainOwnedBy(brand, domain) {
     const d = String(domain || '').toLowerCase();
     if (!d || isPersonalMailDomain(d)) return false;
-    if (brandOfSender(d) === brand.name) return true;
+    if (brandOfSender(d) === brand.name && companyDomainState(registrableDomain(d) || d) !== 'likely') return true;   // (0.6.48) likely: not proof
     const reg = registrableDomain(d);
     return (brand.domains || []).some(x => reg === x || d === x || d.endsWith('.' + x));
 }

@@ -50,6 +50,8 @@ function load() {
         // (phishing-training domains, src/simulations.js: never a well-known company's or a link shortener; the
         // allowlist, src/pipeline.js: never a link shortener)
         brandOfDomain: fn('brandOfDomain'),
+        learnCompanyDomains: fn('learnCompanyDomains'),   // (0.6.48)
+        companyDomainState: fn('companyDomainState'),
         companyNameOf: fn('companyNameOf'),
         publicShorteners: get('publicShorteners'),
         isPersonalMailDomain: fn('isPersonalMailDomain'),
