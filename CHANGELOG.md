@@ -7,7 +7,8 @@
   sharepoint.com names Microsoft Corporation only there. With a corporate registrar, that is proof, as before. Only the
   domain name is sent (to IANA's WHOIS for its ending, the registry's, then the registrar's), each answer within 4
   seconds, and kept with the ownership answer (60 days). A WHOIS server that doesn't answer changes nothing: the lookup
-  goes on without it. docs/PRIVACY.md lists it.
+  goes on without it. docs/PRIVACY.md lists it. For an ending without RDAP (Italy's), WHOIS gives the registrar too, and
+  its block layout ("Registrant", then "Organization:") is read: msft.it (Microsoft Srl, through MarkMonitor) is proven.
 - How email is judged changes: checks level 39, so recent delivered mail is checked again after the update.
 
 

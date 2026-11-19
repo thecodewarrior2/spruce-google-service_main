@@ -144,7 +144,11 @@ function createOwnership({ http, store, engine: E, rdapServer, whois = null, now
     }
     async function registration(reg) {
         const base = await rdapServer(reg.split('.').pop());
-        if (!base) return {};
+        // (0.6.47) No RDAP for the ending (Italy's, say): WHOIS gives the registrant and the registrar, when it does.
+        if (!base) {
+            const w = whois ? (await settle(() => whois.info(reg))) || {} : {};
+            return w.org || w.registrar ? { created: null, registrar: w.registrar || '', registrant: w.org || '', registrantFrom: w.org ? 'WHOIS' : undefined } : {};
+        }
         const res = await http.request(`${base}domain/${encodeURIComponent(reg)}`, { headers: { accept: 'application/rdap+json' } }, WAIT_MS);
         if (!res.ok) return {};
         const data = await res.json();

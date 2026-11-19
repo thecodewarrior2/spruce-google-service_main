@@ -33,7 +33,21 @@ function field(text, keys) {
     return '';
 }
 
-// { registrantOrg(domain) }: the registrant organization WHOIS gives for a registrable domain, '' when none or hidden.
+// The "Organization:" line of a block whose heading is alone on its line ("Registrant", then indented lines: Italy's
+// registry and others), or ''.
+function blockField(text, heading) {
+    const lines = String(text || '').split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim().toLowerCase() !== heading) continue;
+        for (let k = i + 1; k < lines.length && /^\s+\S/.test(lines[k]); k++) {
+            const m = /^\s+organi[sz]ation:\s*(.*\S)\s*$/i.exec(lines[k]);
+            if (m) return m[1].trim();
+        }
+    }
+    return '';
+}
+// { info(domain) → { org, registrar }, registrantOrg(domain) }: what WHOIS gives for a registrable domain ('' when none or
+// hidden): the registrant organization and the registrar.
 function createWhois({ connect = net.connect, waitMs = WAIT_MS } = {}) {
     const servers = new Map();      // ending → its registry's WHOIS server
     const q = (server, query) => ask(server, query, { connect, waitMs });
@@ -41,20 +55,24 @@ function createWhois({ connect = net.connect, waitMs = WAIT_MS } = {}) {
         if (!servers.has(tld)) servers.set(tld, q('whois.iana.org', tld).then(t => field(t, ['whois', 'refer'])).catch((e) => { servers.delete(tld); throw e; }));
         return servers.get(tld);
     }
-    async function registrantOrg(domain) {
+    async function info(domain) {
         const d = String(domain || '').toLowerCase();
         const server = await registryServer(d.split('.').pop());
-        if (!server) return '';
+        if (!server) return { org: '', registrar: '' };
         let text = await q(server, d);
-        let org = field(text, ['registrant organization', 'registrant organisation', 'registrant']);
-        const registrar = field(text, ['registrar whois server', 'whois server']);
-        if (!org && registrar && registrar.toLowerCase() !== server.toLowerCase()) {
-            text = await q(registrar.replace(/^whois:\/\//i, ''), d);
-            org = field(text, ['registrant organization', 'registrant organisation']);
+        const orgOf = (t) => field(t, ['registrant organization', 'registrant organisation']) || blockField(t, 'registrant');
+        let org = orgOf(text);
+        let registrar = field(text, ['registrar']) || blockField(text, 'registrar');
+        const next = field(text, ['registrar whois server', 'whois server']);
+        if (!org && next && next.toLowerCase() !== server.toLowerCase()) {
+            text = await q(next.replace(/^whois:\/\//i, ''), d);
+            org = orgOf(text);
+            registrar = registrar || field(text, ['registrar']);
         }
-        return org && !REDACTED.test(org) ? org.slice(0, 120) : '';
+        const clean = (v) => (v && !REDACTED.test(v) ? v.slice(0, 120) : '');
+        return { org: clean(org), registrar: clean(registrar) };
     }
-    return { registrantOrg };
+    return { info, registrantOrg: async (domain) => (await info(domain)).org };
 }
 
-module.exports = { createWhois, field, ask };
+module.exports = { createWhois, field, blockField, ask };

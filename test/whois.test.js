@@ -59,3 +59,13 @@ test('in the ownership lookup: RDAP blank, WHOIS names the brand, a corporate re
     const noWhois = createOwnership({ http, store: new MemoryStore(), engine: E, rdapServer: async () => 'https://rdap.registry.example/' });
     assert.notEqual((await noWhois.of('corp-docs.example', 'PayPal')).state, 'owned', 'without WHOIS: no registrant, no proof');
 });
+
+test('a block layout (Italy\'s registry): the registrant\'s and the registrar\'s organization; no RDAP: WHOIS alone can prove it', async () => {
+    const IT = { 'whois.iana.org': { it: 'whois: whois.nic.it\n' }, 'whois.nic.it': { 'corp-docs.it': 'Domain: corp-docs.it\n\nRegistrant\n  Organization:     PayPal Srl\n  Address:          Via Madeup 1\n\nRegistrar\n  Organization:     MarkMonitor International Limited\n  Name:             MARKMONITOR-REG\n' } };
+    const w = createWhois({ connect: fakeConnect(IT) });
+    assert.deepEqual(await w.info('corp-docs.it'), { org: 'PayPal Srl', registrar: 'MarkMonitor International Limited' });
+    const E = spruce.load();
+    const http = { request: async () => ({ ok: true, status: 200, json: async () => ({ Status: 0, Answer: [] }) }) };
+    const own = createOwnership({ http, store: new MemoryStore(), engine: E, rdapServer: async () => null, whois: w });
+    assert.deepEqual(await own.of('corp-docs.it', 'PayPal'), { state: 'owned', how: 'registered to PayPal Srl through MarkMonitor International Limited (WHOIS)' });
+});
