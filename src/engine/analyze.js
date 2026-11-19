@@ -89,10 +89,21 @@ async function senderOwnership(E, facts, intel) {
 // write). Only then does the address count for the allowlist or as "inside the organization". (0.6.3) For the
 // organization's own domains, a pass worked out from Gmail's SPF or DKIM results when it wrote no DMARC result
 // counts too (mime.js deriveDmarc).
+// (0.6.51) The domain Gmail checked (header.from) is the sender's, or its organization's as DMARC itself compares them
+// (relaxed alignment: Gmail can name crews.bank for mail from mail.crews.bank). Another organization's (a second From
+// line written to fool the reader) is still no pass for the sender.
+function sameOrgDomain(a, b) {
+    const x = String(a || '').toLowerCase(), y = String(b || '').toLowerCase();
+    if (!x || !y) return false;
+    if (x === y) return true;
+    const E = spruce.load();
+    const rx = E.registrableDomain(x) || x, ry = E.registrableDomain(y) || y;
+    return rx === ry;
+}
 function senderVerified(facts) {
     const a = facts && facts.auth;
     const domain = String((facts && facts.senderAddress) || '').toLowerCase().split('@')[1] || '';
-    return !!(a && a.dmarc === 'pass' && domain && (!a.headerFrom || a.headerFrom === domain));
+    return !!(a && a.dmarc === 'pass' && domain && (!a.headerFrom || sameOrgDomain(a.headerFrom, domain)));
 }
 
 // facts: from mime.readMessage. ctx: { mailbox (the recipient's address), orgDomains: [..], trusted: bool,
@@ -559,4 +570,4 @@ async function aiReading(aiFacts, max = 40) {
     return spruce.load().model.reading(aiFacts, max);
 }
 
-module.exports = { analyze, aiReading, judgeLinks, linkSignals, senderVerified, platformNotification: N.platformNotification, shareSource: N.shareSource };
+module.exports = { analyze, aiReading, judgeLinks, linkSignals, senderVerified, sameOrgDomain, platformNotification: N.platformNotification, shareSource: N.shareSource };

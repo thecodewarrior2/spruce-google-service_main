@@ -60,7 +60,7 @@ function suspiciousWhy(result, cfg) {
 function rulesOnlyVerified(r, cfg) {
     if (!r || r.status !== 'caution' || r.inside || r.platformNote || !(r.score >= 3)) return false;
     const domain = String((r.sender && r.sender.address) || '').toLowerCase().split('@')[1] || '';
-    const verified = r.verified !== undefined ? !!r.verified : !!(r.auth && r.auth.dmarc === 'pass' && domain && (!r.auth.headerFrom || r.auth.headerFrom === domain));
+    const verified = r.verified !== undefined ? !!r.verified : !!(r.auth && r.auth.dmarc === 'pass' && domain && (!r.auth.headerFrom || require('./engine/analyze').sameOrgDomain(r.auth.headerFrom, domain)));
     if (!verified) return false;
     const p = r.ai && typeof r.ai.probability === 'number' ? r.ai.probability : null;
     const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : AI_SUSPICIOUS;

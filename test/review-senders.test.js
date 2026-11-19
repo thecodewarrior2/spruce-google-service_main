@@ -108,3 +108,19 @@ test('the pending count follows the period; older waiting emails are counted apa
         assert.deepEqual([month.unreviewed, month.older], [2, 0]);
     } finally { await new Promise(r => srv.close(r)); }
 });
+
+// 0.6.51: Gmail can name the organization's domain (header.from=bank.example) for mail from a subdomain
+// (alerts@mail.bank.example): the sender is confirmed, as DMARC compares them, so a trusted address there is trusted.
+test('a trusted address at a subdomain, Gmail naming its organization\'s domain: trusted; another organization\'s: not', async () => {
+    const { readMessage } = require('../src/engine/mime');
+    const { senderVerified } = require('../src/engine/analyze');
+    const raw = (headerFrom) => Buffer.from(['From: "Madeup Credit Union" <donotreply@mail.madeup-cu.example>', 'To: pat.fakewell@maple-schools.example', 'Subject: Your statement is ready',
+        'Message-ID: <s1@mail.madeup-cu.example>', `Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=${headerFrom}`,
+        'Content-Type: text/html; charset=utf-8', '', '<p>Your statement is ready. Sign in to view it.</p><p><a href="https://login-madeup-cu-review.example/statement">Verify your account</a></p>'].join('\r\n'));
+    assert.equal(senderVerified(await readMessage(raw('madeup-cu.example'))), true, 'the organization\'s domain');
+    assert.equal(senderVerified(await readMessage(raw('mail.madeup-cu.example'))), true);
+    assert.equal(senderVerified(await readMessage(raw('other-org.example'))), false, 'another organization\'s: no pass for the sender');
+    const svc = make('enforce', { ALLOW_ADDRESSES: 'donotreply@mail.madeup-cu.example' });
+    const r = await svc.judge('pat.fakewell@maple-schools.example', { id: 'cu1', threadId: 'tcu', internalDate: Date.now() }, await readMessage(raw('madeup-cu.example')));
+    assert.equal(r.action, 'none', 'trusted: never moved');
+});

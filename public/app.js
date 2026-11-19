@@ -1460,19 +1460,23 @@
         const apply = () => {
             busy = true;
             const q = st.q.trim().toLowerCase();
-            let shown = 0, total = 0, visible = 0;
-            const room = () => st.full || visible < LIST_ROWS;
+            // (0.6.51) The limit is each list's own: a card with two lists (Trusted senders' domains and addresses) shows
+            // the first entries of each (before, the first list's filled it and the second showed none).
+            let shown = 0, total = 0, visible = 0, here = 0;
+            const room = () => st.full || here < LIST_ROWS;
             for (const tb of card.querySelectorAll('table tbody')) {
+                here = 0;
                 const rows = [...tb.children];
                 if (st.col >= 0) rows.sort((a, b) => st.dir * cmp(sortKey(a.children[st.col]), sortKey(b.children[st.col]))).forEach(r => tb.append(r));
-                for (const r of rows) { total++; const ok = !q || r.textContent.toLowerCase().includes(q); const show = ok && room(); r.hidden = !show; if (ok) shown++; if (show) visible++; }
+                for (const r of rows) { total++; const ok = !q || r.textContent.toLowerCase().includes(q); const show = ok && room(); r.hidden = !show; if (ok) shown++; if (show) { visible++; here++; } }
             }
             for (const ul of card.querySelectorAll('ul.entries')) {
                 const lis = [...ul.children];
                 if (!ul.dataset.order) lis.forEach((li, i) => { li.dataset.i = String(i); });
                 ul.dataset.order = '1';
                 lis.sort((a, b) => (st.az ? st.az * a.textContent.localeCompare(b.textContent) : Number(a.dataset.i) - Number(b.dataset.i))).forEach(li => ul.append(li));
-                [...ul.children].forEach((li) => { total++; const ok = !q || li.textContent.toLowerCase().includes(q); const show = ok && room(); li.hidden = !show; if (ok) shown++; if (show) visible++; });
+                here = 0;
+                [...ul.children].forEach((li) => { total++; const ok = !q || li.textContent.toLowerCase().includes(q); const show = ok && room(); li.hidden = !show; if (ok) shown++; if (show) { visible++; here++; } });
             }
             card.querySelectorAll('.entries-more').forEach(m => { m.hidden = true; });
             all.hidden = st.full || shown <= visible;

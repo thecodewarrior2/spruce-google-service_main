@@ -12,7 +12,7 @@
 // listed message is done, the mailbox's sync position stays where it was, and it only ever moves forward.
 const crypto = require('crypto');
 const { readMessage } = require('./engine/mime');
-const { analyze, aiReading, senderVerified, platformNotification, shareSource } = require('./engine/analyze');
+const { analyze, aiReading, senderVerified, sameOrgDomain, platformNotification, shareSource } = require('./engine/analyze');
 const { MASS_SHARE } = require('./engine/notifications');
 const { decide, isAllowed } = require('./policy');
 const { GoogleApiError } = require('./gmail/client');
@@ -1342,7 +1342,7 @@ class Service {
         return (r) => {
             if (!r || !r.sender || !r.auth || r.auth.dmarc !== 'pass') return null;
             const a = String(r.sender.address || '').toLowerCase(), d = a.split('@')[1] || '';
-            if (!d || (r.auth.headerFrom && r.auth.headerFrom !== d)) return null;
+            if (!d || (r.auth.headerFrom && !sameOrgDomain(r.auth.headerFrom, d))) return null;   // (0.6.51) as DMARC compares them
             if (isAllowed(this.cfg, a) && !suspended.some(x => d === x || d.endsWith('.' + x))) return 'Trusted senders';
             if (!r.inside && this.spamListMatch(spam, a)) return 'Spam senders';
             if (!r.inside && brands.has(E.registrableDomain(d) || d)) return 'Brand senders';

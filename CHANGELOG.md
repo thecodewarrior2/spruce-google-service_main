@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.51: Trusted senders at a subdomain; Sender lists show every list's entries
+
+- **Gmail confirming the sender's organization counts:** for mail from a subdomain (donotreply@mail.bank.example), Gmail's
+  sender check can name the organization's domain (header.from=bank.example). The service required the exact domain, so
+  it took the sender as unconfirmed: a trusted address there was judged like any other mail (and moved), and a hidden
+  link to the sender's own site counted. Now the two are compared by their organization's domain, as DMARC itself does;
+  another organization's domain is still no pass. The same in Review's Sender lists filter and its suspicious line.
+- **Sender lists:** a card with two lists (Trusted senders' domains and addresses) showed only the first list's entries:
+  the 8-entry limit was the card's, so the addresses never appeared until Change. Each list now shows its own first 8.
+- How email is judged changes: checks level 41, so recent delivered mail is checked again after the update.
+
+
 ## 0.6.50: Review's count follows the period you pick
 
 - **The Review count in the menu** counted the last 30 days while the Review page showed the period picked at the top (7
