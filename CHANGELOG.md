@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.36: Sender lists can be searched, all at once or one by one, and sorted
+
+- **Search every list at once:** at the top of Settings → Sender lists, one search box looks for a domain, address or
+  brand in every list; each list shows only its matches, a list without any is hidden meanwhile, and a line says where
+  it was found ("Found in Spam senders (1), Spam people took back (1)").
+- **Each list on its own:** every list has its own search box and a count of its entries (or of the matches); a table's
+  column headers sort it (click again for the other way), and a list of entries (Trusted senders, Link sites) sorts A–Z,
+  Z–A or as kept. Every entry is on the page now, past the 30th hidden until a search finds it (`listTools` in
+  `public/app.js`).
+- Dashboard only: how email is judged doesn't change.
+
+
 ## 0.6.35: Spam senders, and Allowlist becomes Sender lists
 
 - **Spam senders:** answering **Spam** in Review now also offers "With Spam, also send future mail from <domain> straight

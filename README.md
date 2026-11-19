@@ -193,7 +193,7 @@ visible one counts 5 (0.6.33: flagged on its own), unless it goes to the sender'
 
 **Sender lists** (0.6.35; was Allowlist): Trusted senders (never moved), Spam senders (always to Spam: added with a Spam
 answer in Review, ticked by default for admins, or on the page; verified mail only), brand senders your reviewers
-confirmed, link sites, and spam people took back, each labeled with what it does.
+confirmed, link sites, and spam people took back, each labeled with what it does. One search box looks through every list; each list has its own search and sorting (0.6.36).
 
 **The allow lists' 30-day check** (0.6.30): every domain on an allow list is looked up again every 30 days (its registration
 and reputation). A change flags it for review (Settings → Sender lists, Today, and an email to every admin); registered

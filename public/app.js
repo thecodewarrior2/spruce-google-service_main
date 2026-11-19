@@ -1163,7 +1163,7 @@
         const draw = (rows) => {
             card.querySelectorAll('table').forEach(t => t.remove());
             card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Sender', 'People who took it back', 'Last', ''].map(t => h('th', { text: t })))),
-                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.sender }), h('td', { text: num(r.people) }), h('td', { text: new Date(r.last).toLocaleDateString() }),
+                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.sender }), h('td', { 'data-sort': String(r.people), text: num(r.people) }), h('td', { 'data-sort': String(r.last || 0), text: new Date(r.last).toLocaleDateString() }),
                     h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
                         e.target.disabled = true;
                         try { const out = await api('/api/spam-rescued', { method: 'POST', body: { sender: r.sender, keep: !r.keep } }); toast(r.keep ? `Spam from ${r.sender} is no longer moved for anyone.` : `Spam from ${r.sender} is moved to Spam again.`); draw(out.list || []); }
@@ -1185,7 +1185,7 @@
             card.querySelectorAll('table, p.empty').forEach(t => t.remove());
             if (!rows.length) { card.append(h('p', { class: 'empty', text: 'None left.' })); return; }
             card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Brand', 'Sender domain', 'Confirmed by', 'Last', ''].map(t => h('th', { text: t })))),
-                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.brand }), h('td', { text: r.domain }), h('td', { text: `${r.by || '–'}${r.count > 1 ? ` (${num(r.count)} emails)` : ''}` }), h('td', { text: new Date(r.last || r.at).toLocaleDateString() }),
+                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.brand }), h('td', { text: r.domain }), h('td', { text: `${r.by || '–'}${r.count > 1 ? ` (${num(r.count)} emails)` : ''}` }), h('td', { 'data-sort': String(r.last || r.at || 0), text: new Date(r.last || r.at).toLocaleDateString() }),
                     h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
                         e.target.disabled = true;
                         try { const out = await api('/api/brand-senders', { method: 'POST', body: { key: r.key } }); toast(`${r.domain} is no longer a confirmed sender for ${r.brand}.`); draw(out.list || []); }
@@ -1246,7 +1246,7 @@
             const at = card.querySelector('.spam-add');
             const tbl = rows.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Sender', 'Added', 'By', ''].map(t => h('th', { text: t })))),
                 h('tbody', {}, rows.map(r => h('tr', {}, h('td', {}, h('span', { class: 'list-label spam small-label', text: 'Always to Spam' }), ' ', h('b', { text: r.key })),
-                    h('td', { text: `${new Date(r.at).toLocaleDateString()}${r.from === 'review' ? ', from Review' : ''}` }), h('td', { text: r.by || '–' }),
+                    h('td', { 'data-sort': String(r.at || 0), text: `${new Date(r.at).toLocaleDateString()}${r.from === 'review' ? ', from Review' : ''}` }), h('td', { text: r.by || '–' }),
                     h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
                         e.target.disabled = true;
                         try { const out = await api('/api/spam-senders', { method: 'POST', body: { key: r.key, remove: true } }); toast(`${r.key} is checked as usual again.`); draw(out.list || []); }
@@ -1266,6 +1266,58 @@
         draw(list);
         return card;
     }
+    // (0.6.36) Each list's own search and sorting (a table's headers sort by their column; a list of entries A–Z or as
+    // kept), and the page's search across every list. Rows are found again whenever a list is drawn again.
+    function listTools(card, name) {
+        if (!card) return null;
+        const st = { q: '', col: -1, dir: 1, az: 0 };
+        const input = h('input', { type: 'search', class: 'list-search', placeholder: `Search ${name}`, 'aria-label': `Search ${name}`, autocomplete: 'off', spellcheck: 'false' });
+        const count = h('span', { class: 'small muted list-count', 'aria-live': 'polite' });
+        const az = h('button', { class: 'btn small-btn', type: 'button', title: 'Sort the entries' }, 'Sort A–Z');
+        const bar = h('div', { class: 'list-tools' }, input, card.querySelector('ul.entries') ? az : null, count);
+        (card.querySelector('.list-head') || card.querySelector('h2')).after(bar);
+        const sortKey = (td) => { const v = td && (td.dataset.sort !== undefined ? td.dataset.sort : td.textContent.trim().toLowerCase()); return v !== '' && !isNaN(Number(v)) ? Number(v) : v || ''; };
+        const cmp = (a, b) => (typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b)));
+        let busy = false;
+        const apply = () => {
+            busy = true;
+            const q = st.q.trim().toLowerCase();
+            let shown = 0, total = 0;
+            for (const tb of card.querySelectorAll('table tbody')) {
+                const rows = [...tb.children];
+                if (st.col >= 0) rows.sort((a, b) => st.dir * cmp(sortKey(a.children[st.col]), sortKey(b.children[st.col]))).forEach(r => tb.append(r));
+                for (const r of rows) { total++; const ok = !q || r.textContent.toLowerCase().includes(q); r.hidden = !ok; if (ok) shown++; }
+            }
+            for (const ul of card.querySelectorAll('ul.entries')) {
+                const lis = [...ul.children];
+                if (!ul.dataset.order) lis.forEach((li, i) => { li.dataset.i = String(i); });
+                ul.dataset.order = '1';
+                lis.sort((a, b) => (st.az ? st.az * a.textContent.localeCompare(b.textContent) : Number(a.dataset.i) - Number(b.dataset.i))).forEach(li => ul.append(li));
+                [...ul.children].forEach((li, i) => { total++; const ok = q ? li.textContent.toLowerCase().includes(q) : i < 30; li.hidden = !ok; if (ok && q) shown++; });
+            }
+            card.querySelectorAll('.entries-more').forEach(m => { m.hidden = !!q; });
+            card.querySelectorAll('table thead th').forEach((th, i) => { if (th.textContent.trim()) th.setAttribute('aria-sort', i === st.col ? (st.dir > 0 ? 'ascending' : 'descending') : 'none'); });
+            count.textContent = q ? `${num(shown)} of ${num(total)} match` : `${num(total)} entr${total === 1 ? 'y' : 'ies'}`;
+            card.classList.toggle('no-match', !!q && !shown);
+            if (observer) observer.takeRecords();   // (its own moves of rows are no new rows: never applied again for them)
+            busy = false;
+            return shown;
+        };
+        let observer = null;
+        input.addEventListener('input', () => { st.q = input.value; apply(); });
+        az.addEventListener('click', () => { st.az = st.az === 1 ? -1 : st.az === -1 ? 0 : 1; az.textContent = st.az === 1 ? 'Sort Z–A' : st.az === -1 ? 'As kept' : 'Sort A–Z'; apply(); });
+        card.addEventListener('click', (e) => {
+            const th = e.target.closest('thead th');
+            if (!th || !th.textContent.trim() || !card.contains(th)) return;
+            const i = [...th.parentElement.children].indexOf(th);
+            st.dir = st.col === i ? -st.dir : 1; st.col = i;
+            apply();
+        });
+        observer = new MutationObserver(() => { if (!busy) apply(); });
+        observer.observe(card, { childList: true, subtree: true });
+        apply();
+        return { name, card, query(q) { input.value = q; st.q = q; return apply(); } };
+    }
     async function allowlist() {
         const d = await settingsData();
         const TRUSTED_ROWS = ALLOW_ROWS.filter(r => r.key !== 'allowLinkDomains'), LINK_ROWS = ALLOW_ROWS.filter(r => r.key === 'allowLinkDomains');
@@ -1277,11 +1329,25 @@
         const links = policyCard(d, LINK_ROWS, 'Link sites', 'For a link site a phishing list flagged by mistake (a newsletter\'s click tracker). A list naming the exact page still flags it. Emails already checked keep their verdict: Re-scan one to check it again. ALLOW_LINK_DOMAINS only in the services\' environment.');
         const linkBusy = pageBusy; pageBusy = () => linkPrev() || linkBusy();
         for (const [card, k] of [[trusted, 'trusted'], [links, 'link']]) { const h2 = card.querySelector('h2'); if (h2) h2.after(listHead(k)); }
+        const spam = await spamSendersCard();
+        const tools = [[trusted, 'Trusted senders'], [spam, 'Spam senders'], [brand, 'Brand senders'], [links, 'Link sites'], [kept, 'Spam people took back']]
+            .map(([c, n]) => listTools(c, n)).filter(Boolean);
+        // (0.6.36) One search across every list: each list shows its matches; a list with none is hidden meanwhile.
+        const all = h('input', { type: 'search', class: 'list-search global', placeholder: 'Search every sender list (a domain, an address, a brand)', 'aria-label': 'Search every sender list', autocomplete: 'off', spellcheck: 'false' });
+        const found = h('div', { class: 'small muted', 'aria-live': 'polite' });
+        all.addEventListener('input', () => {
+            const q = all.value.trim();
+            const hits = tools.map(t => [t, t.query(q)]);
+            for (const [t, n] of hits) t.card.classList.toggle('search-hidden', !!q && !n);
+            const where = hits.filter(([, n]) => n);
+            found.textContent = !q ? '' : where.length ? `Found in ${where.map(([t, n]) => `${t.name} (${num(n)})`).join(', ')}.` : 'On no list.';
+        });
         return [h('h1', { text: 'Sender lists' }), h('p', { class: 'sub', text: 'The senders and sites the checks treat differently, each list labeled with what it does. Every domain on them is checked again every 30 days. Changes are noted in Health → Activity → What admins did.' }),
+            h('div', { class: 'card list-search-card' }, all, found),
             h('div', { class: 'alert warning' }, h('div', {}, h('b', { text: 'Add only senders you trust to Trusted senders. ' }), 'If one of their accounts is taken over, the phishing it sends isn\'t caught. Your own domains can\'t be added: a staff account taken over would never be moved. Single addresses in them can.')),
             await allowReviewCard(),
             trusted,
-            await spamSendersCard(),
+            spam,
             brand,
             links,
             kept];
@@ -2249,7 +2315,8 @@
     const entries = (l, none) => {
         const list = l || [];
         if (!list.length) return h('div', { text: none });
-        return h('div', {}, h('ul', { class: 'entries' }, list.slice(0, 30).map(x => h('li', { text: x }))), list.length > 30 ? h('div', { class: 'small muted', text: `and ${num(list.length - 30)} more (Change shows them all)` }) : null);
+        // (0.6.36) Every entry is on the page (past the 30th hidden until a search finds it), so Sender lists can search them.
+        return h('div', {}, h('ul', { class: 'entries' }, list.map((x, i) => h('li', { text: x, hidden: i >= 30 }))), list.length > 30 ? h('div', { class: 'small muted entries-more', text: `and ${num(list.length - 30)} more (search, or Change, shows them all)` }) : null);
     };
     const ALLOW_ROWS = [
         { key: 'allowDomains', label: 'Domains', show: (v) => entries(v, 'None. Mail from any domain is checked.') },

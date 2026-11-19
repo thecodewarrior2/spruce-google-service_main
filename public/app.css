@@ -781,3 +781,14 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .list-label.kept { color: var(--s4); border-color: var(--s4); background: color-mix(in srgb, var(--s4) 12%, transparent); }
 .spam-sender-opt { margin: 8px 0 0; }
 .spam-add { margin-top: 10px; }
+
+/* (0.6.36) Sender lists: the search across every list, each list's own search and sorting. */
+.list-search-card { display: grid; gap: 6px; }
+.list-search { width: 100%; max-width: 420px; }
+.list-search.global { max-width: none; font-size: 15px; padding: 10px 12px; }
+.list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 10px; }
+.list-tools .list-search { flex: 1 1 220px; }
+.card.search-hidden { display: none; }
+.card thead th[aria-sort] { cursor: pointer; user-select: none; }
+.card thead th[aria-sort="ascending"]::after { content: " ▲"; font-size: 10px; }
+.card thead th[aria-sort="descending"]::after { content: " ▼"; font-size: 10px; }
