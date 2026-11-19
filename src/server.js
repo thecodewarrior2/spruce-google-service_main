@@ -764,6 +764,10 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // provider) and remove them; Review's Spam answer can add one too.
         'GET /api/spam-senders': async () => ({ list: await service.spamSenderList() }),
         'POST /api/spam-senders': async (q, body, admin) => (body.remove ? service.removeSpamSender(String(body.key || ''), admin.email) : service.addSpamSender(String(body.sender || ''), admin.email, { from: 'page' })),
+        // (0.6.49) Company domains: proven by public records (read-only), and confirmed by an admin from a registry's own page.
+        'GET /api/company-domains': async () => service.companyDomainList(),
+        'POST /api/company-domains': async (q, body, admin) => (body.remove ? service.removeConfirmedDomain(String(body.domain || ''), admin.email)
+            : service.addConfirmedDomain(String(body.domain || ''), String(body.name || ''), String(body.note || ''), admin.email)),
         'GET /api/brand-senders': async () => ({ list: await service.brandSenderList() }),
         'POST /api/brand-senders': async (q, body, admin) => service.removeBrandSender(String(body.key || ''), admin.email),
         // (0.5.60) Ignore, treat as suspicious: reviewed, left as it is, not used for retraining.

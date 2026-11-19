@@ -1068,6 +1068,51 @@ class Service {
         await this.store.addEvent({ kind: 'settings', text: `${by} removed ${k} from Spam senders: its mail is checked as usual.` });
         return { ok: true, list: await this.spamSenderList() };
     }
+    // (0.6.49) Company domains an admin confirmed from a registry's own web page (Settings → Sender lists → Company
+    // domains), for the registries public lookups can't read (EURid's .eu: amzn.eu is Amazon's there only). State
+    // confirmedDomains: domain → { name (the brand), by, at, note (where it was checked) }. The ownership lookup takes
+    // one as proof (src/intel/ownership.js), unless the 30-day check has it suspended; never a personal mail provider's
+    // domain or the organization's own. Changes are noted in Activity.
+    async companyDomainList() {
+        const confirmed = (await this.store.getState('confirmedDomains')) || {};
+        const proven = (await this.store.getState('provenDomains')) || {};
+        const now = this.now();
+        return {
+            confirmed: Object.entries(confirmed).map(([domain, v]) => ({ domain, name: v.name, by: v.by, at: v.at, note: v.note || '' })).sort((a, b) => (b.at || 0) - (a.at || 0)),
+            proven: Object.entries(proven).filter(([d, v]) => v && now - (Number(v.at) || 0) < 60 * DAY && !confirmed[d])
+                .map(([domain, v]) => ({ domain, name: v.name, state: v.state, at: v.at, how: v.how || '' })).sort((a, b) => String(a.name).localeCompare(String(b.name)) || a.domain.localeCompare(b.domain)),
+            brands: (spruce.load().SENDER_NAME_BRANDS || []).map(b => b.name).sort((a, b) => a.localeCompare(b))
+        };
+    }
+    async addConfirmedDomain(domain, brandName, note, by) {
+        const E = spruce.load();
+        const raw = String(domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[/?#].*$/, '').replace(/\.$/, '');
+        const reg = E.registrableDomain(raw) || '';
+        const brand = (E.SENDER_NAME_BRANDS || []).find(b => b.name === brandName);
+        const why = String(note || '').trim().slice(0, 300);
+        if (!reg || reg !== raw) return { error: 'Give the domain itself (amzn.eu), not an address or a page.', status: 400 };
+        if (!brand) return { error: 'Choose the company it belongs to.', status: 400 };
+        if (!why) return { error: 'Say where you checked it (the registry page and what it showed): it is kept with the entry.', status: 400 };
+        if (this.cfg.orgDomains.some(o => reg === o || reg.endsWith('.' + o))) return { error: 'Your own domains can\'t be a company\'s.', status: 400 };
+        if (E.isPersonalMailDomain(reg)) return { error: 'A personal mail provider\'s domain is everyone\'s: it can\'t be confirmed as a company\'s.', status: 400 };
+        if ([...(brand.home || []), ...(brand.domains || [])].includes(reg)) return { error: `${reg} is already ${brand.name}'s main domain.`, status: 400 };
+        const all = Object.assign({}, (await this.store.getState('confirmedDomains')) || {});
+        if (Object.keys(all).length >= 500 && !all[reg]) return { error: 'The list is full (500 domains).', status: 409 };
+        all[reg] = { name: brand.name, by, at: this.now(), note: why };
+        await this.store.setState('confirmedDomains', all);
+        await this.store.addEvent({ kind: 'settings', text: `${by} confirmed ${reg} as ${brand.name}'s domain (${why}): its mail under ${brand.name}'s name and its links count as ${brand.name}'s.` });
+        return Object.assign({ ok: true, domain: reg }, await this.companyDomainList());
+    }
+    async removeConfirmedDomain(domain, by) {
+        const all = Object.assign({}, (await this.store.getState('confirmedDomains')) || {});
+        const d = String(domain || '').toLowerCase();
+        if (!all[d]) return { error: 'That domain isn\'t on the list.', status: 404 };
+        const was = all[d];
+        delete all[d];
+        await this.store.setState('confirmedDomains', all);
+        await this.store.addEvent({ kind: 'settings', text: `${by} removed ${d} from the confirmed company domains (was ${was.name}'s): public records decide again.` });
+        return Object.assign({ ok: true }, await this.companyDomainList());
+    }
     // Whether a spam sender was on the list before this answer added it (its entry is older than the answer).
     async spamSenderWas(key, rec) {
         const e = ((await this.store.getState('spamSenders')) || {})[key];

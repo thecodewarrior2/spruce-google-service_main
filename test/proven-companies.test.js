@@ -54,3 +54,33 @@ test('a link between two of the sender company\'s other domains (the company its
     const one = await judge({ 'msfiles-madeup.example': 'owned' });
     assert.ok(!one.signals.some(s => s.kind === 'same-company-link'), 'one side unproven: judged as before');
 });
+
+// 0.6.49: a domain an admin confirmed from a registry's own web page (for registries the service can't read).
+test('confirmed company domains: added with where it was checked, refused when wrong, proof for the lookup, removed', async () => {
+    const { loadConfig } = require('../src/config');
+    const { Service } = require('../src/pipeline');
+    const { createOwnership } = require('../src/intel/ownership');
+    const ORG = 'maple-schools.example', ADMIN = `it.madeup@${ORG}`;
+    const svc = new Service({ cfg: loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `pat.fakewell@${ORG}` }), store: new MemoryStore(), gmail: {}, log: { error() {}, warn() {} } });
+    assert.equal((await svc.addConfirmedDomain('shop-madeup.example', 'Amazon', '', ADMIN)).status, 400, 'where it was checked is required');
+    assert.equal((await svc.addConfirmedDomain('shop-madeup.example', 'Nobody', 'a page', ADMIN)).status, 400, 'a known company');
+    assert.equal((await svc.addConfirmedDomain('gmail.com', 'Google', 'a page', ADMIN)).status, 400, 'a personal provider: everyone\'s');
+    assert.equal((await svc.addConfirmedDomain(`x.${ORG}`, 'Amazon', 'a page', ADMIN)).status, 400, 'our own domain');
+    assert.equal((await svc.addConfirmedDomain('amazon.com', 'Amazon', 'a page', ADMIN)).status, 400, 'already its main domain');
+    assert.equal((await svc.addConfirmedDomain('www.shop-madeup.example/page', 'Amazon', 'a page', ADMIN)).status, 400, 'the domain itself');
+    const out = await svc.addConfirmedDomain('Shop-Madeup.Example', 'Amazon', 'the registry\'s page: Amazon Madeup S.a r.l.', ADMIN);
+    assert.equal(out.domain, 'shop-madeup.example');
+    assert.equal(out.confirmed[0].note, 'the registry\'s page: Amazon Madeup S.a r.l.');
+    assert.ok((await svc.store.listEvents(0, { limit: 5 })).some(e => /confirmed shop-madeup\.example as Amazon's domain/.test(e.text)));
+    const own = createOwnership({ http: { request: async () => { throw new Error('not asked'); } }, store: svc.store, engine: E, rdapServer: async () => null });
+    const r = await own.of('shop-madeup.example', 'Amazon');
+    assert.equal(r.state, 'owned');
+    assert.match(r.how, /^confirmed by it\.madeup@maple-schools\.example from the registry's own page/);
+    assert.equal((await own.of('shop-madeup.example', 'PayPal')).state, 'unknown', 'only for the company it was confirmed for');
+    // Suspended by the 30-day check: no longer proof.
+    await svc.store.setState('allowWatch', { domains: { 'shop-madeup.example': { review: { suspended: true } } } });
+    const later = createOwnership({ http: { request: async () => ({ ok: true, status: 200, json: async () => ({ Status: 0, Answer: [] }) }) }, store: svc.store, engine: E, rdapServer: async () => null });
+    assert.notEqual((await later.of('shop-madeup.example', 'Amazon')).state, 'owned', 'suspended');
+    assert.equal((await svc.removeConfirmedDomain('shop-madeup.example', ADMIN)).confirmed.length, 0);
+    E.learnCompanyDomains([], true);
+});

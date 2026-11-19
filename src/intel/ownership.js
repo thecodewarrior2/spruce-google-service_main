@@ -256,14 +256,30 @@ function createOwnership({ http, store, engine: E, rdapServer, whois = null, lea
     // (0.6.48) link: asked for a link check, where a personal mail provider's own domain can be its company's (gmail.com is
     // Google's); a sender's name is never proven by one (anyone has an address there). What is proven or likely is
     // passed to learn(domain, brand, state), for the link checks' company index.
+    // (0.6.49) A domain an admin confirmed from a registry's own page (Settings → Sender lists → Company domains): proof,
+    // unless the 30-day check has it suspended. Read from the shared store at most once a minute.
+    let confirmedMemo = { at: 0, all: {}, suspended: new Set() };
+    async function confirmed(reg, brandName) {
+        if (now() - confirmedMemo.at > 60000) {
+            const all = (await store.getState('confirmedDomains').catch(() => null)) || {};
+            const watch = (await store.getState('allowWatch').catch(() => null)) || {};
+            const suspended = new Set(Object.entries(watch.domains || {}).filter(([, v]) => v && v.review && v.review.suspended).map(([d]) => d));
+            confirmedMemo = { at: now(), all, suspended };
+        }
+        const c = confirmedMemo.all[reg];
+        if (!c || c.name !== brandName || confirmedMemo.suspended.has(reg)) return null;
+        return { state: 'owned', how: `confirmed by ${c.by} from the registry's own page${c.note ? ` (${c.note})` : ''}` };
+    }
     async function of(domain, brandName, { link = false } = {}) {
         const brand = (E.SENDER_NAME_BRANDS || []).find(b => b.name === brandName);
         const reg = E.registrableDomain(String(domain || '').toLowerCase());
         if (!brand || !reg || !E.SENDER_DOMAIN_RE.test(reg) || (!link && E.isPersonalMailDomain(reg))) return { state: 'unknown', how: '' };
+        const c = await confirmed(reg, brand.name);
+        if (c) { try { E.learnCompanyDomains && E.learnCompanyDomains([{ domain: reg, name: brand.name, state: 'owned' }]); } catch (e) { /* the index only */ } return c; }
         const key = `${reg}|${brand.name}`;
         const mem = memo.get(key);
         const v = mem || await answer(key, reg, brand);
-        if (v.state !== 'unknown' && learn) { try { learn(reg, brand.name, v.state); } catch (e) { /* the index only */ } }
+        if (v.state !== 'unknown' && learn) { try { learn(reg, brand.name, v.state, v.how); } catch (e) { /* the index only */ } }
         return v;
     }
     // (0.6.17) The same proof for a company that isn't in the brand table: a link's own domain, named after the

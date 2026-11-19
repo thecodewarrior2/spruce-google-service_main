@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.49: Company domains: see what the service proved, and confirm what only a registry's website shows
+
+- **Settings → Sender lists → Company domains** lists the domains the service has proven a company's from public records
+  (and how), and those it found likely (counted for links only).
+- **Confirm a domain yourself** when its registry shows the owner only on its own website, which the service can't read
+  (EURid's, for .eu: amzn.eu is Amazon Europe's there). Give the domain, the company, and where you checked it; it is kept
+  with who confirmed it and when, noted in Activity, and can be removed. It then counts as proof, for a sender's name and
+  for links, unless the 30-day check suspends it. Never a personal mail provider's domain, your own, or a company's main
+  domain.
+- The demo shows a few proven domains and amzn.eu confirmed.
+
+
 ## 0.6.48: The old company list is gone: the service learns which domains are a company's
 
 - **No hand-kept company families any more** (the list carried over from the browser extension: Google's youtube.com

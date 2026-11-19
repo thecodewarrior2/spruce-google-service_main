@@ -208,6 +208,14 @@ async function buildDemo({ now = Date.now(), cfg }) {
     await store.setState('phishTrainingMissed', { 'demo-trainer': { name: 'Madeup Trainer', count: 2, first: now - 26 * 3600e3, last: now - 3 * 3600e3, notedAt: now - 26 * 3600e3, ip: '198.51.100.7', why: 'Gmail received it from 198.51.100.7, not one of the rule\'s sending addresses' } });
     // (0.6.35) A spam sender an admin added from Review (made up).
     await store.setState('spamSenders', { 'deal-blast.example': { by: 'demo-admin@example.org', at: now - 4 * DAY, from: 'review', count: 0 } });
+    // (0.6.49) Company domains: some proven by public records (as the service learns them), one confirmed by an admin
+    // from a registry's own page (EURid's, which the service can't read).
+    await store.setState('provenDomains', {
+        'office.com': { name: 'Microsoft', state: 'owned', at: now - 3 * DAY, how: 'registered to Microsoft Corporation through MarkMonitor Inc.' },
+        'sharepoint.com': { name: 'Microsoft', state: 'owned', at: now - 2 * DAY, how: 'registered to Microsoft Corporation through Nom-iq Ltd. dba COM LAUDE (WHOIS)' },
+        'youtube.com': { name: 'Google', state: 'owned', at: now - 5 * DAY, how: 'its name servers are Google\'s (ns1.google.com)' },
+        'zoom.com': { name: 'Zoom', state: 'likely', at: now - DAY, how: 'registered through MarkMonitor Inc., a corporate registrar; registered 27 years ago' } });
+    await store.setState('confirmedDomains', { 'amzn.eu': { name: 'Amazon', by: 'it.director@maple-schools.example', at: now - 4 * DAY, note: 'EURid WHOIS page: Amazon Europe Core S.à r.l., through Com Laude' } });
     await store.setState('spamRescued', { 'coupon-blast.example': { users: ['demo-a', 'demo-b', 'demo-c', 'demo-d'], first: now - 12 * DAY, last: now - 2 * DAY, shared: true, keep: false } });
     // (the colleague-name check read the demo directory while the made-up mail was judged: as of now)
     const cn = await store.getState('colleagueNames');

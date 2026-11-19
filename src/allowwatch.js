@@ -15,7 +15,7 @@ const CHECK_EVERY_MS = 30 * DAY;
 const PER_RUN = 20;
 const SUSPEND = new Set(['registered-again', 'gone', 'expired', 'blocked', 'listed', 'spamhaus']);
 const LIST_NAMES = { allowDomains: 'Trusted senders', allowAddresses: 'Trusted senders (addresses)', allowLinkDomains: 'Link sites',
-    brandSenders: 'Brand senders', spamRescued: 'Spam people took back', spamSenders: 'Spam senders' };
+    brandSenders: 'Brand senders', spamRescued: 'Spam people took back', spamSenders: 'Spam senders', confirmedDomains: 'Company domains' };
 
 const day = (t) => new Date(t).toISOString().slice(0, 10);
 
@@ -57,6 +57,7 @@ function install(Service, { isAllowed }) {
             for (const a of this.cfg.allowAddresses || []) put(String(a).split('@')[1], 'allowAddresses');
             for (const d of this.cfg.allowLinkDomains || []) put(d, 'allowLinkDomains');
             for (const v of Object.values((await this.store.getState('brandSenders')) || {})) if (v && v.domain) put(v.domain, 'brandSenders');
+            for (const d of Object.keys((await this.store.getState('confirmedDomains')) || {})) put(d, 'confirmedDomains');   // (0.6.49)
             for (const [k, v] of Object.entries((await this.store.getState('spamRescued')) || {})) if (v && v.shared && !k.includes('@')) put(k, 'spamRescued');
             // (0.6.35) Spam senders; (0.6.40) a mailing subdomain or an address is looked up by its registrable domain.
             for (const k of Object.keys((await this.store.getState('spamSenders')) || {})) { const d = k.split('@').pop(); put(E.registrableDomain(d) || d, 'spamSenders'); }

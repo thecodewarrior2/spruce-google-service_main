@@ -1355,9 +1355,50 @@
         spam: ['Always to Spam', 'spam', 'Its verified mail goes straight to Spam, as spam, whatever the other checks find (monitor mode: recorded as "would move"). A forged copy, mail from inside, and a person who took its spam back are judged as usual.'],
         brand: ['Brand\'s own sender', 'brand', 'Its verified mail under the brand\'s name isn\'t counted as an imitation; every other check still applies.'],
         link: ['Link site allowed', 'link', 'Not a sender: a phishing list\'s listing of the whole domain doesn\'t flag links to it (the other link checks still apply).'],
-        kept: ['Not moved for some people', 'kept', 'People took its spam back out of Spam: not moved as spam for them (for anyone once 3 did).']
+        kept: ['Not moved for some people', 'kept', 'People took its spam back out of Spam: not moved as spam for them (for anyone once 3 did).'],
+        company: ['A company\'s own domain', 'company', 'Its mail under the company\'s name isn\'t counted as an imitation, and links between it and the company\'s other domains aren\'t counted as disguised; every other check still applies.']
     };
     const listHead = (k) => h('div', { class: 'list-head' }, h('span', { class: `list-label ${LIST_LABELS[k][1]}`, text: LIST_LABELS[k][0] }), h('span', { class: 'small muted', text: LIST_LABELS[k][2] }));
+    // (0.6.49) Settings → Sender lists → Company domains: the domains public records proved a company's (learned by the
+    // service, read-only here), and those an admin confirmed from a registry's own web page, for registries the service
+    // can't read (EURid's .eu). A confirmed one needs where it was checked; it can be removed.
+    async function companyDomainsCard() {
+        let d;
+        try { d = await api('/api/company-domains'); } catch (e) { return null; }
+        const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Company domains' }), listHead('company'),
+            h('p', { class: 'sub', text: 'The service proves which domains belong to a well-known company from public records (name servers, DMARC reporting, the registrant in RDAP or WHOIS, a corporate registrar) and keeps the answers for 60 days. Some registries show the owner only on their own website, which the service can\'t read (EURid\'s, for .eu). When you have checked such a page yourself, confirm the domain here and say where you checked it.' }));
+        const draw = (data) => {
+            card.querySelectorAll('table, p.empty').forEach(t => t.remove());
+            const at = card.querySelector('.company-add');
+            const rows = [...(data.confirmed || []), ...(data.proven || [])];
+            const tbl = rows.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Domain', 'Company', 'How it is known', 'When', ''].map(t => h('th', { text: t })))),
+                h('tbody', {}, rows.map(r => h('tr', {}, h('td', {}, h('b', { text: r.domain })), h('td', { text: r.name }),
+                    h('td', {}, r.by ? h('span', { class: 'kind-tag changed', text: 'Confirmed' }) : r.state === 'likely' ? h('span', { class: 'kind-tag needs', text: 'Likely' }) : h('span', { class: 'kind-tag', text: 'Proven' }), ' ', h('span', { class: 'small', text: r.by ? `${r.note} · by ${r.by}` : r.how || (r.state === 'likely' ? 'a corporate registrar and a link to the company (counts for links only)' : '') })),
+                    h('td', { class: 'nowrap', 'data-sort': String(r.at || 0), text: dayOf(r.at) }),
+                    h('td', {}, r.by && !isModerator() ? h('button', { class: 'btn', type: 'button', onclick: async (e) => {
+                        e.target.disabled = true;
+                        try { const out = await api('/api/company-domains', { method: 'POST', body: { domain: r.domain, remove: true } }); toast(`${r.domain} is no longer confirmed: public records decide again.`); draw(out); }
+                        catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); e.target.disabled = false; } } }, 'Remove') : null))))) : h('p', { class: 'empty', text: 'None yet: domains appear here as the service proves them.' });
+            card.insertBefore(tbl, at);
+        };
+        if (!isModerator()) {
+            const domain = h('input', { type: 'text', class: 'project-input', placeholder: 'amzn.eu', 'aria-label': 'Domain to confirm', autocomplete: 'off', spellcheck: 'false' });
+            const name = h('select', { 'aria-label': 'The company it belongs to' }, h('option', { value: '', text: 'Company…' }), (d.brands || []).map(b => h('option', { value: b, text: b })));
+            const note = h('input', { type: 'text', class: 'project-input wide', placeholder: 'Where you checked it, and what it showed (EURid WHOIS page: Amazon Europe Core S.à r.l.)', 'aria-label': 'Where you checked it', autocomplete: 'off' });
+            const add = h('button', { class: 'btn', type: 'button' }, 'Confirm');
+            add.addEventListener('click', async () => {
+                add.disabled = true;
+                try {
+                    const out = await api('/api/company-domains', { method: 'POST', body: { domain: domain.value.trim(), name: name.value, note: note.value.trim() } });
+                    toast(`${out.domain} is confirmed as ${name.value}'s.`); domain.value = ''; note.value = ''; name.value = ''; draw(out);
+                } catch (err) { toast(`Couldn't confirm it: ${err.message}`, { error: true }); }
+                finally { add.disabled = false; }
+            });
+            card.append(h('div', { class: 'company-add toolbar' }, domain, name, note, add));
+        } else card.append(h('div', { class: 'company-add' }));
+        draw(d);
+        return card;
+    }
     async function spamSendersCard() {
         let list = [];
         try { list = (await api('/api/spam-senders')).list || []; } catch (e) { return null; }
@@ -1472,7 +1513,8 @@
         const linkBusy = pageBusy; pageBusy = () => linkPrev() || linkBusy();
         for (const [card, k] of [[trusted, 'trusted'], [links, 'link']]) { const h2 = card.querySelector('h2'); if (h2) h2.after(listHead(k)); }
         const spam = await spamSendersCard();
-        const tools = [[trusted, 'Trusted senders'], [spam, 'Spam senders'], [brand, 'Brand senders'], [links, 'Link sites'], [kept, 'Spam people took back']]
+        const companies = await companyDomainsCard();
+        const tools = [[trusted, 'Trusted senders'], [spam, 'Spam senders'], [brand, 'Brand senders'], [companies, 'Company domains'], [links, 'Link sites'], [kept, 'Spam people took back']]
             .map(([c, n]) => listTools(c, n)).filter(Boolean);
         // (0.6.36) One search across every list: each list shows its matches; a list with none is hidden meanwhile.
         const all = h('input', { type: 'search', class: 'list-search global', placeholder: 'Search every sender list (a domain, an address, a brand)', 'aria-label': 'Search every sender list', autocomplete: 'off', spellcheck: 'false' });
@@ -1491,6 +1533,7 @@
             trusted,
             spam,
             brand,
+            companies,
             links,
             kept];
     }

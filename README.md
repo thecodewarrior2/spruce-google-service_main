@@ -195,7 +195,7 @@ visible one counts 5 (0.6.33: flagged on its own) when it goes to another site t
 **Sender lists** (0.6.35; was Allowlist; 0.6.45: each list shows 8 entries, **Show all** opens the whole list, with its search, sorting and buttons, in a popup): Trusted senders (never moved), Spam senders (always to Spam: added with a Spam
 answer in Review, ticked by default for admins, or on the page; verified mail only), brand senders your reviewers
 confirmed, link sites, and spam people took back, each labeled with what it does. One search box looks through every list; each list has its own search and sorting (0.6.36).
-Review leaves out the emails of senders on Trusted senders, Spam senders or Brand senders (0.6.40): someone already
+**Company domains** (0.6.49) lists the domains proven a company's from public records, and lets an admin confirm one whose registry shows the owner only on its own website (EURid's .eu), saying where it was checked. Review leaves out the emails of senders on Trusted senders, Spam senders or Brand senders (0.6.40): someone already
 decided about them.
 
 **Which entry a Spam answer adds** (0.6.40): mail from a subdomain adds that subdomain (newsletters@em.bigstore.example
