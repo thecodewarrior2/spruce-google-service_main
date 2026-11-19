@@ -5,6 +5,8 @@
 - **Brand ownership** (the public-records lookup, 0.5.64): a domain whose DMARC reports go to the very same mailbox as the
   brand's own (one company's account at a report service), registered through a corporate registrar, is proven the
   brand's. Either alone proves nothing (anyone can copy a report address; a corporate registrar serves many companies).
+  The mailbox must be one company's own account (its name carries the brand's, or it is an account number): a report
+  service's address every customer shares (dmarc_rua@…, dmarc_agg@…) proves nothing.
   Capital One Shopping is proven Capital One's this way, so 0.6.44's hand-added Capital One domains are taken out again:
   the lookup handles it, and any company set up the same way.
 - **Sender lists:** each list shows its first 8 entries (or matches). **Show all** opens the whole list in a popup over

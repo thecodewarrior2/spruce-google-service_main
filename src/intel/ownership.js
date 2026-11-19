@@ -40,6 +40,16 @@ function reportDomains(tags, registrable) {
     }
     return out;
 }
+// (0.6.45) Whether a report mailbox is one company's own account at a report service, not an address the service gives
+// every customer (dmarc_rua@…, dmarc_agg@…, d@…): its name carries the brand's name (capital-one@…), or it is an account
+// number (letters and digits, 8 or more: c7xrs-8253@…).
+function accountMailbox(box, brand) {
+    const local = String(box || '').split('@')[0].toLowerCase();
+    const flat = local.replace(/[^a-z0-9]/g, '');
+    const names = [brand.name, ...(brand.tokens || [])].filter(n => !(brand.ambiguousTokens || []).includes(n)).map(n => String(n).toLowerCase().replace(/[^a-z0-9]/g, '')).filter(n => n.length >= 3);
+    if (names.some(n => flat.includes(n))) return true;
+    return flat.length >= 8 && /[a-z]/.test(flat) && /\d/.test(flat);
+}
 // (0.6.45) The mailboxes (whole addresses) a DMARC record's reports go to, lowercased.
 function reportMailboxes(tags) {
     const out = new Set();
@@ -140,8 +150,9 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
             if (reportDomains(homeTags, E.registrableDomain).has(reg)) { proof.push(`${home} sends its own DMARC reports to it`); break; }
             // (0.6.45) Both send their reports to the very same mailbox at a report service (brand@rua.reports.example):
             // one company's account there. Anyone could copy that address into their own record, so it counts only
-            // with a corporate registrar (below), which a forger can't use.
-            if (!sameBox) { const box = [...reportMailboxes(homeTags)].find(x => myBoxes.has(x)); if (box) sameBox = `its DMARC reports go to the same mailbox as ${home}'s (${box})`; }
+            // with a corporate registrar (below), which a forger can't use, and only an account's own mailbox (accountMailbox):
+            // a report service's address every customer shares says nothing.
+            if (!sameBox) { const box = [...reportMailboxes(homeTags)].find(x => myBoxes.has(x) && accountMailbox(x, brand)); if (box) sameBox = `its DMARC reports go to the same mailbox as ${home}'s (${box})`; }
             if (mine.has(home)) {
                 if (await settle(() => authorized(reg, home))) proof.push(`its DMARC reports go to ${home}, which publishes the authorization for them`);
                 else hints.push(`its DMARC reports go to ${home}`);
@@ -223,4 +234,4 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
     return { of, ofCompany };
 }
 
-module.exports = { createOwnership, sameOperatorNs, registrantNamesBrand, reportMailboxes, CORPORATE_REGISTRARS };
+module.exports = { createOwnership, sameOperatorNs, registrantNamesBrand, reportMailboxes, accountMailbox, CORPORATE_REGISTRARS };

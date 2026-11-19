@@ -80,6 +80,12 @@ test('0.6.45: the same DMARC report mailbox as the brand\'s, through a corporate
     ({ own } = make({ rdap: { 'pp-shopping.example': { registrar: 'MarkMonitor Inc.', created: YEARS(6) } },
         '_dmarc.paypal.com|TXT': ['v=DMARC1; rua=mailto:paypal-account@rua.reports-service.example'], '_dmarc.pp-shopping.example|TXT': ['v=DMARC1; rua=mailto:other@rua.reports-service.example'] }));
     assert.equal((await own.of('pp-shopping.example', 'PayPal')).state, 'likely', 'the same report service, another account: a corporate registrar and its age only');
+    ({ own } = make({ rdap: { 'pp-shopping.example': { registrar: 'MarkMonitor Inc.', created: YEARS(6) } },
+        '_dmarc.paypal.com|TXT': ['v=DMARC1; rua=mailto:dmarc_rua@reports-service.example'], '_dmarc.pp-shopping.example|TXT': ['v=DMARC1; rua=mailto:dmarc_rua@reports-service.example'] }));
+    assert.equal((await own.of('pp-shopping.example', 'PayPal')).state, 'likely', 'an address every customer of the report service shares: no proof');
+    const { accountMailbox } = require('../src/intel/ownership');
+    const pp = { name: 'PayPal', tokens: ['paypal'] };
+    assert.deepEqual(['paypal-account@rua.x.example', 'k3v9q2x7@rua.x.example', 'dmarc_rua@x.example', 'dmarc_agg@x.example', 'd@x.example'].map(b => accountMailbox(b, pp)), [true, true, false, false, false]);
 });
 
 test('asked once: the answer is kept (also an unknown one, for a day); personal mail and unknown brands are never asked', async () => {
