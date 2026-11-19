@@ -2359,6 +2359,7 @@ class Service {
         });
         const what = { release: 'moved back to the Inbox', 'false-alarm': 'marked as false alarms', phishing: 'confirmed as phishing', spam: 'confirmed as spam', unclear: 'set aside as unclear (left as they are, not used for retraining)' }[action];
         if (out.done) await this.store.addEvent({ kind: action === 'release' ? 'release' : 'mark', text: `${by} ${what} ${out.done} email${out.done === 1 ? '' : 's'} at once${out.moved ? ` (${out.moved} moved to Spam)` : ''}${out.released ? ` (${out.released} moved back to the Inbox)` : ''}.` });
+        if (!out.spamSendersAdded.length) delete out.spamSendersAdded;
         return out;
     }
 

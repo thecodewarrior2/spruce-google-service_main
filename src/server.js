@@ -113,6 +113,12 @@ const expectedProject = (cfg) => cfg.project || (cfg.demo ? DEMO_PROJECT : '');
 
 // Recorded emails nobody has reviewed yet (the review queue): moved or "would move", not by an admin.
 const unreviewed = (r) => (r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin' && !r.markedBy;
+// (0.6.39) The moved tab: unreviewed moved copies, plus the suspicious copies of the same emails (one email, one tab).
+function movedTab(records) {
+    const moved = records.filter(unreviewed);
+    const campaigns = new Set(moved.map(r => r.campaign).filter(Boolean));
+    return moved.concat(records.filter(r => suspiciousUnreviewed(r) && r.campaign && campaigns.has(r.campaign)));
+}
 // Review's other queue: suspicious emails (below what moves) still in the Inbox, nobody has reviewed.
 const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' && !r.markedBy;
 // A review queue as items: the copies of one campaign together (in the queue's order, where its first copy
@@ -861,7 +867,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const brake = !!(await shortLived('brake', 15000, () => store.getState('brake')));
             const held = (await shortLived('held', 15000, () => store.listHeldCampaigns())).filter(c => !c.decision).length;
             const rescues = records.filter(rescueToCheck).length;
-            return { brake, held, rescues, unreviewed: records.filter(unreviewed).length, total: (brake ? 1 : 0) + held + rescues };
+            return { brake, held, rescues, unreviewed: movedTab(records).length, total: (brake ? 1 : 0) + held + rescues };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).
         // (0.6.7) Shared by every open dashboard for a minute: each look asks Cloud Run, Cloud Scheduler and the lists.
