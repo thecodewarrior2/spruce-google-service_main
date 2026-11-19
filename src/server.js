@@ -126,7 +126,7 @@ const reviewGroups = A.reviewGroups;
 // Look-alikes, the CSV export, the brake, or moving back an email nobody marked a false alarm.
 const MODERATOR_ROUTES = new Set(['GET /api/session', 'GET /api/overview', 'GET /api/pending', 'GET /api/review', 'GET /api/message', 'GET /api/messages',
     'GET /api/campaigns', 'GET /api/campaign', 'GET /api/users', 'GET /api/rechecked', 'GET /api/help',
-    'POST /api/mark', 'POST /api/unclear', 'POST /api/rescan', 'POST /api/check', 'POST /api/bulk',
+    'POST /api/mark', 'POST /api/unclear', 'POST /api/undo', 'POST /api/campaign/answer', 'POST /api/rescan', 'POST /api/check', 'POST /api/bulk',
     'POST /api/campaign/confirm', 'POST /api/campaign/release', 'POST /api/campaign/find', 'POST /api/message/context']);
 const MODERATOR_BULK = ['false-alarm', 'phishing', 'spam', 'unclear'];
 function moderatorMay(route, action) {
@@ -748,6 +748,10 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'POST /api/brand-senders': async (q, body, admin) => service.removeBrandSender(String(body.key || ''), admin.email),
         // (0.5.60) Ignore, treat as suspicious: reviewed, left as it is, not used for retraining.
         'POST /api/unclear': async (q, body, admin) => service.setAside(String(body.key || ''), admin.email),
+        // (0.6.39) Undo an answer: one email (key) or several (keys, at most 500).
+        'POST /api/undo': async (q, body, admin) => (Array.isArray(body.keys) ? service.undoMany([...new Set(body.keys.map(String))].slice(0, 500), admin.email) : service.undoAnswer(String(body.key || ''), admin.email)),
+        // (0.6.39) Spam or Not sure for every copy of a campaign (as Confirm and False alarm do).
+        'POST /api/campaign/answer': async (q, body, admin) => service.answerCampaign(String(body.key || ''), String(body.action || ''), admin.email, { addSender: body.addSender === true && admin.role !== 'moderator' }),
         // Re-scan one email (Review, Messages): judged again now, recorded beside the on-arrival result, never
         // moved. One email again only 30 s after its last re-scan (kept on its record, so every instance knows),
         // and 2 at a time per instance (pipeline.js rescan).
@@ -831,10 +835,17 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'GET /api/review': async (q) => {
             const records = await cache.list(since(q));
             const queue = q.get('queue') === 'suspicious' ? 'suspicious' : 'moved';
-            const list = queue === 'suspicious' ? records.filter(suspiciousUnreviewed).sort((a, b) => b.processedAt - a.processedAt)
-                : records.filter(unreviewed).sort((a, b) => a.processedAt - b.processedAt);
+            // (0.6.39) One email in one tab: its copies can be judged differently (a first-time sender for one person
+            // only), some "would move", some only suspicious. An email with any copy in the moved tab is only there,
+            // with its suspicious copies too, so one answer covers every copy; the suspicious tab holds the rest.
+            const movedList = records.filter(unreviewed);
+            const movedCampaigns = new Set(movedList.map(r => r.campaign).filter(Boolean));
+            const suspAll = records.filter(suspiciousUnreviewed);
+            const suspOnly = suspAll.filter(r => !r.campaign || !movedCampaigns.has(r.campaign));
+            const list = queue === 'suspicious' ? suspOnly.sort((a, b) => b.processedAt - a.processedAt)
+                : movedList.concat(suspAll.filter(r => r.campaign && movedCampaigns.has(r.campaign))).sort((a, b) => a.processedAt - b.processedAt);
             return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode,
-                counts: { moved: queue === 'moved' ? list.length : records.filter(unreviewed).length, suspicious: queue === 'suspicious' ? list.length : records.filter(suspiciousUnreviewed).length } };
+                counts: { moved: movedList.length + (suspAll.length - suspOnly.length), suspicious: suspOnly.length } };
         },
         // Several emails at once: release, false-alarm, phishing or unclear (ignore, treat as suspicious), at most
         // 500. Moderators: not release (moderatorMay).

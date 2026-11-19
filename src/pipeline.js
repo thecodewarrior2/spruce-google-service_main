@@ -32,7 +32,8 @@ const DAY = 24 * 60 * 60 * 1000;
 // (0.6.26) Spam a person took back out of Spam: that sender's mail isn't moved as spam for them again for SPAM_KEEP_MS;
 // when SPAM_SHARED people or more took back the same sender's, for no one (until an admin says to keep moving it).
 const SPAM_KEEP_MS = 180 * DAY, SPAM_SHARED = 3, SPAM_RESCUED_MAX = 300;
-const BRAND_SENDERS_MAX = 500;   // (0.6.29) brand senders the reviewers confirmed, at most
+const BRAND_SENDERS_MAX = 500;
+const UNDO_MS = 60 * 60 * 1000;   // (0.6.39) how long an answer can be undone   // (0.6.29) brand senders the reviewers confirmed, at most
 const HOUR = 60 * 60 * 1000;
 const LIST_RETRY_MS = 3 * HOUR;   // a phishing list that missed its download is tried again this often (0.5.22)
 const ERRORS_ALERT = 25;   // errors in an hour that make an alert (0.5.29)
@@ -1043,6 +1044,11 @@ class Service {
         await this.store.addEvent({ kind: 'settings', text: `${by} removed ${k} from Spam senders: its mail is checked as usual.` });
         return { ok: true, list: await this.spamSenderList() };
     }
+    // Whether a spam sender was on the list before this answer added it (its entry is older than the answer).
+    async spamSenderWas(key, rec) {
+        const e = ((await this.store.getState('spamSenders')) || {})[key];
+        return !!(e && rec && rec.undo && e.at < rec.undo.at - 1000);
+    }
     // The spam-sender entry an email's sender is on, or null (the conditions above).
     async spamSenderFor(user, facts, result, allowlisted) {
         if (allowlisted || !result || result.inside || !result.verified) return null;
@@ -1085,6 +1091,7 @@ class Service {
         for (const k of keys.slice(BRAND_SENDERS_MAX)) delete all[k];
         await this.store.setState('brandSenders', all);
         this._brandSenders = null;
+        b.added = !had;
         if (!had) await this.store.addEvent({ kind: 'brand-sender', text: `${by} marked an email from ${rec.sender.address} a false alarm: ${b.domain} is now a confirmed sender for ${b.brand}. Its verified mail under ${b.brand}'s name isn't counted as an imitation (Settings → Sender lists → Brand senders your reviewers confirmed).` });
         return b;
     }
@@ -1231,10 +1238,29 @@ class Service {
         const start = Date.now();
         await this.store.setCampaign(key, { decision: 'confirmed', decidedBy: by, decidedAt: this.now(), label: recs[0].campaignLabel });
         const moved = await this.moveHeld(r => r.campaign === key, by, 'confirmed the campaign as phishing', { budgetMs: 150000, records: recs });
-        for (const r of recs) if (r.falseAlarm !== false) await this.store.updateRecord(r.key, { falseAlarm: false, markedBy: by });
+        // (0.6.39) Every copy answered phishing: an earlier Spam or Not sure answer on a copy doesn't stay.
+        for (const r of recs) if (r.falseAlarm !== false || r.spam || r.unclear) await this.store.updateRecord(r.key, { falseAlarm: false, spam: false, unclear: false, markedBy: by });
         const found = search ? await this.findCopies(key, by, { budgetMs: Math.max(30000, 240000 - (Date.now() - start)) }) : null;
         await this.store.addEvent({ kind: 'campaign', campaign: key, text: `${by} confirmed "${recs[0].campaignLabel}" as phishing${moved.monitor ? ' (monitor mode: nothing moved)' : `: ${moved.moved} copies moved to Spam`}${found ? `; a search of ${found.searched} mailboxes found ${found.found} more${found.moved ? `, ${found.moved} moved` : ''}` : ''}.` });
         return { moved, found };
+    }
+    // (0.6.39) Spam, or Not sure, for every copy of a campaign (its records of the last 90 days, as confirm and release
+    // use), each as one email is answered. { done, moved, failed, spamSendersAdded }.
+    async answerCampaign(key, action, by, { addSender = false } = {}) {
+        if (!['spam', 'unclear'].includes(action)) return { error: 'Spam or Not sure only.', status: 400 };
+        const recs = await this.campaignRecords(key);
+        if (!recs.length) return { error: 'not found', status: 404 };
+        const out = { done: 0, moved: 0, failed: 0, spamSendersAdded: [] };
+        await pool(recs, 10, async (r) => {
+            try {
+                const m = action === 'spam' ? await this.mark(r.key, false, by, { move: true, quiet: true, spam: true, addSender }) : await this.setAside(r.key, by, { quiet: true });
+                if (m && m.record) out.done++; else out.failed++;
+                if (m && m.moved === 'moved') out.moved++;
+                if (m && m.spamSenderAdded && !out.spamSendersAdded.includes(m.spamSenderAdded)) out.spamSendersAdded.push(m.spamSenderAdded);
+            } catch (e) { out.failed++; this.log.error(`campaign answer ${r.key}:`, e); }
+        });
+        await this.store.addEvent({ kind: 'campaign', campaign: key, text: `${by} answered every copy of "${recs[0].campaignLabel}" ${action === 'spam' ? 'Spam' : 'Not sure'}: ${out.done} copies${out.moved ? `, ${out.moved} moved to the Spam folder` : ''}.` });
+        return Object.assign(out, { keys: recs.map(r => r.key) });
     }
     // A false alarm: every moved copy is released, every copy marked a false alarm, and later copies
     // aren't moved.
@@ -1242,12 +1268,12 @@ class Service {
         const recs = await this.campaignRecords(key);
         if (!recs.length) return { error: 'not found', status: 404 };
         await this.store.setCampaign(key, { decision: 'released', decidedBy: by, decidedAt: this.now(), label: recs[0].campaignLabel });
+        // (0.6.39) Each copy answered Not phishing, as one email is (mark): moved back from Spam, its Suspicious label taken
+        // off, an earlier phishing/spam/not-sure answer replaced, counted, and a confirmed brand sender learned.
         let released = 0, failed = 0;
         await pool(recs, 10, async (r) => {
-            try {
-                if (r.state === 'moved') { const out = await this.release(r.key, by, { quiet: true }); if (out.record) released++; }
-                else if (r.falseAlarm !== true) await this.store.updateRecord(r.key, { falseAlarm: true, markedBy: by });
-            } catch (e) { failed++; this.log.error(`release ${r.key}:`, e); }
+            try { const out = await this.mark(r.key, true, by, { quiet: true }); if (out && out.released) released++; if (out && out.error) failed++; }
+            catch (e) { failed++; this.log.error(`release ${r.key}:`, e); }
         });
         await this.store.addEvent({ kind: 'campaign', campaign: key, text: `${by} dismissed "${recs[0].campaignLabel}" as a false alarm: ${released} copies moved back to the Inbox${failed ? `, ${failed} couldn't be moved back` : ''}. Later copies aren't moved.` });
         return { released, failed };
@@ -1352,15 +1378,20 @@ class Service {
     async mark(key, falseAlarm, by, { move = false, quiet = false, spam = false, addSender = false } = {}) {
         const rec = await this.store.getRecord(key);
         if (!rec) return { error: 'not found' };
-        let out = await this.store.updateRecord(key, Object.assign({ falseAlarm: !!falseAlarm, markedBy: by, spam: !falseAlarm && !!spam }, rec.unclear ? { unclear: false } : {}));
+        // (0.6.39) What it was before, for Undo (one step back: the answer, and the move it made).
+        const prev = { falseAlarm: rec.falseAlarm === undefined ? null : rec.falseAlarm, spam: !!rec.spam, unclear: !!rec.unclear, markedBy: rec.markedBy || null, state: rec.state };
+        let out = await this.store.updateRecord(key, Object.assign({ falseAlarm: !!falseAlarm, markedBy: by, spam: !falseAlarm && !!spam, undo: Object.assign({ at: this.now(), by }, prev) }, rec.unclear ? { unclear: false } : {}));
         if (falseAlarm && rec.falseAlarm !== true) await this.store.incStat(this.dayOf(this.now()), 'falseAlarms');
-        if (falseAlarm) await this.learnBrandSender(rec, by).catch(e => this.log.error('brand sender:', e));
+        const learned = falseAlarm ? await this.learnBrandSender(rec, by).catch(e => { this.log.error('brand sender:', e); return null; }) : null;
         // (0.6.35) A Spam answer with "Also send future mail from this sender straight to Spam": a verified outside sender only.
         let spamSenderAdded = null;
         if (!falseAlarm && spam && addSender && rec.auth && rec.auth.dmarc === 'pass' && !rec.inside && rec.sender && rec.sender.address) {
             const r = await this.addSpamSender(rec.sender.address, by, { from: 'review' }).catch(() => null);
             if (r && r.ok) spamSenderAdded = r.key;
         }
+        // (0.6.39) Undo takes back what this answer added to a list too.
+        if ((spamSenderAdded && !(await this.spamSenderWas(spamSenderAdded, rec))) || (learned && learned.added))
+            out = await this.store.updateRecord(key, { undo: Object.assign({}, out.undo, spamSenderAdded ? { spamSender: spamSenderAdded } : {}, learned && learned.added ? { brandSender: learned.key } : {}) });
         // A false alarm loses the Suspicious label it was given (0.5.33).
         if (falseAlarm && rec.suspiciousLabel) {
             try { await this.gmail.modify(rec.user, rec.messageId, [], [await this.gmail.labelId(rec.user, this.cfg.suspiciousLabelName)]); out = await this.store.updateRecord(key, { suspiciousLabel: false }); }
@@ -1385,6 +1416,41 @@ class Service {
         return { record: out, moved, released, spamSenderAdded };
     }
 
+    // (0.6.39) Undo an answer (Review, Mail, an email's page, a campaign's copies): within UNDO_MS, the answer it had before
+    // comes back, a move the answer made is undone (back to the Inbox, or back to Spam), and a sender the answer put on
+    // Spam senders or Brand senders is taken off again. One step only.
+    async undoAnswer(key, by, { quiet = false } = {}) {
+        const rec = await this.store.getRecord(key);
+        if (!rec) return { error: 'not found', status: 404 };
+        const u = rec.undo;
+        if (!u) return { error: 'There is nothing to undo for this email.', status: 409 };
+        if (this.now() - (u.at || 0) > UNDO_MS) return { error: 'It is too late to undo this answer (an hour has passed): answer it again instead.', status: 409 };
+        try {
+            if (u.state === 'inbox' && rec.state === 'moved') {
+                await this.gmail.modify(rec.user, rec.messageId, ['INBOX'], ['SPAM', await this.gmail.labelId(rec.user, this.cfg.movedLabel)]);
+                await this.store.updateRecord(key, { state: 'inbox', movedAt: null });
+            } else if (u.state === 'moved' && rec.state === 'released' && rec.releasedBy === u.by) {
+                const r = await this.store.getRecord(key);
+                await this.moveRecord(r, by, 'undid an answer');
+                await this.store.updateRecord(key, { releasedBy: null, releasedAt: null });
+            }
+        } catch (e) { this.log.error(`undo ${key}:`, e); return { error: 'Gmail didn\'t take the email back: try again.', status: 502 }; }
+        if (u.spamSender) await this.removeSpamSender(u.spamSender, by).catch(() => {});
+        if (u.brandSender) {
+            const all = Object.assign({}, (await this.store.getState('brandSenders')) || {});
+            if (all[u.brandSender]) { delete all[u.brandSender]; await this.store.setState('brandSenders', all); this._brandSenders = null; }
+        }
+        const out = await this.store.updateRecord(key, { falseAlarm: u.falseAlarm === undefined ? null : u.falseAlarm, spam: !!u.spam, unclear: !!u.unclear, markedBy: u.markedBy || null, undo: null });
+        if (!quiet) await this.store.addEvent({ kind: 'mark', user: rec.user, text: `${by} undid the answer on an email from ${rec.sender.address} to ${rec.user}.` });
+        return { record: out };
+    }
+    async undoMany(keys, by) {
+        const out = { done: 0, failed: 0 };
+        await pool(keys, 10, async (key) => { const r = await this.undoAnswer(key, by, { quiet: true }).catch(() => ({ error: 'failed' })); if (r && r.record) out.done++; else out.failed++; });
+        if (out.done) await this.store.addEvent({ kind: 'mark', text: `${by} undid the answer on ${out.done} email${out.done === 1 ? '' : 's'}.` });
+        return out;
+    }
+
     // (0.5.60) An admin's "Ignore, treat as suspicious": neither clearly phishing nor clearly safe (an outside request
     // for access to a form, say), so the reader decides. The email stays where it is, with its Suspicious label; it
     // leaves the review queues (reviewed: markedBy), is never a training example (no falseAlarm: the retraining export
@@ -1393,7 +1459,8 @@ class Service {
     async setAside(key, by, { quiet = false } = {}) {
         const rec = await this.store.getRecord(key);
         if (!rec) return { error: 'not found' };
-        const out = await this.store.updateRecord(key, { unclear: true, falseAlarm: null, markedBy: by });
+        const prev = { falseAlarm: rec.falseAlarm === undefined ? null : rec.falseAlarm, spam: !!rec.spam, unclear: !!rec.unclear, markedBy: rec.markedBy || null, state: rec.state };
+        const out = await this.store.updateRecord(key, { unclear: true, falseAlarm: null, spam: false, markedBy: by, undo: Object.assign({ at: this.now(), by }, prev) });
         if (!quiet) await this.store.addEvent({ kind: 'mark', user: rec.user, text: `${by} set aside an email from ${rec.sender.address} to ${rec.user} as unclear: left as it is, for the reader to decide, and not used for retraining.` });
         return { record: out };
     }
@@ -2277,7 +2344,7 @@ class Service {
     // for one email: phishing still in the Inbox is moved to Spam too (enforce mode; moved says how many), a
     // false alarm in Spam goes back to the Inbox (released says how many). One Activity line for all of them.
     async bulk(keys, action, by, { addSender = false } = {}) {
-        const out = { done: 0, skipped: 0, failed: 0 };
+        const out = { done: 0, skipped: 0, failed: 0, spamSendersAdded: [] };
         if (action === 'phishing' || action === 'spam') out.moved = 0;
         if (action === 'false-alarm') out.released = 0;
         await pool(keys, 10, async (key) => {
@@ -2287,6 +2354,7 @@ class Service {
                 if (r && r.record) out.done++; else out.skipped++;
                 if (r && r.moved === 'moved') out.moved++;
                 if (r && r.released) out.released++;
+                if (r && r.spamSenderAdded && !out.spamSendersAdded.includes(r.spamSenderAdded)) out.spamSendersAdded.push(r.spamSenderAdded);
             } catch (e) { out.failed++; this.log.error(`bulk ${action} ${key}:`, e); }
         });
         const what = { release: 'moved back to the Inbox', 'false-alarm': 'marked as false alarms', phishing: 'confirmed as phishing', spam: 'confirmed as spam', unclear: 'set aside as unclear (left as they are, not used for retraining)' }[action];
