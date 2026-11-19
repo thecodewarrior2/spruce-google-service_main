@@ -312,6 +312,8 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   copies of one email (a campaign: the same email to many people) are one item, answered together, and in one tab
   only (0.6.39): when any copy is in the first tab, the copies that were only suspicious are there too, so an
   answer is never asked twice.
+  - **Filter** (0.6.44): search by sender, domain or subject; filter by the sender check, the AI score and the kind;
+    **Tick all shown**, then answer them at once. Each row shows its sender check, and ⌕ shows only that sender's mail.
   - **The same four answers everywhere** (0.6.39: Review, an email's page, Mail's ticked emails, a campaign's
     box): **Phishing**, **Spam**, **Not phishing** and **Not sure**. When an answer moves the email in enforce mode,
     the button says so ("Phishing: move to the Spam folder", "Not phishing: move back to the Inbox"). **Spam**

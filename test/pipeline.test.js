@@ -727,3 +727,19 @@ test('stop.sh at scale: all switched off at once, Gmail told within the time lim
     assert.equal(st.left, 0); assert.equal(new Set(told).size, 61);
     assert.equal((await store.getState('stopped')).left, 0);
 });
+
+// 0.6.44: a Gmail call that hangs is given up and tried again, then reported; it never holds an answer forever.
+test('a Gmail call left hanging is given up after its time limit, tried again, then refused with 504', async () => {
+    const { GmailClient } = require('../src/gmail/client');
+    let calls = 0;
+    // (AbortSignal.timeout's timer doesn't keep the process alive: a short timer here does, as a real socket would.)
+    const hang = (url, init) => new Promise((resolve, reject) => { calls++; const keep = setTimeout(() => {}, 1000); init.signal.addEventListener('abort', () => { clearTimeout(keep); reject(init.signal.reason); }); });
+    const slow = new GmailClient({ tokenFor: async () => 'tok' }, { fetch: hang, timeoutMs: 50 });
+    const t0 = Date.now();
+    await assert.rejects(slow.modify('pat.madeup@maple-schools.example', 'm1', ['INBOX'], []), (e) => e.status === 504);
+    assert.equal(calls, 3, 'tried 3 times');
+    assert.ok(Date.now() - t0 < 2000);
+    let n = 0;
+    const once = new GmailClient({ tokenFor: async () => 'tok' }, { timeoutMs: 50, fetch: (url, init) => (++n === 1 ? hang(url, init) : Promise.resolve({ ok: true, status: 200, json: async () => ({ id: 'm1' }) })) });
+    assert.deepEqual(await once.modify('pat.madeup@maple-schools.example', 'm1', ['INBOX'], []), { id: 'm1' }, 'the second try answers');
+});

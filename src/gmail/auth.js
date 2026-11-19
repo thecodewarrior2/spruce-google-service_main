@@ -36,14 +36,15 @@ class DelegatedAuth {
         const now = Math.floor(Date.now() / 1000);
         const payload = JSON.stringify({ iss: this.sa, sub: user, scope, aud: TOKEN_URL, iat: now, exp: now + 3600 });
         const own = await (await this.google.getClient()).getAccessToken();
+        // (0.6.44) Each request given up after 20 s: a hanging one held every call for this mailbox.
         const signed = await this.fetch(`https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${encodeURIComponent(this.sa)}:signJwt`, {
-            method: 'POST', headers: { authorization: `Bearer ${own.token || own}`, 'content-type': 'application/json' }, body: JSON.stringify({ payload })
+            method: 'POST', headers: { authorization: `Bearer ${own.token || own}`, 'content-type': 'application/json' }, body: JSON.stringify({ payload }), signal: AbortSignal.timeout(20000)
         });
         if (!signed.ok) throw new Error(`signJwt for ${this.sa}: HTTP ${signed.status} ${(await signed.text()).slice(0, 200)}`);
         const { signedJwt } = await signed.json();
         const res = await this.fetch(TOKEN_URL, {
             method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: signedJwt }).toString()
+            body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: signedJwt }).toString(), signal: AbortSignal.timeout(20000)
         });
         if (!res.ok) throw new Error(`token for ${user}: HTTP ${res.status} ${(await res.text()).slice(0, 200)} (is domain-wide delegation set up for ${scope}?)`);
         const j = await res.json();

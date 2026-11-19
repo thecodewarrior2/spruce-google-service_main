@@ -29,6 +29,8 @@ const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOK
 const sims = require('./simulations');
 
 const DAY = 24 * 60 * 60 * 1000;
+// (0.6.44) The longest one email of a bulk answer may take (its Gmail calls each give up after 20 s and are tried 3 times).
+const BULK_ITEM_MS = 75 * 1000;
 // (0.6.26) Spam a person took back out of Spam: that sender's mail isn't moved as spam for them again for SPAM_KEEP_MS;
 // when SPAM_SHARED people or more took back the same sender's, for no one (until an admin says to keep moving it).
 const SPAM_KEEP_MS = 180 * DAY, SPAM_SHARED = 3, SPAM_RESCUED_MAX = 300;
@@ -2411,16 +2413,25 @@ class Service {
         const out = { done: 0, skipped: 0, failed: 0, spamSendersAdded: [] };
         if (action === 'phishing' || action === 'spam') out.moved = 0;
         if (action === 'false-alarm') out.released = 0;
+        // (0.6.44) One email that Gmail keeps waiting is given up after BULK_ITEM_MS (counted as failed: answer it again),
+        // so the others' answers come back; a slow batch is logged with its slowest email, to find what was slow.
+        const started = Date.now();
+        let slowest = 0;
+        const limit = (p) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`no answer from Gmail within ${BULK_ITEM_MS / 1000} s`)), BULK_ITEM_MS).unref())]);
         await pool(keys, 10, async (key) => {
+            const t0 = Date.now();
             try {
-                const r = action === 'release' ? await this.release(key, by, { quiet: true }) : action === 'unclear' ? await this.setAside(key, by, { quiet: true })
-                    : await this.mark(key, action === 'false-alarm', by, { move: action === 'phishing' || action === 'spam', quiet: true, spam: action === 'spam', addSender: action === 'spam' && addSender });
+                const r = await limit(action === 'release' ? this.release(key, by, { quiet: true }) : action === 'unclear' ? this.setAside(key, by, { quiet: true })
+                    : this.mark(key, action === 'false-alarm', by, { move: action === 'phishing' || action === 'spam', quiet: true, spam: action === 'spam', addSender: action === 'spam' && addSender }));
                 if (r && r.record) out.done++; else out.skipped++;
                 if (r && r.moved === 'moved') out.moved++;
                 if (r && r.released) out.released++;
                 if (r && r.spamSenderAdded && !out.spamSendersAdded.includes(r.spamSenderAdded)) out.spamSendersAdded.push(r.spamSenderAdded);
             } catch (e) { out.failed++; this.log.error(`bulk ${action} ${key}:`, e); }
+            finally { slowest = Math.max(slowest, Date.now() - t0); }
         });
+        const took = Date.now() - started;
+        if (took > 20000) this.log.warn(`bulk ${action}: ${keys.length} emails took ${Math.round(took / 1000)} s (the slowest ${Math.round(slowest / 1000)} s; ${out.failed} failed)`);
         const what = { release: 'moved back to the Inbox', 'false-alarm': 'marked as false alarms', phishing: 'confirmed as phishing', spam: 'confirmed as spam', unclear: 'set aside as unclear (left as they are, not used for retraining)' }[action];
         if (out.done) await this.store.addEvent({ kind: action === 'release' ? 'release' : 'mark', text: `${by} ${what} ${out.done} email${out.done === 1 ? '' : 's'} at once${out.moved ? ` (${out.moved} moved to Spam)` : ''}${out.released ? ` (${out.released} moved back to the Inbox)` : ''}.` });
         if (!out.spamSendersAdded.length) delete out.spamSendersAdded;

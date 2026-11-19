@@ -45,6 +45,10 @@ function slimmer() {
         state: I(r.state), held: I(r.held), braked: r.braked, userPlaced: r.userPlaced, ownAddressUnverified: r.ownAddressUnverified,
         releasedBy: I(r.releasedBy), releasedAt: r.releasedAt, releasedByUser: r.releasedByUser, falseAlarm: r.falseAlarm, unclear: r.unclear, markedBy: I(r.markedBy),
         heldMovedBy: I(r.heldMovedBy), heldMovedAt: r.heldMovedAt, inside: r.inside,
+        // (0.6.44) The sender check (Review's tag and filter, the Sender lists' and the suspicious line's tests: 0.6.40),
+        // a Spam answer and when an answer was given (Re-checked's "answered", 0.6.43), and why it went to Spam.
+        auth: r.auth ? Object.freeze({ dmarc: I(r.auth.dmarc), headerFrom: I(r.auth.headerFrom) }) : r.auth, spam: r.spam, spamSender: I(r.spamSender),
+        platformNote: r.platformNote, undo: r.undo && r.undo.at ? Object.freeze({ at: r.undo.at }) : null,
         // Re-checked after delivery (0.5.35): what was found, when, and what Gmail's logs say.
         recheck: r.recheck ? Object.freeze({ at: r.recheck.at, source: I(r.recheck.source), site: I(r.recheck.site), list: I(r.recheck.list), round: r.recheck.round, version: I(r.recheck.version),
             before: I(r.recheck.before), outcome: I(r.recheck.outcome), where: I(r.recheck.where), opened: r.recheck.opened, movedAt: r.recheck.movedAt,

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.44: Review's filter bar, answers that can't hang, Capital One Shopping, and a fix for 0.6.40
+
+- **Review's filter bar:** a search box (sender, domain, display name or subject, as you type) and quick filters for the
+  sender check (passed, failed, none), the AI score (under 50%, in between, at the move level or more) and the kind
+  (phishing, spam). **Tick all shown** ticks only what the filter shows; the ticked bar answers them all. Each row now
+  shows its sender check (✓ DMARC, ✗ DMARC failed, – no DMARC), and a ⌕ button beside it shows only that sender's mail.
+  The filter stays while you answer.
+- **Answers can't hang any more:** every call to Gmail and to Google's sign-in gives up after 20 seconds and is tried
+  again (3 times at most); one email of a bulk answer that still gets no answer is given up after 75 seconds and counted
+  as "couldn't be saved" while the others are saved. Many emails are answered 50 at a time, with the progress shown
+  ("Saving your answers: 50 of 120 done…"). A bulk answer that takes over 20 seconds is logged with its slowest email.
+- **Fixed (0.6.40):** the dashboard's copy of each record left out the sender check, so Review still showed senders on the
+  Sender lists, and verified senders' older rules-only emails stayed in Suspicious. Both work now; Review's items carry
+  the sender check for the new tag and filter.
+- **Capital One Shopping and Capital One Travel** mail from their own domains (capitaloneshopping.com,
+  capitalonetravel.com) under Capital One's name: no longer counted as an imitation of Capital One.
+- **Campaigns** show **Emails** beside **People**: one person can get the same email twice, and Moved and Would move
+  count emails.
+- How email is judged changes (Capital One's domains): checks level 36, so recent delivered mail is checked again.
+
+
 ## 0.6.43: Re-checked: an answered email counts as seen, and seen listings clear after 7 days
 
 - **Threats → Re-checked:** answering any copy of an email in any way (Phishing, Spam, Not phishing, Not sure, or an

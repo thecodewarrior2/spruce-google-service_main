@@ -357,6 +357,9 @@
             if (g.keys.length < REVIEW_GROUP_MAX) g.keys.push(r.key);
             g.count++;
             if (r.user && g.users.size < REVIEW_GROUP_MAX) g.users.add(r.user);
+            // (0.6.44) The sender check over the copies: failed if any failed, passed if every one passed.
+            const dm = (r.auth && r.auth.dmarc) || 'none';
+            g.dmarc = !g.dmarc ? (dm === 'pass' || dm === 'fail' ? dm : 'none') : g.dmarc === 'fail' || dm === 'fail' ? 'fail' : g.dmarc === 'pass' && dm === 'pass' ? 'pass' : 'none';
             const from = r.sender && r.sender.address;
             if (from && g.senders.size < REVIEW_GROUP_MAX) g.senders.add(from);
             const ai = r.ai && typeof r.ai.probability === 'number' ? r.ai.probability : null;
@@ -366,7 +369,7 @@
             if (at && (!g.firstAt || at < g.firstAt)) g.firstAt = at;
         }
         return out.map(g => ({ campaign: g.campaign, label: g.label, count: g.count, keys: g.keys, users: [...g.users], senders: [...g.senders],
-            subject: g.subject, sender: g.sender, firstAt: g.firstAt, ai: g.ai, score: g.score, inside: g.inside, kind: g.kind, signs: g.signs }));
+            subject: g.subject, sender: g.sender, firstAt: g.firstAt, ai: g.ai, score: g.score, inside: g.inside, kind: g.kind, signs: g.signs, dmarc: g.dmarc || 'none' }));
     }
     // (0.6.27) What the service took an email for, in one word for the dashboard: 'spam' (moved or to be moved as spam:
     // trigger 'spam', or an admin's "Spam" answer), 'phishing' (moved, to be moved or flagged on the rules or the AI),

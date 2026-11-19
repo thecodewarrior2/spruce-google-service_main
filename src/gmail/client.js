@@ -4,6 +4,8 @@
 const { SCOPES } = require('./auth');
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users';
+// (0.6.44) How long one Gmail call may take before it is given up (and tried again, up to its tries).
+const CALL_TIMEOUT_MS = 20000;
 const DIRECTORY = 'https://admin.googleapis.com/admin/directory/v1/users';
 const GROUPS = 'https://admin.googleapis.com/admin/directory/v1/groups';
 const REPORTS = 'https://admin.googleapis.com/admin/reports/v1/activity/users';
@@ -14,7 +16,7 @@ class GoogleApiError extends Error {
 }
 
 class GmailClient {
-    constructor(auth, opts = {}) { this.auth = auth; this.fetch = opts.fetch || fetch; this.labelIds = new Map(); }
+    constructor(auth, opts = {}) { this.auth = auth; this.fetch = opts.fetch || fetch; this.labelIds = new Map(); this.timeoutMs = opts.timeoutMs || CALL_TIMEOUT_MS; }
 
     // One API call as user (or as an admin, with another scope and base), tried up to `tries` times while Google
     // is busy, waiting about 1 s, then 2 s between tries.
@@ -24,7 +26,15 @@ class GmailClient {
         for (const [k, v] of Object.entries(Object.assign({ quotaUser: user }, query))) for (const x of [].concat(v)) q.append(k, x);
         for (let i = 0; ; i++) {
             const token = await this.auth.tokenFor(user, scope);
-            const res = await this.fetch(`${base}${path}?${q}`, { method, headers: Object.assign({ authorization: `Bearer ${token}` }, body ? { 'content-type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined });
+            // (0.6.44) A call Google leaves hanging is given up after this.timeoutMs (CALL_TIMEOUT_MS) and tried again, like a busy one:
+            // before, one stuck connection held an admin's answer (and everything waiting on it) until the request's limit.
+            let res;
+            try {
+                res = await this.fetch(`${base}${path}?${q}`, { method, headers: Object.assign({ authorization: `Bearer ${token}` }, body ? { 'content-type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(this.timeoutMs) });
+            } catch (e) {
+                if (e && (e.name === 'TimeoutError' || e.name === 'AbortError') && i < tries - 1) continue;
+                throw e && (e.name === 'TimeoutError' || e.name === 'AbortError') ? new GoogleApiError(504, `no answer from Gmail within ${this.timeoutMs / 1000} s`, `${method} ${path}`) : e;
+            }
             if (res.ok) return res.status === 204 ? null : res.json();
             const text = await res.text();
             // Busy or rate-limited (Gmail answers 403 rateLimitExceeded / userRateLimitExceeded too): wait, try again.

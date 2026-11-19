@@ -102,3 +102,10 @@ test('0.6.41: Gmail naming the organization\'s domain (header.from) for a subdom
     assert.equal(sign(r, 'hidden-decoy-link').weight, 0);
     assert.notEqual(r.status, 'flagged');
 });
+
+test('0.6.44: Capital One\'s shopping service, from its own domain under Capital One\'s name: not an imitation', async () => {
+    const shop = await judge({ from: '"Capital One Shopping" <offers@capitaloneshopping.com>',
+        html: '<p>Activate rewards on items you might like.</p><p><a href="https://capitaloneshopping.com/offers/1">Unlock your offer</a> <a href="https://capitaloneshopping.com/terms">terms</a></p>' });
+    assert.equal(sign(shop, 'brand-name-other'), undefined, JSON.stringify(shop.signals.map(s => [s.kind, s.weight])));
+    assert.equal(sign(await judge({ from: '"Capital One Shopping" <offers@capone-shopping-deals.example>' }), 'brand-name-other').weight, 5, 'another domain: still an imitation');
+});

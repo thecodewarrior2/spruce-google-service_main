@@ -650,7 +650,8 @@ const SENDER_NAME_BRANDS = [
     { name: 'U.S. Bank', tokens: ['u s bank', 'us bank'], domains: ['usbank.com'] },
     { name: 'Barclays', tokens: ['barclays', 'barclaycard'], domains: ['barclays.com', 'barclaysus.com', 'barclaycardus.com'] },
     { name: 'Bread Financial', tokens: ['bread financial', 'comenity', 'comenity bank'], domains: ['breadfinancial.com', 'comenity.net', 'comenity.com'] },
-    { name: 'Capital One', tokens: ['capital one'], domains: ['capitalone.com'] },
+    // (0.6.44) Capital One's shopping and travel services mail from their own domains, under Capital One's name.
+    { name: 'Capital One', tokens: ['capital one'], domains: ['capitalone.com', 'capitaloneshopping.com', 'capitalonetravel.com'] },
     { name: 'American Express', tokens: ['american express', 'amex'], domains: ['americanexpress.com', 'aexp.com'] },
     { name: 'Discover', tokens: ['discover', 'discover card'], ambiguousTokens: ['discover'], domains: ['discover.com'] },
     { name: 'Verizon', tokens: ['verizon'], domains: ['verizon.com', 'verizonwireless.com'] },

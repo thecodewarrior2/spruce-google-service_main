@@ -619,6 +619,9 @@
         return clickTable([
             { name: 'Campaign', cls: 'trunc', get: c => h('div', {}, h('div', { text: c.subject || '(subject not stored)' }), h('div', { class: 'muted small', text: c.senderDomain })) },
             { name: 'People', num: true, get: c => num(c.recipients) },
+            // (0.6.44) Emails beside people: someone can get the same email twice (sent again, or to an alias too), and Moved
+            // and Would move count emails.
+            { name: 'Emails', num: true, get: c => num(c.messages) },
             { name: 'Moved', num: true, get: c => num(c.moved) },
             { name: 'Would move', num: true, get: c => num(c.wouldMove) },
             { name: 'Moved back', num: true, get: c => num(c.released) },
@@ -677,6 +680,9 @@
             h('section', { class: 'card spaced' }, h('h2', { text: 'Every campaign' }), searchRows('campaigns'), clickTable([
                 { name: 'Campaign', cls: 'trunc', get: c => h('div', {}, h('div', { text: c.subject || '(subject not stored)' }), h('div', { class: 'muted small', text: c.senderDomain })) },
                 { name: 'People', num: true, get: c => num(c.recipients) },
+            // (0.6.44) Emails beside people: someone can get the same email twice (sent again, or to an alias too), and Moved
+            // and Would move count emails.
+            { name: 'Emails', num: true, get: c => num(c.messages) },
                 { name: 'Moved', num: true, get: c => num(c.moved) },
                 { name: 'Would move', num: true, get: c => num(c.wouldMove) },
                 { name: 'Moved back', num: true, get: c => num(c.released) },
@@ -1865,7 +1871,7 @@
         // (0.6.40) A Spam answer also answers the same address's other emails waiting for review.
         const same = o.sameSender;
         if (same && same.done) t += ` Also answered Spam: ${num(same.done)} other email${same.done === 1 ? '' : 's'} from the same address waiting for review${same.moved ? ` (${num(same.moved)} moved to the Spam folder)` : ''}.`;
-        if (!one && o.failed) t += ` ${num(o.failed)} couldn't be marked.`;
+        if (!one && o.failed) t += ` ${num(o.failed)} couldn't be saved (Gmail didn't answer in time, or they changed meanwhile): answer them again.`;
         if (!one && o.skipped) t += ` ${num(o.skipped)} weren't found.`;
         return t;
     }
@@ -1885,12 +1891,17 @@
                 : await api('/api/mark', { method: 'POST', body: { key: keys[0], falseAlarm: action === 'false-alarm', spam: action === 'spam', move: (action === 'phishing' || action === 'spam') && enforce, addSender } });
         } else {
             o = { done: 0, moved: 0, released: 0, failed: 0, skipped: 0, spamSendersAdded: [], sameSender: { done: 0, moved: 0, keys: [] } };
-            for (let i = 0; i < n; i += 500) {
-                const r = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 500), action, addSender } });
+            // (0.6.44) In batches of 50, saying how far it got: a long wait shows progress, and a slow batch delays only itself.
+            let ticket = null;
+            try {
+            for (let i = 0; i < n; i += 50) {
+                if (n > 50) { if (ticket) busyEnd(ticket); ticket = busyStart(`Saving your answers: ${num(i)} of ${num(n)} done…`); }
+                const r = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 50), action, addSender } });
                 for (const k of ['done', 'moved', 'released', 'failed', 'skipped']) o[k] += r[k] || 0;
                 for (const x of r.spamSendersAdded || []) if (!o.spamSendersAdded.includes(x)) o.spamSendersAdded.push(x);
                 if (r.sameSender) { o.sameSender.done += r.sameSender.done || 0; o.sameSender.moved += r.sameSender.moved || 0; o.sameSender.keys.push(...(r.sameSender.keys || [])); }
             }
+            } finally { if (ticket) busyEnd(ticket); }
         }
         return { text: answeredText(action, o, n), keys: keys.concat((o.sameSender && o.sameSender.keys) || []) };
     }
@@ -1977,6 +1988,26 @@
                     h('a', { class: 'btn', href: `#/review?${q(queue === 'moved' ? { restart: '1' } : { queue, restart: '1' })}` }, 'Look again'))];
         }
         // The open item: its first copy nobody has reviewed meanwhile (another admin, or Messages).
+        // (0.6.44) The filter bar: words (sender, domain, name, subject), the sender check, the AI score, the kind. Kept while
+        // answering; the open item and the keys follow what is shown.
+        const F = st.filter = st.filter || { q: '', dmarc: 'any', ai: 'any', kind: 'any' };
+        const words = F.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const filtering = !!(words.length || F.dmarc !== 'any' || F.ai !== 'any' || F.kind !== 'any');
+        const matches = (x) => {
+            if (words.length) {
+                const text = [x.subject, x.label, x.sender && x.sender.name, x.sender && x.sender.address, ...(x.senders || [])].filter(Boolean).join(' ').toLowerCase();
+                if (!words.every(w => text.includes(w))) return false;
+            }
+            if (F.dmarc !== 'any' && (x.dmarc || 'none') !== F.dmarc) return false;
+            const a = typeof x.ai === 'number' ? x.ai : null;
+            if (F.ai === 'low' && !(a !== null && a < 0.5)) return false;
+            if (F.ai === 'mid' && !(a !== null && a >= 0.5 && a < aiThreshold)) return false;
+            if (F.ai === 'high' && !(a !== null && a >= aiThreshold)) return false;
+            if (F.kind !== 'any' && x.kind !== F.kind) return false;
+            return true;
+        };
+        const visible = st.groups.filter(matches);
+        if (st.open >= 0 && !matches(st.groups[st.open])) st.open = visible.length ? st.groups.indexOf(visible[0]) : -1;
         let m = null, mode = st.mode;
         const g = st.open >= 0 ? st.groups[st.open] : null;
         if (g) {
@@ -1988,7 +2019,7 @@
             if (!m) { st.groups.splice(st.open, 1); st.open = Math.min(st.open, st.groups.length - 1); return review(new URLSearchParams(queue === 'moved' ? {} : { queue })); }
             if (mode) st.mode = mode;
         }
-        const skip = () => { st.open = st.open + 1 < st.groups.length ? st.open + 1 : -1; render(); };
+        const skip = () => { const next = st.groups.findIndex((x, i) => i > st.open && matches(x)); st.open = next; render(); };
         if (g) reviewKeys = { p: () => act([g], 'phishing'), s: () => act([g], 'spam'), f: () => act([g], 'false-alarm'), i: () => act([g], 'unclear'), n: skip, ...(canRescanReview(g) ? { r: () => rescanEmail(g.keys[0]) } : {}) };
         // Several at once: the ticked items.
         const bar = h('div', { class: 'bulk-review', role: 'region', 'aria-label': 'Ticked items', hidden: !st.picked.size });
@@ -2005,11 +2036,50 @@
                 h('button', { class: 'linkbtn', type: 'button', onclick: () => { st.picked.clear(); for (const c of document.querySelectorAll('.rv-pick')) c.checked = false; drawBar(); } }, 'Clear'));
         };
         drawBar();
-        const rows = st.groups.slice(0, Math.max(st.shown, st.open + 1)).map((x, i) => reviewRow(st, x, i, i === st.open && m ? reviewEvidence(st, x, m, act, skip) : null, act, drawBar));
-        const more = st.groups.length > rows.length ? h('button', { class: 'btn', type: 'button', onclick: () => { st.shown += 200; render(); } }, `Show ${num(Math.min(200, st.groups.length - rows.length))} more (${num(st.groups.length - rows.length)} not shown)`) : null;
-        return [...head, bar, h('section', { class: 'card rv-list', 'aria-label': 'Items to review' }, rows), more,
+        const openAt = st.open >= 0 ? visible.indexOf(st.groups[st.open]) : -1;
+        const rows = visible.slice(0, Math.max(st.shown, openAt + 1)).map((x) => { const i = st.groups.indexOf(x); return reviewRow(st, x, i, i === st.open && m ? reviewEvidence(st, x, m, act, skip) : null, act, drawBar); });
+        const more = visible.length > rows.length ? h('button', { class: 'btn', type: 'button', onclick: () => { st.shown += 200; render(); } }, `Show ${num(Math.min(200, visible.length - rows.length))} more (${num(visible.length - rows.length)} not shown)`) : null;
+        const filters = reviewFilterBar(st, visible, filtering, drawBar);
+        const list = rows.length ? h('section', { class: 'card rv-list', 'aria-label': 'Items to review' }, rows)
+            : h('section', { class: 'card' }, h('div', { class: 'empty', text: 'Nothing here matches the filter.' }));
+        return [...head, filters, bar, list, more,
             st.open === -1 ? h('p', { class: 'small muted', text: 'You skipped to the end of the list. The items you skipped are still here, undecided: open one to answer it.' }) : null];
     }
+    // (0.6.44) Review's filter bar. Typing filters as you type (the box keeps its place); "Tick all shown" ticks every item
+    // the filter shows (only those); Clear shows everything again.
+    let reviewSearchFocus = null;
+    function reviewFilterBar(st, visible, filtering, drawBar) {
+        const F = st.filter;
+        const box = h('input', { type: 'search', class: 'list-search', id: 'rvSearch', value: F.q, placeholder: 'Search sender, domain or subject', 'aria-label': 'Search the emails to review', autocomplete: 'off', spellcheck: 'false' });
+        let timer = null;
+        box.addEventListener('input', () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => { F.q = box.value; reviewSearchFocus = box.selectionStart; st.open = -1; render({ quiet: true }); }, 250);
+        });
+        if (reviewSearchFocus !== null) setTimeout(() => { const b = $('#rvSearch'); if (b) { b.focus(); try { b.setSelectionRange(reviewSearchFocus, reviewSearchFocus); } catch (e) { /* not a text box */ } } reviewSearchFocus = null; }, 0);
+        const chips = (label, key, options) => h('div', { class: 'rv-chips', role: 'group', 'aria-label': label }, h('span', { class: 'rv-chips-label', text: `${label}:` }),
+            options.map(([v, text]) => h('button', { class: `chip${F[key] === v ? ' on' : ''}`, type: 'button', 'aria-pressed': String(F[key] === v),
+                onclick: () => { F[key] = v; st.open = -1; render({ quiet: true }); } }, text)));
+        const emails = visible.reduce((n, x) => n + x.keys.length, 0);
+        const allTicked = visible.length && visible.every(x => st.picked.has(x));
+        const tickAll = h('button', { class: 'btn', type: 'button', disabled: !visible.length, onclick: () => {
+            if (allTicked) for (const x of visible) st.picked.delete(x); else for (const x of visible) st.picked.add(x);
+            render({ quiet: true });
+        } }, allTicked ? 'Untick all shown' : `Tick all ${num(visible.length)} shown`);
+        const clear = filtering ? h('button', { class: 'linkbtn', type: 'button', onclick: () => { Object.assign(F, { q: '', dmarc: 'any', ai: 'any', kind: 'any' }); render({ quiet: true }); } }, 'Clear the filter') : null;
+        return h('section', { class: 'card rv-filter', 'aria-label': 'Filter' },
+            box,
+            chips('Sender check', 'dmarc', [['any', 'Any'], ['pass', 'Passed ✓'], ['fail', 'Failed ✗'], ['none', 'None']]),
+            chips('AI score', 'ai', [['any', 'Any'], ['low', 'Under 50%'], ['mid', `50–${Math.round(aiThreshold * 100) - 1}%`], ['high', `${pct(aiThreshold)}+`]]),
+            chips('Kind', 'kind', [['any', 'Any'], ['phishing', 'Phishing'], ['spam', 'Spam']]),
+            h('div', { class: 'rv-filter-foot' },
+                h('span', { class: 'grow small', text: filtering ? `Showing ${num(emails)} email${emails === 1 ? '' : 's'} in ${num(visible.length)} item${visible.length === 1 ? '' : 's'}${F.q.trim() ? ` matching "${F.q.trim()}"` : ''}, of ${num(st.groups.length)}.` : `${num(st.groups.length)} item${st.groups.length === 1 ? '' : 's'}. Click a sender's ⌕ to see only their mail.` }),
+                tickAll, clear));
+    }
+    // The sender check of an item's copies, as a tag on its row.
+    const dmarcTag = (d) => (d === 'pass' ? h('span', { class: 'dm-tag pass', title: 'Gmail confirmed the sender is real (DMARC passed)', text: '✓ DMARC' })
+        : d === 'fail' ? h('span', { class: 'dm-tag fail', title: 'The sender check failed (DMARC): the sender may be forged', text: '✗ DMARC failed' })
+        : h('span', { class: 'dm-tag none', title: 'No sender check result (the domain publishes no DMARC policy, or Gmail wrote none)', text: '– no DMARC' }));
     // One row of the review list: tick, AI score, subject (opens it), sender and how many, its heaviest sign, quick answers.
     function reviewRow(st, g, i, evidence, act, drawBar) {
         const Q = QUEUES[st.queue], open = !!evidence;
@@ -2025,6 +2095,9 @@
             h('div', { class: 'rv-row' }, pick, ring,
                 h('button', { class: 'rv-title', type: 'button', 'aria-expanded': String(open), onclick: toggle },
                     h('span', { class: 'rv-subject' }, kindTag(g.kind), h('span', { text: g.subject || g.label || '(subject not stored)' })), h('span', { class: 'rv-meta', text: meta })),
+                dmarcTag(g.dmarc),
+                g.sender && g.sender.address ? h('button', { class: 'rv-only', type: 'button', title: `Show only mail from ${g.sender.address}`, 'aria-label': `Show only mail from ${g.sender.address}`,
+                    onclick: () => { st.filter = Object.assign(st.filter || {}, { q: g.sender.address }); st.open = -1; render({ quiet: true }); } }, '⌕') : null,
                 sign,
                 open ? null : h('div', { class: 'rv-quick', role: 'group', 'aria-label': 'Quick answer' },
                     // (0.6.39) The four answers, as on the open item (Spam too); what they move is said above the list.
