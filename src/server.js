@@ -886,13 +886,22 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         },
         // What needs an admin (the browser tab's title shows the count): the brake, held campaigns, users
         // who took flagged mail back; and how many emails wait for review.
-        'GET /api/pending': async () => {
-            const records = await reviewRecords(service, cache, Date.now() - 30 * A.DAY);
+        // (0.6.50) ?days: the period the dashboard shows (Review's count follows it, as Review does); older: the emails
+        // still waiting from before it (within 90 days), so an empty Review can say where they are.
+        'GET /api/pending': async (q) => {
+            const n = nDays(q), from = Date.now() - n * A.DAY;
+            const all = await reviewRecords(service, cache, Date.now() - 90 * A.DAY);
+            const records = all.filter(r => (r.processedAt || 0) >= from);
             const brake = !!(await shortLived('brake', 15000, () => store.getState('brake')));
             const held = (await shortLived('held', 15000, () => store.listHeldCampaigns())).filter(c => !c.decision).length;
             const rescues = records.filter(rescueToCheck).length;
             const inMoved = movedTab(records), movedKeys = new Set(inMoved.map(r => r.key));
-            return { brake, held, rescues, unreviewed: inMoved.length, suspicious: records.filter(r => suspiciousUnreviewed(r) && !movedKeys.has(r.key)).length, total: (brake ? 1 : 0) + held + rescues };
+            const movedAll = movedTab(all), movedAllKeys = new Set(movedAll.map(r => r.key));
+            const suspicious = records.filter(r => suspiciousUnreviewed(r) && !movedKeys.has(r.key)).length;
+            const suspiciousAll = all.filter(r => suspiciousUnreviewed(r) && !movedAllKeys.has(r.key)).length;
+            const olderMoved = Math.max(0, movedAll.length - inMoved.length);
+            return { brake, held, rescues, days: n, unreviewed: inMoved.length, suspicious, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
+                total: (brake ? 1 : 0) + held + rescues };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).
         // (0.6.7) Shared by every open dashboard for a minute: each look asks Cloud Run, Cloud Scheduler and the lists.

@@ -88,3 +88,23 @@ test('the dashboard\'s Review: sender lists and the suspicious line apply, and e
         assert.equal(sus.groups.find(g => g.keys.includes(unverified.key)).dmarc, 'none');
     } finally { await new Promise(r => srv.close(r)); }
 });
+
+// 0.6.50: Review's count follows the period the dashboard shows, and says how many wait from before it.
+test('the pending count follows the period; older waiting emails are counted apart', async () => {
+    const http = require('http');
+    const { createApp } = require('../src/server');
+    const cfg = loadConfig({ DEMO: '1', MODE: 'monitor', ORG_DOMAINS: ORG });
+    const svc = new Service({ cfg, store: new MemoryStore(), gmail: { labelId: async () => 'L', modify: async () => ({}) }, log: { error() {}, warn() {} } });
+    const DAY = 86400000, t = Date.now();
+    const recent = rec({ action: 'would-move', sender: { address: 'a@unlisted-one.example' }, auth: { dmarc: 'fail' }, processedAt: t - DAY });
+    const old = rec({ action: 'would-move', sender: { address: 'b@unlisted-two.example' }, auth: { dmarc: 'fail' }, processedAt: t - 12 * DAY });
+    for (const r of [recent, old]) await svc.store.saveRecord(r);
+    const srv = http.createServer(createApp({ cfg, store: svc.store, service: svc }));
+    await new Promise(r => srv.listen(0, r));
+    const get = async (p) => (await fetch(`http://127.0.0.1:${srv.address().port}${p}`)).json();
+    try {
+        const week = await get('/api/pending?days=7'), month = await get('/api/pending?days=30');
+        assert.deepEqual([week.unreviewed, week.older, week.olderMoved], [1, 1, 1]);
+        assert.deepEqual([month.unreviewed, month.older], [2, 0]);
+    } finally { await new Promise(r => srv.close(r)); }
+});

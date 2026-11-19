@@ -2034,7 +2034,7 @@
         };
         const head = [h('div', { class: 'page-head' },
             h('div', {}, h('h1', { text: 'Review' }),
-                h('p', { class: 'sub' }, st.groups.length ? [`${num(emails(st))} ${Q.what} in `, h('b', { text: `${num(st.groups.length)} item${st.groups.length === 1 ? '' : 's'}` }), `, last ${days} days, ${Q.order}. One answer covers every copy of an email. Open one to weigh the evidence.`] : `Every ${Q.what} of the last ${days} days has been looked at.`)),
+                h('p', { class: 'sub' }, st.groups.length ? [`${num(emails(st))} ${Q.what} in `, h('b', { text: `${num(st.groups.length)} item${st.groups.length === 1 ? '' : 's'}` }), `, last ${days} days, ${Q.order}. One answer covers every copy of an email. Open one to weigh the evidence.`] : `Every email in this tab from the last ${days} days has an answer.`)),
             // (0.6.39) What an answer moves, said once above the list (the quick buttons are short).
             h('span', { class: 'mode-note', text: st.mode !== 'enforce' ? 'Monitor mode: answers move nothing' : 'Enforce mode: Phishing and Spam move emails to the Spam folder; Not phishing moves them back to the Inbox. Each answer can be undone.' })),
             h('div', { class: 'review-tools' },
@@ -2044,7 +2044,14 @@
             queue === 'suspicious' ? h('p', { class: 'sub', text: 'Suspicious: the checks found signs (a rules score of 3 or more; from a sender Gmail confirmed, only when the AI agrees) or the AI scored it at least the suspicious line, but not enough to move it, so it is still in the Inbox. Marking them is the best way to see what the move rules miss, and what retraining needs (Health → Model health).' }) : null];
         if (!st.groups.length) {
             return [...head, h('div', { class: 'alert good', role: 'status' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '✓' }),
-                h('div', { class: 'grow' }, h('b', { text: 'Nothing left to review.' }), ` ${num(st.done)} reviewed now; every ${Q.what} of the last ${days} days has been looked at.`)),
+                h('div', { class: 'grow' }, h('b', { text: 'Nothing left to review.' }), ` ${st.done ? `${num(st.done)} answered just now; e` : 'E'}very email in this tab from the last ${days} days has an answer.`)),
+                // (0.6.50) Emails still waiting from before the period shown: say so, and one click shows them.
+                (() => {
+                    const longest = Math.max(...[...document.querySelectorAll('.range')].filter(b => !b.hidden).map(b => Number(b.dataset.days) || 0), days);
+                    if (!olderWaiting || days >= longest) return null;
+                    return h('div', { class: 'alert warning' }, h('div', { class: 'grow' }, h('b', { text: `${num(olderWaiting)} email${olderWaiting === 1 ? '' : 's'} from before the last ${days} days still wait${olderWaiting === 1 ? 's' : ''} for an answer.` }), ' The menu counts the period you pick.'),
+                        h('button', { class: 'btn', type: 'button', onclick: () => { days = longest; try { localStorage.setItem('spruce.days', String(longest)); } catch (e) { /* not kept */ } reviewStates = {}; pendingAt = 0; pendingSeen = false; refreshPending(); go(olderMovedWaiting || !olderWaiting ? '#/review' : '#/review?queue=suspicious'); render(); } }, `Show the last ${longest} days`));
+                })(),
                 h('div', { class: 'actions' }, queue === 'moved' ? h('a', { class: 'btn', href: '#/readiness' }, 'See Readiness') : h('a', { class: 'btn', href: '#/health' }, 'See Model health'),
                     h('a', { class: 'btn', href: `#/review?${q(queue === 'moved' ? { restart: '1' } : { queue, restart: '1' })}` }, 'Look again'))];
         }
@@ -2822,7 +2829,7 @@
     // mail back); the Review item in the menu (and in the phone's tab bar), how many emails wait for review.
     // Read at most every 25 s, from the live updates' tick (paused or not, but not while the person is away) and
     // after an action.
-    let pendingAt = 0, unreviewed = 0, suspiciousWaiting = 0, pendingSeen = false;
+    let pendingAt = 0, unreviewed = 0, suspiciousWaiting = 0, pendingSeen = false, olderWaiting = 0, olderMovedWaiting = 0;
     function showUnreviewed() {
         for (const badge of [$('#reviewCount'), $('#reviewCountTab')]) {
             if (!badge) continue;
@@ -2863,12 +2870,16 @@
         if (Date.now() - pendingAt < 25000) return;
         pendingAt = Date.now();
         try {
-            const p = await api('/api/pending');
+            const p = await api(`/api/pending?days=${days}`);
+            const olderWas = olderWaiting;
+            olderWaiting = p.older || 0; olderMovedWaiting = p.olderMoved || 0;
+            if (olderWas !== olderWaiting && pendingSeen) reviewArrived();   // (0.6.50) an empty Review says so
             document.title = p.total ? `(${p.total}) S.P.R.U.C.E Mail Protection Service` : 'S.P.R.U.C.E Mail Protection Service';
             const was = unreviewed, wasSusp = suspiciousWaiting;
             unreviewed = p.unreviewed || 0; suspiciousWaiting = p.suspicious || 0;
             showUnreviewed();
             if (pendingSeen && (was !== unreviewed || wasSusp !== suspiciousWaiting)) reviewArrived();
+            else if (!pendingSeen && olderWaiting && /^#\/?review/.test(currentHash())) reviewArrived();
             pendingSeen = true;
             showBrake(!!p.brake);
         } catch (e) { /* the next tick tries again */ }
@@ -3443,7 +3454,7 @@
         render({ quiet: true });
     }
     async function boot() {
-        for (const b of document.querySelectorAll('.range')) b.addEventListener('click', () => { days = Number(b.dataset.days); try { localStorage.setItem('spruce.days', String(days)); } catch (e) { /* not kept */ } render(); });
+        for (const b of document.querySelectorAll('.range')) b.addEventListener('click', () => { days = Number(b.dataset.days); try { localStorage.setItem('spruce.days', String(days)); } catch (e) { /* not kept */ } pendingAt = 0; pendingSeen = false; refreshPending(); render(); });   // (0.6.50) the count follows the period
         if (MEMORY) document.addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[href^="#/"]'); if (a) { e.preventDefault(); go(a.getAttribute('href')); } });
         else window.addEventListener('hashchange', render);
         window.addEventListener('scroll', hideTip, { passive: true });

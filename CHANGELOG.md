@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.50: Review's count follows the period you pick
+
+- **The Review count in the menu** counted the last 30 days while the Review page showed the period picked at the top (7
+  days, say): the page said nothing was left while the count still showed emails. The count now follows the period, like
+  the page.
+- **An empty Review says when older emails still wait** ("37 emails from before the last 7 days still wait for an
+  answer"), with a button that shows the longest period, on the tab they are in.
+- Clearer wording when a tab is done: "Every email in this tab from the last 7 days has an answer."
+- Dashboard only: how email is judged doesn't change.
+
+
 ## 0.6.49: Company domains: see what the service proved, and confirm what only a registry's website shows
 
 - **Settings → Sender lists → Company domains** lists the domains the service has proven a company's from public records

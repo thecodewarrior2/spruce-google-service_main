@@ -318,7 +318,8 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     box): **Phishing**, **Spam**, **Not phishing** and **Not sure**. When an answer moves the email in enforce mode,
     the button says so ("Phishing: move to the Spam folder", "Not phishing: move back to the Inbox"). **Spam**
     offers "also send future mail from this sender straight to Spam", ticked by default for admins.
-  - **The Review count** in the menu updates right after an answer, and is gone when nothing waits (0.6.40). New emails
+  - **The Review count** in the menu updates right after an answer, and is gone when nothing waits (0.6.40). It counts the
+    period picked at the top, as the page does; an empty Review says how many older emails still wait (0.6.50). New emails
     to review appear on the open Review page by themselves: an empty queue reads them at once, a queue being answered
     gets them at its end.
   - **Undo:** the message after an answer has an **Undo** button (for about 10 seconds; the service accepts an
