@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.37: Spam and Ignore on Mail, for the emails ticked and for a campaign's copies
+
+- **Mail → Messages:** the bar for the ticked emails has **Mark spam** and **Ignore, unclear** beside Move back, Mark false
+  alarm and Confirm phishing, with "also send their senders' future mail straight to Spam" for Mark spam (ticked by
+  default for admins, as in Review; only verified outside senders are added).
+- **A campaign's box** (Messages in this campaign) has **Spam: every copy** and **Ignore every copy**: every recorded copy
+  answered at once, as in Review.
+- Dashboard only: how email is judged doesn't change.
+
+
 ## 0.6.36: Sender lists can be searched, all at once or one by one, and sorted
 
 - **Search every list at once:** at the top of Settings → Sender lists, one search box looks for a domain, address or

@@ -501,6 +501,25 @@
         };
     }
     // A campaign's state and an admin's decisions for every copy (Messages, filtered to a campaign).
+    // (0.6.37) Answers every recorded copy of a campaign Spam or Ignore (the same as ticking them all on Mail).
+    function campaignAnswer(key, action, label) {
+        return async (e) => {
+            const what = action === 'spam' ? 'spam (moved to Spam in enforce mode)' : 'unclear: left as they are, not used for retraining';
+            if (!confirm(`Answer every recorded copy of "${label}" as ${what}?`)) return;
+            const btn = e.currentTarget; btn.disabled = true; acting++; busyStart(action === 'spam' ? 'Marking every copy as spam…' : 'Setting every copy aside…');
+            try {
+                const keys = ((await api(`/api/messages?${q({ campaign: key, days: '35' })}`)).messages || []).map(m => m.key).filter(Boolean);
+                const sum = { done: 0, moved: 0 };
+                for (let i = 0; i < keys.length; i += 500) {
+                    const o = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 500), action, addSender: action === 'spam' && spamAddSender && !isModerator() } });
+                    sum.done += o.done || 0; sum.moved += o.moved || 0;
+                }
+                toast(action === 'spam' ? `Confirmed as spam: ${num(sum.done)} copies${sum.moved ? `, ${num(sum.moved)} moved to Spam` : ''}.` : `Set aside: ${num(sum.done)} copies, not used for retraining.`);
+                render();
+            } catch (err) { toast(`Couldn't do that: ${err.message}`); btn.disabled = false; }
+            finally { acting--; busyEnd(); }
+        };
+    }
     async function campaignBar(key) {
         let c;
         try { ({ campaign: c } = await api(`/api/campaign?${q({ key })}`)); } catch (e) { return null; }
@@ -518,6 +537,10 @@
                         (o) => (o.moved && o.moved.monitor ? `Confirmed as phishing. Monitor mode: nothing moved${found(o.found)}.` : `Confirmed: ${num(o.moved.moved)} copies moved to Spam${found(o.found)}${o.moved.left ? `; ${num(o.moved.left)} left, press again` : ''}.`),
                         `Confirm "${c.label}" as phishing and move every copy to Spam${search.checked ? ', searching every watched mailbox for more' : ''}?`) }, 'Confirm phishing: move every copy'),
                     h('label', { class: 'small' }, search, ' also search every watched mailbox for copies not recorded')] : null,
+                // (0.6.37) Spam, or Ignore, for every copy recorded (the campaign's records, in batches of 500).
+                h('button', { class: 'btn', type: 'button', onclick: campaignAnswer(key, 'spam', c.label) }, 'Spam: every copy'),
+                spamSenderBox('its sender\'s'),
+                h('button', { class: 'btn', type: 'button', onclick: campaignAnswer(key, 'unclear', c.label) }, 'Ignore every copy'),
                 c.decision !== 'released' ? h('button', { class: 'btn', type: 'button', onclick: postButton('/api/campaign/release', () => ({ key }), (o) => `Moved back: ${num(o.released)} copies in the Inbox again.`,
                     `Move every copy of "${c.label}" back to the Inbox, and stop moving it?`) }, 'False alarm: move every copy back') : null,
                 c.decision === 'confirmed' ? h('button', { class: 'btn', type: 'button', onclick: postButton('/api/campaign/find', () => ({ key }), (o) => `Searched: ${num(o.found.found)} more found in ${num(o.found.searched)} of ${num(o.found.of)} mailboxes${o.found.moved ? `, ${num(o.found.moved)} moved` : ''}.`) }, 'Find other copies') : null));
@@ -636,12 +659,16 @@
         };
         const all = h('input', { type: 'checkbox', 'aria-label': 'Select every email on this page' });
         all.addEventListener('change', () => { for (const [m, c] of boxes) { c.checked = all.checked; if (all.checked) selected.add(m.key); else selected.delete(m.key); } changed(); });
-        const bulk = (action, done, ask) => postButton('/api/bulk', () => ({ action, keys: [...selected] }),
+        const bulk = (action, done, ask) => postButton('/api/bulk', () => ({ action, keys: [...selected], addSender: action === 'spam' && spamAddSender && !isModerator() }),
             (o) => `${done}: ${num(o.done)}${o.skipped ? ` (${num(o.skipped)} skipped: not in Spam, or already so)` : ''}${o.failed ? `, ${num(o.failed)} failed` : ''}.`, ask);
         bulkBar.append(count,
             isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: bulk('release', 'Moved back to the Inbox', 'Move the selected emails that are in Spam back to the Inbox?') }, 'Move back to Inbox'),
             h('button', { class: 'btn', type: 'button', onclick: bulk('false-alarm', 'Marked as false alarms') }, 'Mark false alarm'),
             h('button', { class: 'btn', type: 'button', onclick: bulk('phishing', 'Confirmed as phishing') }, 'Confirm phishing'),
+            // (0.6.37) Spam and Ignore here too, as in Review.
+            h('button', { class: 'btn', type: 'button', onclick: bulk('spam', 'Confirmed as spam') }, 'Mark spam'),
+            h('button', { class: 'btn', type: 'button', onclick: bulk('unclear', 'Set aside as unclear (not used for retraining)') }, 'Ignore, unclear'),
+            spamSenderBox('their senders\''),
             h('button', { class: 'linkbtn', type: 'button', onclick: () => { selected.clear(); all.checked = false; for (const [, c] of boxes) c.checked = false; changed(); } }, 'Clear'));
         return [h('h1', { text: `Messages ${scope}`.trim() }),
             h('p', { class: 'sub' }, `${num(d.total)} recorded in the last ${days} days. `, (filt.user || filt.campaign) ? h('a', { href: '#/messages', text: 'Show all' }) : null),
@@ -1729,6 +1756,14 @@
     // (0.6.35) "Also send future mail from this sender straight to Spam", under Review's buttons: ticked by default for
     // admins, remembered while the page is open; a Spam answer adds the sender (verified, outside) to Spam senders.
     let spamAddSender = true;
+    // (0.6.37) The same choice where several emails are answered at once (Mail's selection, a campaign's copies).
+    const spamSenderBox = (whose) => {
+        if (isModerator()) return null;
+        const box = h('input', { type: 'checkbox', checked: spamAddSender });
+        box.addEventListener('change', () => { spamAddSender = box.checked; });
+        return h('label', { class: 'small spam-sender-opt', title: 'Only senders Gmail verified, from outside, are added (Settings → Sender lists → Spam senders); it skips the other checks for them.' },
+            box, ` with Mark spam, also send ${whose} future mail straight to Spam`);
+    };
     // Answers every copy of the items given (one copy: its own endpoint, so Activity names it; more: in batches of 500).
     async function answerGroups(st, groups, action) {
         const addSender = action === 'spam' && spamAddSender && !isModerator();
