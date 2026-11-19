@@ -77,7 +77,7 @@
     const A_DAY = 24 * 60 * 60 * 1000;
     const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     // (0.6.39) One wording for what happened to an email, and where it is, on every page.
-    const ACTION = { move: ['Moved to the Spam folder', 'moved'], 'would-move': ['Would be moved', 'would'], flag: ['Suspicious (not moved)', 'flag'] };
+    const ACTION = { move: ['Moved to the Spam folder', 'moved'], 'would-move': ['Would be moved', 'would'], flag: ['Suspicious (not moved)', 'flag'], promo: ['Promotional (not moved)', 'promo'] };
     const STATE = { moved: ['In the Spam folder', 'moved'], released: ['Moved back to the Inbox', 'released'], inbox: ['In the Inbox', 'inbox'] };
     const stateOf = (m) => (m.state === 'released' && m.releasedByUser ? ['Moved back by its reader', 'released'] : STATE[m.state] || [m.state, '']);
     const pill = ([label, cls]) => h('span', { class: `pill ${cls}`, text: label });
@@ -90,8 +90,9 @@
     };
     // (0.6.27) Spam or phishing, plainly: what the service took the email for (its trigger, or an admin's "Spam"
     // answer), as a coloured label beside the subject and at the top of an opened email.
-    const kindOf = (m) => (!m ? null : m.kind !== undefined ? m.kind : m.spam || m.trigger === 'spam' ? 'spam' : ['move', 'would-move', 'flag'].includes(m.action) ? 'phishing' : null);
-    const KIND = { spam: ['Spam', 'Unwanted bulk or marketing mail, not phishing: moved to Spam as spam'], phishing: ['Phishing', 'Taken for phishing by the rules or the AI'] };
+    const kindOf = (m) => (!m ? null : m.kind !== undefined ? m.kind : m.spam || m.trigger === 'spam' ? 'spam' : m.action === 'promo' ? 'promotional' : ['move', 'would-move', 'flag'].includes(m.action) ? 'phishing' : null);
+    const KIND = { spam: ['Spam', 'Unwanted bulk or marketing mail, not phishing: moved to Spam as spam'], phishing: ['Phishing', 'Taken for phishing by the rules or the AI'],
+        promotional: ['Promotional', 'Marketing or subscribed mail (Gmail\'s Promotions category, or a one-click unsubscribe the sender signed): never moved for that; an admin answers it in Review → Promotional'] };
     const kindTag = (k) => (KIND[k] ? h('span', { class: `kind-tag ${k}`, title: KIND[k][1], text: KIND[k][0] }) : null);
     const asKind = (m) => { const k = kindOf(m), a = (ACTION[m.action] || [m.action])[0]; return k === 'spam' ? `${a}: spam, not phishing` : k === 'phishing' && m.action !== 'flag' ? `${a}: phishing` : a; };
     // Re-checked after delivery (0.5.35): what happened, and the outcomes that mean phishing had been delivered.
@@ -1294,6 +1295,26 @@
         draw(list);
         return card;
     }
+    // (0.6.52) Promotional senders kept: companies an admin answered Keep in Review → Promotional; an admin removes one (its
+    // promotional mail is listed again).
+    async function promoKeptCard() {
+        let list = [];
+        try { list = (await api('/api/promotional-kept')).list || []; } catch (e) { return null; }
+        const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Promotional senders kept' }),
+            h('p', { class: 'sub', text: 'Companies whose promotional mail an admin chose to keep (Review → Promotional → Keep). Each is the sender\'s own domain, never the platform it sends through.' }));
+        const draw = (rows) => {
+            card.querySelectorAll('table, p.empty').forEach(t => t.remove());
+            if (!rows.length) { card.append(h('p', { class: 'empty', text: 'No company yet.' })); return; }
+            card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Company', 'Kept by', 'Since', ''].map(t => h('th', { text: t })))),
+                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.company }), h('td', { text: r.by || '' }), h('td', { 'data-sort': String(r.at || 0), text: dayOf(r.at) }),
+                    h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
+                        e.target.disabled = true;
+                        try { const out = await api('/api/promotional-kept', { method: 'POST', body: { company: r.company } }); toast(`${r.company}'s promotional mail is listed in Review again.`); draw(out.list || []); }
+                        catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); e.target.disabled = false; } } }, 'Remove')))))));
+        };
+        draw(list);
+        return card;
+    }
     // (0.6.29) Brand senders the reviewers confirmed: a "False alarm" on an email whose only sign was a brand's name from
     // another verified domain. An admin removes one; moderators see the list.
     async function brandSendersCard() {
@@ -1356,6 +1377,7 @@
         brand: ['Brand\'s own sender', 'brand', 'Its verified mail under the brand\'s name isn\'t counted as an imitation; every other check still applies.'],
         link: ['Link site allowed', 'link', 'Not a sender: a phishing list\'s listing of the whole domain doesn\'t flag links to it (the other link checks still apply).'],
         kept: ['Not moved for some people', 'kept', 'People took its spam back out of Spam: not moved as spam for them (for anyone once 3 did).'],
+        promo: ['Promotional, kept', 'promo-kept', 'An admin answered Keep in Review → Promotional: its promotional mail isn\'t listed there again. It is still checked as usual, and moved if it is phishing or spam.'],
         company: ['A company\'s own domain', 'company', 'Its mail under the company\'s name isn\'t counted as an imitation, and links between it and the company\'s other domains aren\'t counted as disguised; every other check still applies.']
     };
     const listHead = (k) => h('div', { class: 'list-head' }, h('span', { class: `list-label ${LIST_LABELS[k][1]}`, text: LIST_LABELS[k][0] }), h('span', { class: 'small muted', text: LIST_LABELS[k][2] }));
@@ -1508,9 +1530,10 @@
     async function allowlist() {
         const d = await settingsData();
         const TRUSTED_ROWS = ALLOW_ROWS.filter(r => r.key !== 'allowLinkDomains'), LINK_ROWS = ALLOW_ROWS.filter(r => r.key === 'allowLinkDomains');
-        const brand = await brandSendersCard(), kept = await spamRescuedCard();
+        const brand = await brandSendersCard(), kept = await spamRescuedCard(), promoKept = await promoKeptCard();
         if (brand) brand.insertBefore(listHead('brand'), brand.children[1]);
         if (kept) kept.insertBefore(listHead('kept'), kept.children[1]);
+        if (promoKept) promoKept.insertBefore(listHead('promo'), promoKept.children[1]);
         const trusted = policyCard(d, TRUSTED_ROWS, 'Trusted senders', 'A change needs the Google Cloud project ID, applies within 30 seconds and is noted in Health → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.');
         const linkPrev = pageBusy;
         const links = policyCard(d, LINK_ROWS, 'Link sites', 'For a link site a phishing list flagged by mistake (a newsletter\'s click tracker). A list naming the exact page still flags it. Emails already checked keep their verdict: Use Check again on one to judge it again. ALLOW_LINK_DOMAINS only in the services\' environment.');
@@ -1518,7 +1541,7 @@
         for (const [card, k] of [[trusted, 'trusted'], [links, 'link']]) { const h2 = card.querySelector('h2'); if (h2) h2.after(listHead(k)); }
         const spam = await spamSendersCard();
         const companies = await companyDomainsCard();
-        const tools = [[trusted, 'Trusted senders'], [spam, 'Spam senders'], [brand, 'Brand senders'], [companies, 'Company domains'], [links, 'Link sites'], [kept, 'Spam people took back']]
+        const tools = [[trusted, 'Trusted senders'], [spam, 'Spam senders'], [brand, 'Brand senders'], [companies, 'Company domains'], [links, 'Link sites'], [kept, 'Spam people took back'], [promoKept, 'Promotional senders kept']]
             .map(([c, n]) => listTools(c, n)).filter(Boolean);
         // (0.6.36) One search across every list: each list shows its matches; a list with none is hidden meanwhile.
         const all = h('input', { type: 'search', class: 'list-search global', placeholder: 'Search every sender list (a domain, an address, a brand)', 'aria-label': 'Search every sender list', autocomplete: 'off', spellcheck: 'false' });
@@ -1539,7 +1562,8 @@
             brand,
             companies,
             links,
-            kept];
+            kept,
+            promoKept];
     }
     // Settings → Mailboxes (0.5.53): who is checked (the pilot, the default, or the whole domain, switched here with
     // a ticked box, the project ID and the admin's own address), and the mailboxes watched, a page of 100 at a time
@@ -1908,8 +1932,12 @@
     const canRescanReview = (g) => !!(g && g.keys && g.keys[0]) && !MEMORY;
     const QUEUES = {
         moved: { label: 'Moved, or would be moved', short: 'Moved', what: 'moved, or would-be-moved, emails', order: 'oldest first' },
-        suspicious: { label: 'Suspicious (not moved)', short: 'Suspicious', what: 'suspicious emails (not moved)', order: 'newest first' }
+        suspicious: { label: 'Suspicious (not moved)', short: 'Suspicious', what: 'suspicious emails (not moved)', order: 'newest first' },
+        // (0.6.52) Admins only: its answers change Spam senders and Promotional senders kept.
+        promotional: { label: 'Promotional (never moved; one answer per company)', short: 'Promotional', what: 'promotional emails', order: 'most emails first', admin: true }
     };
+    const queueOf = (params) => (['suspicious', 'promotional'].includes(params.get('queue')) ? params.get('queue') : 'moved');
+    const shownQueues = () => Object.entries(QUEUES).filter(([, x]) => !x.admin || !isModerator());
     // (0.6.39) The four answers, worded the same everywhere (Review, Mail, an email's page, a campaign's box). When the
     // click moves mail (enforce mode), the button says where to.
     const ANSWER = {
@@ -2013,8 +2041,72 @@
         else st.open = Math.min(st.open, st.groups.length - 1);
         return done;
     }
+    // The tabs above Review's lists, each with how many emails it holds (left: the queue's count).
+    const reviewTabs = (queue, left) => h('nav', { class: 'segmented', 'aria-label': 'Which emails to review' }, shownQueues().map(([k, x]) =>
+        h('a', { href: k === 'moved' ? '#/review' : `#/review?queue=${k}`, 'aria-current': k === queue ? 'page' : null, title: x.label }, `${x.short} · ${num(left(k))}`)));
+    // (0.6.52) Review → Promotional: marketing and subscribed mail (Gmail's Promotions category, or a one-click unsubscribe the
+    // sender signed) from senders Gmail verified, that the checks found nothing wrong with. Never moved for that. One row per
+    // company (the From address's organization, never the platform that sent it), answered once: Spam (each waiting email
+    // answered Spam, moved to the Spam folder in enforce mode; with the box ticked, its senders on Spam senders) or Keep
+    // (left in the Inbox; the company on Promotional senders kept, so its later mail isn't listed). Each answer can be undone.
+    async function promotionalReview(params) {
+        const plain = '#/review?queue=promotional';
+        let st = reviewStates.promotional;
+        if (!st || params.get('restart') || st.days !== days) {
+            const d = await api(`/api/review?${q({ days: String(days), queue: 'promotional' })}`);
+            st = reviewStates.promotional = { queue: 'promotional', companies: d.companies || [], days, counts: d.counts || {}, mode: d.mode, done: 0, shown: 50 };
+            for (const [k, other] of Object.entries(reviewStates)) if (k !== 'promotional' && other && other.days === days && d.counts) other.counts = d.counts;
+            if (params.get('restart')) { if (MEMORY) memRoute = plain; else history.replaceState(null, '', plain); }
+        }
+        reviewKeys = null;
+        const emails = (o) => (o.companies || o.groups || []).reduce((a, g) => a + g.keys.length, 0);
+        const left = (k) => { const o = reviewStates[k]; return o && o.days === days && (o.companies || o.groups) ? emails(o) : (st.counts[k] || 0); };
+        const enforce = st.mode === 'enforce';
+        const answer = async (c, what) => {
+            acting++; busyStart();
+            try {
+                const n = c.keys.length;
+                const o = await api('/api/promotional', { method: 'POST', body: { company: c.company, answer: what, addSender: what === 'spam' && spamAddSender && !isModerator() } });
+                st.companies = st.companies.filter(x => x !== c);
+                st.done += n;
+                const text = what === 'spam' ? answeredText('spam', o, Math.max(2, n))
+                    : `Kept ${c.company}: ${num(o.done || 0)} email${o.done === 1 ? '' : 's'} left in the Inbox. Its later promotional mail isn't listed here (Settings → Sender lists → Promotional senders kept).`;
+                const undo = what === 'spam' ? undoKeys(o.keys || []) : () => api('/api/promotional', { method: 'POST', body: { company: c.company, undo: 'keep', keys: o.keys || [] } });
+                toast(text, { undo: async () => { await undo(); reviewStates.promotional = null; pendingAt = 0; refreshPending(); render(); } });
+                render(); pendingAt = 0; refreshPending();
+            } catch (e) { toast(`Couldn't save your answer: ${e.message}`, { error: true }); } finally { acting--; busyEnd(); }
+        };
+        const head = [h('div', { class: 'page-head' },
+            h('div', {}, h('h1', { text: 'Review' }),
+                h('p', { class: 'sub' }, st.companies.length ? [`${num(emails(st))} promotional emails from `, h('b', { text: `${num(st.companies.length)} compan${st.companies.length === 1 ? 'y' : 'ies'}` }), `, last ${days} days, most emails first. One answer covers all of a company's waiting emails.`]
+                    : `No promotional email from the last ${days} days is waiting for an answer.`)),
+            h('span', { class: 'mode-note', text: enforce ? 'Enforce mode: Spam moves the company\'s waiting emails to the Spam folder; Keep leaves them in the Inbox. Each answer can be undone.' : 'Monitor mode: answers move nothing' })),
+            h('div', { class: 'review-tools' }, reviewTabs('promotional', left)),
+            h('p', { class: 'sub', text: 'Promotional: marketing and subscribed mail from senders Gmail verified, that the checks found nothing wrong with. It is told by what Gmail and the sender say (Gmail put it in its Promotions category, or the sender signed a one-click unsubscribe, which bulk senders must add to marketing mail), not by a list of platforms, and it is never moved for that. Each row is one company (the sender\'s own domain, never the platform it was sent through). Mail from your own domains and Trusted senders is never listed.' })];
+        if (isModerator()) return [...head, h('div', { class: 'alert', role: 'status' }, h('div', { class: 'grow', text: 'Only admins answer promotional mail: its answers change Settings → Sender lists.' }))];
+        if (!st.companies.length) {
+            return [...head, h('div', { class: 'alert good', role: 'status' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '✓' }),
+                h('div', { class: 'grow' }, h('b', { text: 'Nothing left to review.' }), st.done ? ` ${num(st.done)} answered just now.` : '')),
+                h('div', { class: 'actions' }, h('a', { class: 'btn', href: '#/review?queue=promotional&restart=1' }, 'Look again'))];
+        }
+        const shown = st.companies.slice(0, st.shown);
+        const row = (c) => h('section', { class: 'card promo-row' },
+            h('div', { class: 'promo-main' },
+                h('h2', {}, kindTag('promotional'), c.company),
+                h('p', { class: 'small muted', text: `${num(c.count)} email${c.count === 1 ? '' : 's'} to ${num(c.users.length)} ${c.users.length === 1 ? 'person' : 'people'}, ${dayOf(c.firstAt)}${c.lastAt && dayOf(c.lastAt) !== dayOf(c.firstAt) ? ` to ${dayOf(c.lastAt)}` : ''}. From ${c.senders.slice(0, 3).join(', ')}${c.senders.length > 3 ? ` and ${num(c.senders.length - 3)} more` : ''}.` }),
+                c.subjects.length ? h('ul', { class: 'promo-subjects small' }, c.subjects.map(t => h('li', { text: t }))) : null,
+                h('p', { class: 'small muted', text: `Why: ${c.signs.join('; ')}.` })),
+            h('div', { class: 'actions promo-actions' },
+                h('button', { class: 'btn', type: 'button', title: ANSWER.spam.help, onclick: () => answer(c, 'spam') }, enforce ? 'Spam: move to the Spam folder' : 'Spam'),
+                h('button', { class: 'btn safe', type: 'button', title: 'Wanted mail: leave it in the Inbox, and stop listing this company here.', onclick: () => answer(c, 'keep') }, 'Keep: not spam')));
+        return [...head, h('div', { class: 'card promo-opts' }, spamSenderBox('its senders\'')),
+            ...shown.map(row),
+            st.companies.length > shown.length ? h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: () => { st.shown += 50; render(); } }, `Show ${num(Math.min(50, st.companies.length - shown.length))} more companies`)) : null,
+            h('div', { class: 'actions' }, h('a', { class: 'btn', href: '#/review?queue=promotional&restart=1' }, 'Look again'))];
+    }
     async function review(params) {
-        const queue = params.get('queue') === 'suspicious' ? 'suspicious' : 'moved', Q = QUEUES[queue];
+        if (queueOf(params) === 'promotional') return promotionalReview(params);
+        const queue = queueOf(params), Q = QUEUES[queue];
         const plain = queue === 'moved' ? '#/review' : `#/review?queue=${queue}`;
         // A queue is read once and kept while it is answered (answered items leave it here; live updates skip
         // Review); read again for Look again (restart) or another period.
@@ -2027,8 +2119,8 @@
             if (params.get('restart')) { if (MEMORY) memRoute = plain; else history.replaceState(null, '', plain); }
         }
         reviewKeys = null;
-        const emails = (o) => o.groups.reduce((a, g) => a + g.keys.length, 0);
-        const left = (k) => { const o = reviewStates[k]; return o && o.days === days && o.groups ? emails(o) : (st.counts[k] || 0); };
+        const emails = (o) => (o.companies || o.groups).reduce((a, g) => a + g.keys.length, 0);
+        const left = (k) => { const o = reviewStates[k]; return o && o.days === days && (o.companies || o.groups) ? emails(o) : (st.counts[k] || 0); };
         const act = async (groups, action) => {
             acting++; busyStart();
             try {
@@ -2042,8 +2134,7 @@
             // (0.6.39) What an answer moves, said once above the list (the quick buttons are short).
             h('span', { class: 'mode-note', text: st.mode !== 'enforce' ? 'Monitor mode: answers move nothing' : 'Enforce mode: Phishing and Spam move emails to the Spam folder; Not phishing moves them back to the Inbox. Each answer can be undone.' })),
             h('div', { class: 'review-tools' },
-                h('nav', { class: 'segmented', 'aria-label': 'Which emails to review' }, Object.entries(QUEUES).map(([k, x]) =>
-                    h('a', { href: k === 'moved' ? '#/review' : `#/review?queue=${k}`, 'aria-current': k === queue ? 'page' : null, title: x.label }, `${x.short} · ${num(left(k))}`))),
+                reviewTabs(queue, left),
                 h('span', { class: 'keys-hint' }, h('kbd', { text: 'P' }), ' phishing ', h('kbd', { text: 'S' }), ' spam ', h('kbd', { text: 'F' }), ' not phishing ', h('kbd', { text: 'I' }), ' not sure ', h('kbd', { text: 'N' }), ' skip ', h('kbd', { text: 'R' }), ' check again', ' (the open email)')),
             queue === 'suspicious' ? h('p', { class: 'sub', text: 'Suspicious: the checks found signs (a rules score of 3 or more; from a sender Gmail confirmed, only when the AI agrees) or the AI scored it at least the suspicious line, but not enough to move it, so it is still in the Inbox. Marking them is the best way to see what the move rules miss, and what retraining needs (Health → Model health).' }) : null];
         if (!st.groups.length) {
@@ -2859,7 +2950,8 @@
     async function reviewArrived() {
         const m = /^#\/?review(?:\?(.*))?$/.exec(currentHash());
         if (!m || acting > 0 || popupOpen()) return;
-        const queue = new URLSearchParams(m[1] || '').get('queue') === 'suspicious' ? 'suspicious' : 'moved';
+        const queue = queueOf(new URLSearchParams(m[1] || ''));
+        if (queue === 'promotional') return;
         const st = reviewStates[queue];
         if (!st || st.days !== days || !st.groups.length) { reviewStates[queue] = null; render({ quiet: true }); return; }
         try {

@@ -203,6 +203,22 @@ domain); the page adds a domain as typed. `spamListMatch` looks up the address, 
 senders (DMARC passing). `rulesOnlyVerified` (`src/policy.js`) keeps a rules-only score of 3 or more from a verified
 outside sender out of "suspicious" unless the AI agrees; the server applies it to waiting records from before too.
 
+## Promotional mail
+
+(0.6.52, `src/promotional.js`.) `promotionalSigns(facts, labelIds)`: Gmail's `CATEGORY_PROMOTIONS` label on the message, or
+a signed one-click unsubscribe (`oneClickSigned`: `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
+a `DKIM-Signature` whose `d=` is the From address's organization and whose `h=` covers both, and Gmail's DKIM result
+passing). In `judge`, after the policy, Spam senders and the brake, an email whose decision is still `none` gets
+`promotionalOf` (`src/pipeline.js`): with `PROMOTIONAL` on, a verified sender from outside, not allowlisted, not a platform's
+share, its company (`spamSenderKey`: the From's registrable domain, or the address at a personal provider) not on state
+`promoKept`, and not a sender this person or 3 people took back out of Spam (`spamKept`). Then the record is written with
+action `promo`, trigger `promotional` and `promotional: { company, signs }`, counted as `promotional`, never moved; in
+enforce mode it gets `PROMOTIONAL_LABEL_NAME`. Review's `promotional` queue (`GET /api/review?queue=promotional`) is
+`promoUnreviewed` grouped by `aggregate.js promoGroups`. `POST /api/promotional` (admins): `spam` runs `bulk(keys, 'spam')`
+on the company's waiting emails (Undo: `/api/undo`); `keep` adds the company to `promoKept` and marks those records
+`promoKept` (Undo: `undo: 'keep'`, `removePromoKept`). `aggregate.js` leaves `promo` records out of the summary counts, the
+trend, campaigns, users and model health.
+
 ## Proven company domains
 
 (0.6.46–0.6.48.) The brand list (`SENDER_NAME_BRANDS`, `vendor/spruce/shared.js`) keeps only each brand's main domain;

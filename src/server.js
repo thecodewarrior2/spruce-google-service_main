@@ -121,6 +121,9 @@ function movedTab(records) {
 }
 // Review's other queue: suspicious emails (below what moves) still in the Inbox, nobody has reviewed.
 const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' && !r.markedBy && !rulesOnlyVerified(r, liveCfg || {});
+// (0.6.52) Review's third queue: promotional emails (never moved; pipeline.js promotionalOf) still in the Inbox that nobody
+// answered and whose company nobody kept, one item per company (aggregate.js promoGroups).
+const promoUnreviewed = (r) => r.action === 'promo' && r.state === 'inbox' && !r.markedBy && !r.promoKept;
 // (0.6.40) The settings the suspicious queue reads (records from before 0.6.40 judged by today's rule): set at start.
 let liveCfg = null;
 // What Review lists: the recent records, without the emails of senders on a Sender list (pipeline.js senderListTest).
@@ -748,6 +751,17 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         },
         // (0.6.26) Spam several people took back out of Spam: the list, and an admin's "keep moving it" (or undoing it).
         'GET /api/spam-rescued': async () => ({ list: await service.spamRescuedList() }),
+        // (0.6.52) Review → Promotional: one answer for a company's waiting emails, Spam (with addSender: their senders on Spam
+        // senders, by the usual rule) or Keep (Promotional senders kept). Admins only. undo: a Keep answer taken back.
+        'POST /api/promotional': async (q, body, admin) => {
+            const company = String(body.company || '').toLowerCase();
+            if (body.undo === 'keep') return service.removePromoKept(company, admin.email, { undoKeys: Array.isArray(body.keys) ? body.keys.map(String).slice(0, 2000) : [] }).then(r => { cache.stale(); return r; });
+            const out = await service.answerPromotional(company, String(body.answer || ''), admin.email, { addSender: body.addSender === true, records: await cache.list(Date.now() - 35 * A.DAY) });
+            if (!out.error) cache.stale();
+            return out;
+        },
+        'GET /api/promotional-kept': async () => ({ list: await service.promoKeptList() }),
+        'POST /api/promotional-kept': async (q, body, admin) => service.removePromoKept(String(body.company || ''), admin.email).then(r => { cache.stale(); return r; }),
         'POST /api/spam-rescued': async (q, body, admin) => service.setSpamKeep(String(body.sender || ''), body.keep === true, admin.email),
         // (0.6.29) Brand senders the reviewers confirmed (a false alarm on a brand's name from another verified domain).
         // (0.6.30) The allow lists' 30-day check: the domains waiting for review; "Still trusted" (with the project ID for a
@@ -862,7 +876,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // its keys, who received it and who sent it. An email of no campaign is an item of its own.
         'GET /api/review': async (q) => {
             const records = await reviewRecords(service, cache, since(q));
-            const queue = q.get('queue') === 'suspicious' ? 'suspicious' : 'moved';
+            const queue = ['suspicious', 'promotional'].includes(q.get('queue')) ? q.get('queue') : 'moved';
             // (0.6.39) One email in one tab: its copies can be judged differently (a first-time sender for one person
             // only), some "would move", some only suspicious. An email with any copy in the moved tab is only there,
             // with its suspicious copies too, so one answer covers every copy; the suspicious tab holds the rest.
@@ -870,10 +884,12 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const movedCampaigns = new Set(movedList.map(r => r.campaign).filter(Boolean));
             const suspAll = records.filter(suspiciousUnreviewed);
             const suspOnly = suspAll.filter(r => !r.campaign || !movedCampaigns.has(r.campaign));
+            const promo = records.filter(promoUnreviewed);
+            const counts = { moved: movedList.length + (suspAll.length - suspOnly.length), suspicious: suspOnly.length, promotional: promo.length };
+            if (queue === 'promotional') return { queue, total: promo.length, companies: A.promoGroups(promo).slice(0, 1000), mode: cfg.mode, counts };
             const list = queue === 'suspicious' ? suspOnly.sort((a, b) => b.processedAt - a.processedAt)
                 : movedList.concat(suspAll.filter(r => r.campaign && movedCampaigns.has(r.campaign))).sort((a, b) => a.processedAt - b.processedAt);
-            return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode,
-                counts: { moved: movedList.length + (suspAll.length - suspOnly.length), suspicious: suspOnly.length } };
+            return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode, counts };
         },
         // Several emails at once: release, false-alarm, phishing or unclear (ignore, treat as suspicious), at most
         // 500. Moderators: not release (moderatorMay).
@@ -900,7 +916,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const suspicious = records.filter(r => suspiciousUnreviewed(r) && !movedKeys.has(r.key)).length;
             const suspiciousAll = all.filter(r => suspiciousUnreviewed(r) && !movedAllKeys.has(r.key)).length;
             const olderMoved = Math.max(0, movedAll.length - inMoved.length);
-            return { brake, held, rescues, days: n, unreviewed: inMoved.length, suspicious, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
+            return { brake, held, rescues, days: n, unreviewed: inMoved.length, suspicious, promotional: records.filter(promoUnreviewed).length, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
                 total: (brake ? 1 : 0) + held + rescues };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).

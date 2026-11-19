@@ -27,6 +27,7 @@ const { indexOf: recheckIndex, lookFor, foundWords, eventNames, eventHasMessageI
 const { checksLevel: currentChecksLevel } = require('./checks-level');
 const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOKALIKE_NEW_DAYS } = require('./lookalike');
 const sims = require('./simulations');
+const { promotionalSigns } = require('./promotional');
 
 const DAY = 24 * 60 * 60 * 1000;
 // (0.6.44) The longest one email of a bulk answer may take (its Gmail calls each give up after 20 s and are tried 3 times).
@@ -35,6 +36,8 @@ const BULK_ITEM_MS = 75 * 1000;
 // when SPAM_SHARED people or more took back the same sender's, for no one (until an admin says to keep moving it).
 const SPAM_KEEP_MS = 180 * DAY, SPAM_SHARED = 3, SPAM_RESCUED_MAX = 300;
 const BRAND_SENDERS_MAX = 500;
+// (0.6.52) Promotional senders an admin chose to keep (Review → Promotional → Keep): at most this many companies.
+const PROMO_KEPT_MAX = 3000;
 const UNDO_MS = 60 * 60 * 1000;   // (0.6.39) how long an answer can be undone   // (0.6.29) brand senders the reviewers confirmed, at most
 const HOUR = 60 * 60 * 1000;
 const LIST_RETRY_MS = 3 * HOUR;   // a phishing list that missed its download is tried again this often (0.5.22)
@@ -829,6 +832,12 @@ class Service {
         if (userPlaced && (decision.action === 'move' || decision.action === 'would-move')) {
             decision = { action: 'flag', trigger: decision.trigger, why: `${decision.why}; the user moved it into the Inbox themselves (out of Spam or another folder), so it isn't moved` };
         }
+        // (0.6.52) Promotional (src/promotional.js): marketing or subscribed mail the checks found nothing in, from a verified
+        // outside sender. Never moved for that: recorded for Review → Promotional, where an admin answers once per company.
+        if (decision.action === 'none' && !alreadyMoved && !userPlaced) {
+            const promo = await this.promotionalOf(user, msg, facts, result, { allowlisted, relay }).catch((e) => { this.log.error('promotional:', e); return null; });
+            if (promo) decision = { action: 'promo', trigger: 'promotional', why: `promotional: ${promo.signs.join('; ')} (not moved: an admin answers in Review → Promotional)`, promotional: promo };
+        }
         if (decision.action === 'none') return this.withIndex({ user, messageId: msg.id, action: 'none', status: result.status, ai: result.ai && result.ai.probability }, msg, facts, result);
         const senderDomain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
         const campaign = campaignOf(senderDomain, facts.subject, user);
@@ -846,6 +855,10 @@ class Service {
             state = 'moved';
         } else if (decision.action === 'would-move' && this.cfg.monitorLabel) {
             await this.gmail.modify(user, msg.id, [await this.gmail.labelId(user, this.cfg.monitorLabel)], []);
+        } else if (decision.action === 'promo' && this.cfg.mode === 'enforce' && this.cfg.promotionalLabelName) {
+            // (0.6.52) Its reader sees it too (enforce mode only: monitor mode leaves mailboxes untouched).
+            try { await this.gmail.modify(user, msg.id, [await this.gmail.labelId(user, this.cfg.promotionalLabelName)], []); }
+            catch (e) { this.log.error(`promotional label ${user} ${msg.id}:`, e); }
         }
         // Suspicious, not moved: a label its reader sees, when the setting is on (0.5.33; off by default).
         let labeled = false;
@@ -855,7 +868,7 @@ class Service {
         }
         const rec = this.recordOf(user, msg, facts, result, decision, { now, campaign, campaignLabel, senderDomain, held, state, userPlaced, labeled });
         await this.store.saveRecord(rec);
-        await this.count(day, decision.action === 'move' ? 'moved' : decision.action === 'would-move' ? 'wouldMove' : 'flagged');
+        await this.count(day, decision.action === 'move' ? 'moved' : decision.action === 'would-move' ? 'wouldMove' : decision.action === 'promo' ? 'promotional' : 'flagged');
         if (decision.action === 'move' && !this.alerted.has(campaign.key)) {
             // (counted until the campaign's alert is sent; after that this instance writes nothing more)
             if (await this.store.campaignMoved(campaign.key, this.cfg.campaignAlertAfter, now, () => this.alerted.add(campaign.key))) {
@@ -898,6 +911,7 @@ class Service {
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
             action: decision.action, trigger: decision.trigger, why: decision.why, braked: held === 'brake', held, mode: this.cfg.mode,
+            ...(decision.promotional ? { promotional: { company: decision.promotional.company, signs: decision.promotional.signs.slice(0, 4) } } : {}),
             // How sure: strong = the rules flagged it and something outside the email confirms it.
             evidence: result.strong ? 'strong' : 'weak', confirmedBy: result.confirmedBy || [],
             ownAddressUnverified: !!(result.ownAddress && !result.inside), userPlaced: userPlaced || undefined,
@@ -1067,6 +1081,74 @@ class Service {
         this._spamSenders = null;
         await this.store.addEvent({ kind: 'settings', text: `${by} removed ${k} from Spam senders: its mail is checked as usual.` });
         return { ok: true, list: await this.spamSenderList() };
+    }
+    // (0.6.52) Promotional mail (src/promotional.js), from a verified sender outside the organization the checks found nothing
+    // in: { company, signs }, or null. Not when the sender is allowlisted, a platform's notification for a person (a
+    // share), a company an admin chose to keep (Promotional senders kept), or a sender this person (or SPAM_SHARED people)
+    // took back out of Spam. The company is the From address's organization (spamSenderKey): never the platform that sent it.
+    async promotionalOf(user, msg, facts, result, { allowlisted = false, relay = null } = {}) {
+        if (!this.cfg.promotional || allowlisted || relay || !result || result.inside || !result.verified || result.status === 'trusted') return null;
+        const signs = promotionalSigns(facts, (msg && msg.labelIds) || []);
+        if (!signs.length) return null;
+        const company = this.spamSenderKey(facts.senderAddress);
+        if (!company || this.cfg.orgDomains.some(o => company === o || company.endsWith('.' + o) || company.endsWith('@' + o))) return null;
+        if ((await this.promoKeptMap())[company]) return null;
+        if (await this.spamKept(user, facts.senderAddress).catch(() => null)) return null;
+        return { company, signs };
+    }
+    // Promotional senders kept (state promoKept: company → { by, at }), read at most once a minute.
+    async promoKeptMap() {
+        if (!this._promoKept || this.now() - this._promoKept.at > 60000) this._promoKept = { at: this.now(), all: (await this.store.getState('promoKept')) || {} };
+        return this._promoKept.all;
+    }
+    // Settings → Sender lists → Promotional senders kept, newest first.
+    async promoKeptList() {
+        const all = (await this.store.getState('promoKept')) || {};
+        return Object.entries(all).map(([company, v]) => ({ company, by: v.by, at: v.at })).sort((a, b) => (b.at || 0) - (a.at || 0));
+    }
+    // The promotional emails of one company still waiting in Review (nobody answered them). records: the dashboard's cache.
+    async promoWaiting(company, records = null) {
+        const c = String(company || '').toLowerCase();
+        const list = records || await this.store.listRecords({ sinceMs: this.now() - 35 * DAY, limit: 20000 });
+        return list.filter(r => r && r.action === 'promo' && r.state === 'inbox' && !r.markedBy && !r.promoKept && r.promotional && r.promotional.company === c);
+    }
+    // Review → Promotional, one answer for a company's waiting emails:
+    //   spam: each answered Spam as in Review (moved to Spam in enforce mode; with addSender, each sender put on Spam senders by
+    //         the usual rule: a mailing subdomain or the address, so the company's receipts stay checked);
+    //   keep: the company goes on Promotional senders kept: its emails leave Review, and its later mail isn't listed again.
+    // { done, moved, spamSendersAdded, keys } (keys: for Undo).
+    async answerPromotional(company, answer, by, { addSender = false, records = null } = {}) {
+        const c = String(company || '').trim().toLowerCase();
+        if (!c || !['spam', 'keep'].includes(answer)) return { error: 'Choose a company and Spam or Keep.', status: 400 };
+        const waiting = (await this.promoWaiting(c, records)).slice(0, 2000);
+        if (answer === 'spam') {
+            const out = await this.bulk(waiting.map(r => r.key), 'spam', by, { addSender });
+            return Object.assign(out, { keys: waiting.map(r => r.key) });
+        }
+        const all = Object.assign({}, (await this.store.getState('promoKept')) || {});
+        if (!all[c] && Object.keys(all).length >= PROMO_KEPT_MAX) return { error: `The list is full (${PROMO_KEPT_MAX} companies).`, status: 409 };
+        all[c] = Object.assign({ by, at: this.now() }, all[c]);
+        await this.store.setState('promoKept', all);
+        this._promoKept = null;
+        let done = 0;
+        await pool(waiting, 10, async (r) => {
+            try { await this.store.updateRecord(r.key, { promoKept: { by, at: this.now() } }); done++; } catch (e) { this.log.error(`promotional keep ${r.key}:`, e); }
+        });
+        await this.store.addEvent({ kind: 'settings', text: `${by} kept promotional mail from ${c} (Review → Promotional): ${done} email${done === 1 ? '' : 's'} left in the Inbox; its later mail isn't listed again (Settings → Sender lists → Promotional senders kept).` });
+        return { done, moved: 0, keys: waiting.map(r => r.key) };
+    }
+    // Takes a company off Promotional senders kept: its later promotional mail is listed in Review again. undoKeys: the
+    // emails a Keep answer just took out of Review (its Undo) go back.
+    async removePromoKept(company, by, { undoKeys = [] } = {}) {
+        const c = String(company || '').toLowerCase();
+        const all = Object.assign({}, (await this.store.getState('promoKept')) || {});
+        if (!all[c]) return { error: 'That company isn\'t on the list.', status: 404 };
+        delete all[c];
+        await this.store.setState('promoKept', all);
+        this._promoKept = null;
+        for (const k of undoKeys.slice(0, 2000)) await this.store.updateRecord(k, { promoKept: null }).catch(() => null);
+        await this.store.addEvent({ kind: 'settings', text: `${by} removed ${c} from Promotional senders kept: its promotional mail is listed in Review → Promotional again.` });
+        return { ok: true, list: await this.promoKeptList() };
     }
     // (0.6.49) Company domains an admin confirmed from a registry's own web page (Settings → Sender lists → Company
     // domains), for the registries public lookups can't read (EURid's .eu: amzn.eu is Amazon's there only). State

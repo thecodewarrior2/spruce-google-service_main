@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.52: Promotional mail goes to Review, one answer per company
+
+- **Promotional mail is recognized without a list of platforms:** mail Gmail put in its Promotions category, or that carries
+  a one-click unsubscribe the sender signed (RFC 8058: List-Unsubscribe and List-Unsubscribe-Post under a DKIM signature of
+  the sender's own organization; Gmail and Yahoo require it of bulk senders for marketing mail, not for receipts or password
+  resets). Only from a sender Gmail verified (DMARC), from outside, that the checks found nothing wrong with. No list of
+  marketing platforms has to be kept: none that is maintained, marketing-only and free to ship was found.
+- **It is never moved for that.** It is recorded for **Review → Promotional** (admins only), one row per company: the
+  sender's own domain, never the platform it was sent through. **Spam** answers the company's waiting emails Spam (moved
+  to the Spam folder in enforce mode) and, with the box ticked, puts its senders on Spam senders by the usual rule (a
+  mailing subdomain or the address, so its receipts stay checked); people taking it back out of Spam, the 3-person rule
+  and the allow lists' 30-day check then work as before. **Keep** leaves them in the Inbox and puts the company on
+  **Settings → Sender lists → Promotional senders kept**, so its later mail isn't listed; an admin can remove it there.
+  Each answer can be undone.
+- In enforce mode a promotional email also gets the Gmail label **SPRUCE/Promotional** (PROMOTIONAL_LABEL_NAME; empty adds
+  none). PROMOTIONAL=off stops all of it. Mail from your own domains, Trusted senders, a share from a platform, and a
+  sender the reader took back out of Spam are never listed.
+- Promotional emails are kept out of Today's counts, the trends, Threats → Campaigns, Mail → Users and Model health, which
+  are about what the checks found.
+- How email is judged changes: checks level 42, so recent delivered mail is checked again after the update.
+
+
 ## 0.6.51: Trusted senders at a subdomain; Sender lists show every list's entries
 
 - **Gmail confirming the sender's organization counts:** for mail from a subdomain (donotreply@mail.bank.example), Gmail's

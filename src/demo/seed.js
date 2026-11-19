@@ -110,6 +110,18 @@ function campaignTemplates() {
         { id: 'spanish', recipients: 6, daysAgo: 5, spread: 0.3, make: (to) => eml({ fromName: 'Servicio de Correo', from: 'soporte@correo-seguro-cuenta.example', to, dmarc: 'fail',
             subject: 'Su cuenta de correo será suspendida hoy',
             html: '<p>Estimado usuario,</p><p>Su cuenta de correo ha sido suspendida temporalmente por actividad inusual. Para restablecer el acceso, haga clic en el enlace y confirme su información antes de las 24 horas.</p><p><a href="https://correo-seguro-cuenta.example/verificar">Verificar mi cuenta</a></p><p>Gracias por su atención,</p><p>Equipo de soporte</p>' }) },
+        // (0.6.52) Promotional: two made-up stores' newsletters with a one-click unsubscribe they signed; nothing else wrong.
+        // Never moved; listed in Review → Promotional, one row per store.
+        { id: 'promo-books', recipients: 14, daysAgo: 1, spread: 0.3, make: (to) => eml({ fromName: 'Riverbend Books', from: 'picks@news.riverbend-books.example', to, dmarc: 'pass',
+            subject: 'This month\'s staff picks are here',
+            extraHeaders: ['DKIM-Signature: v=1; a=rsa-sha256; d=riverbend-books.example; s=k1; h=from:to:subject:list-unsubscribe:list-unsubscribe-post; bh=x; b=y',
+                'List-Unsubscribe: <https://news.riverbend-books.example/u>', 'List-Unsubscribe-Post: List-Unsubscribe=One-Click'].join('\r\n'),
+            html: '<p>Hi reader,</p><p>Three new mysteries, a cookbook for busy weeknights and a biography of an explorer: this month\'s staff picks.</p><p><a href="https://riverbend-books.example/picks">Shop the picks</a></p><p>Thanks for reading with us. <a href="https://news.riverbend-books.example/u">Unsubscribe</a></p>' }) },
+        { id: 'promo-outfitters', recipients: 9, daysAgo: 3, spread: 0.2, make: (to) => eml({ fromName: 'Summit Outfitters', from: 'deals@em.summit-outfitters.example', to, dmarc: 'pass',
+            subject: 'Weekend sale: 30% off rain jackets',
+            extraHeaders: ['DKIM-Signature: v=1; a=rsa-sha256; d=summit-outfitters.example; s=k1; h=from:to:subject:list-unsubscribe:list-unsubscribe-post; bh=x; b=y',
+                'List-Unsubscribe: <https://em.summit-outfitters.example/u>', 'List-Unsubscribe-Post: List-Unsubscribe=One-Click'].join('\r\n'),
+            html: '<p>This weekend only: 30% off rain jackets and hiking boots in store and online.</p><p><a href="https://summit-outfitters.example/sale">Shop the sale</a></p><p>You get this because you joined our list. <a href="https://em.summit-outfitters.example/u">Unsubscribe</a></p>' }) },
     ];
 }
 

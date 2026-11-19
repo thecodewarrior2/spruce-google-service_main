@@ -124,6 +124,12 @@ function loadConfig(env = process.env) {
         recheckAfterUpdateHours: Math.min(72, Math.max(0, Math.round(num(env.RECHECK_AFTER_UPDATE_HOURS, 24)))),
         recheckAfterUpdateMax: Math.min(50000, Math.max(0, Math.round(num(env.RECHECK_AFTER_UPDATE_MAX, 5000)))),
         suspiciousLabelName: env.SUSPICIOUS_LABEL_NAME || 'SPRUCE/Suspicious',
+        // (0.6.52) Promotional mail (src/promotional.js: Gmail's Promotions category, or a signed one-click unsubscribe) from a
+        // verified outside sender the checks found nothing in: never moved for that, listed in Review → Promotional for an
+        // admin to answer per company (on by default; PROMOTIONAL=off stops it). In enforce mode it gets this Gmail label,
+        // so its reader sees it too ('' adds none).
+        promotional: bool(env.PROMOTIONAL, true),
+        promotionalLabelName: env.PROMOTIONAL_LABEL_NAME === undefined ? 'SPRUCE/Promotional' : env.PROMOTIONAL_LABEL_NAME,
         // Health → Activity (what admins did, alerts, errors) is kept this many days (0.5.29; the email records
         // RETENTION_DAYS). 30 to 1,825. It holds no email text: mailbox addresses, sender domains, admins.
         auditDays: Math.min(1825, Math.max(30, Math.round(num(env.AUDIT_DAYS, 365)))),

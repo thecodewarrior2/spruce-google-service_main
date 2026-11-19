@@ -110,6 +110,7 @@ For each new Inbox message:
 | Sender inside (your domains, DMARC passing), and the rules don't flag it | Nothing: the AI doesn't read it (with "AI on inside mail" on: a score of 90% or more is recorded as suspicious, not moved by the AI alone; with "AI alone moves inside mail" on: moved, as from outside) |
 | A rules score of 3 or more, or an AI score of **65%** or more (`AI_SUSPICIOUS_THRESHOLD`), below what moves it | Recorded as suspicious, not moved |
 | (0.6.40) The same rules score of 3 or more from an outside sender Gmail confirmed (DMARC), with the AI under the suspicious line | Nothing: the rules alone are too weak to ask about (newsletters and notices trip them). Staff mail, a platform's notification (a share) and a link check's verdict still count |
+| (0.6.52) **Promotional**: Gmail put it in its Promotions category, or the sender signed a one-click unsubscribe (bulk senders must add one to marketing mail); from an outside sender Gmail verified (DMARC), and nothing else found | Never moved for that: listed in **Review → Promotional** for an admin to answer once per company (Spam, or Keep); in enforce mode labeled `SPRUCE/Promotional` |
 | Allowlisted sender, DMARC passing | Nothing |
 
 It also looks things up (`src/intel/`; `docs/PRIVACY.md` says exactly what is sent where):
@@ -213,6 +214,21 @@ can also release the emails it got meanwhile) or removes it.
 
 **Spam or phishing, at a glance** (0.6.27): Review, Mail and an email's page label each email **Spam** (purple) or
 **Phishing** (red), from what the service took it for, so a padded newsletter moved as spam isn't mistaken for phishing.
+
+**Promotional mail** (0.6.52): marketing and subscribed mail is told by what Gmail and the sender say, with no list of
+platforms for anyone to keep: Gmail put it in its Promotions category (the Gmail API's `CATEGORY_PROMOTIONS`), or the
+sender signed a one-click unsubscribe (RFC 8058: `List-Unsubscribe` and `List-Unsubscribe-Post`, both under a DKIM signature
+of the sender's own organization, which Gmail checked; Gmail and Yahoo require it of bulk senders for marketing mail, not
+for receipts or password resets). Only from an outside sender Gmail verified, and only when the checks found nothing else:
+it is never moved for that. **Review → Promotional** (admins only) lists it one row per company, the sender's own domain
+(never the platform it was sent through), most emails first. **Spam** answers the company's waiting emails Spam (moved to
+the Spam folder in enforce mode; with the box ticked, their senders go on Spam senders, a mailing subdomain or the address,
+so the company's receipts stay checked); from then on, people taking its mail back out of Spam and the 3-person rule below
+work as for any spam. **Keep** leaves them in the Inbox and puts the company on **Settings → Sender lists → Promotional
+senders kept**: its later promotional mail isn't listed (it is still checked, and moved if it is phishing or spam); an
+admin removes it there. Mail from your own domains (staff and school newsletters), Trusted senders, platform shares, and a
+sender the reader took back out of Spam are never listed. In enforce mode the email also gets the Gmail label
+`SPRUCE/Promotional` (`PROMOTIONAL_LABEL_NAME`, empty for none); `PROMOTIONAL=off` turns it all off.
 
 **Spam people took back** (0.6.26): when someone moves mail the service moved as spam (trigger `spam`) back out
 of Spam, that sender's spam isn't moved for them again for 6 months: a sender is its organization's domain, or the

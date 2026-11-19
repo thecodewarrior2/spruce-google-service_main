@@ -29,7 +29,7 @@ const FILES = [
     'src/engine/mime.js', 'src/engine/model.js', 'src/engine/network.js', 'src/engine/notifications.js', 'src/engine/replychain.js',
     'src/engine/spruce.js',
     'src/intel/feeds.js', 'src/intel/abusech.js', 'src/intel/threats.js', 'src/intel/spamhaus.js', 'src/intel/rdap.js', 'src/intel/index.js',
-    'src/policy.js', 'src/lookalike.js', 'src/simulations.js'
+    'src/policy.js', 'src/lookalike.js', 'src/simulations.js', 'src/promotional.js'
 ];
 
 // The level this version runs (package.json).

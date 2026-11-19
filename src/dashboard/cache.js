@@ -49,6 +49,9 @@ function slimmer() {
         // a Spam answer and when an answer was given (Re-checked's "answered", 0.6.43), and why it went to Spam.
         auth: r.auth ? Object.freeze({ dmarc: I(r.auth.dmarc), headerFrom: I(r.auth.headerFrom) }) : r.auth, spam: r.spam, spamSender: I(r.spamSender),
         platformNote: r.platformNote, undo: r.undo && r.undo.at ? Object.freeze({ at: r.undo.at }) : null,
+        // (0.6.52) Review → Promotional: the company and why, and an admin's Keep.
+        promotional: r.promotional ? Object.freeze({ company: I(r.promotional.company), signs: Object.freeze((r.promotional.signs || []).map(I)) }) : undefined,
+        promoKept: r.promoKept ? Object.freeze({ by: I(r.promoKept.by), at: r.promoKept.at }) : undefined,
         // Re-checked after delivery (0.5.35): what was found, when, and what Gmail's logs say.
         recheck: r.recheck ? Object.freeze({ at: r.recheck.at, source: I(r.recheck.source), site: I(r.recheck.site), list: I(r.recheck.list), round: r.recheck.round, version: I(r.recheck.version),
             before: I(r.recheck.before), outcome: I(r.recheck.outcome), where: I(r.recheck.where), opened: r.recheck.opened, movedAt: r.recheck.movedAt,

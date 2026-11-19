@@ -37,6 +37,9 @@
     const days = (now, n) => { const today = dayOf(now); return Array.from({ length: n }, (_, i) => addDays(today, i - (n - 1))); };
     const isMove = (r) => r.action === 'move';
     const TRIGGERS = { rules: 'Rules', ai: 'AI score', 'rules+ai': 'Rules + AI', admin: 'An admin (campaign)', spam: 'Spam (padded list mail)' };
+    // (0.6.52) Promotional mail (action 'promo'): recorded for Review → Promotional only, never moved or suspicious; left out
+    // of the counts, trends, campaigns, users and model health below, which are about what the checks found.
+    const isPromo = (r) => r.action === 'promo';
 
     // What a signal is about, for "top reasons" (the extension's sign texts, grouped).
     function signalCategory(s) {
@@ -69,11 +72,11 @@
         const moved = rs.filter(isMove);
         const released = moved.filter(r => r.state === 'released');
         const userReleased = released.filter(r => r.releasedByUser);
-        const users = new Set(rs.filter(r => r.action !== 'flag').map(r => r.user));
+        const users = new Set(rs.filter(r => r.action !== 'flag' && !isPromo(r)).map(r => r.user));
         const camps = new Set(moved.map(r => r.campaign));
         return {
             days: n, scanned: sum('scanned'), moved: moved.length, wouldMove: rs.filter(r => r.action === 'would-move').length,
-            flagged: rs.filter(r => r.action === 'flag').length, released: released.length, userReleased: userReleased.length,
+            flagged: rs.filter(r => r.action === 'flag').length, promotional: rs.filter(isPromo).length, released: released.length, userReleased: userReleased.length,
             falseAlarms: rs.filter(r => r.falseAlarm === true).length, usersAffected: users.size, campaigns: camps.size,
             releaseRate: moved.length ? released.length / moved.length : 0, errors: sum('errors'),
             byTrigger: Object.fromEntries(Object.keys(TRIGGERS).map(k => [k, rs.filter(r => (r.action === 'move' || r.action === 'would-move') && r.trigger === k).length])),
@@ -93,7 +96,7 @@
         for (const s of stats) if (byDay[s.day]) byDay[s.day].scanned = s.scanned || 0;
         for (const r of records) {
             const d = byDay[dayOf(r.processedAt)];
-            if (!d) continue;
+            if (!d || isPromo(r)) continue;
             const t = TRIGGERS[r.trigger] ? r.trigger : 'rules';
             if (isMove(r)) { d[t]++; d[`by:${t}`]++; }
             else if (r.action === 'would-move') { d.wouldMove++; d[`wm:${t}`]++; d[`by:${t}`]++; }
@@ -122,7 +125,7 @@
         const since = now - n * DAY;
         const m = new Map();
         for (const r of records) {
-            if (r.processedAt < since) continue;
+            if (r.processedAt < since || isPromo(r)) continue;
             let c = m.get(r.campaign);
             if (!c) { c = { campaign: r.campaign, label: r.campaignLabel, senderDomain: r.sender.domain, subject: r.subject, recipients: new Set(), messages: 0, moved: 0, wouldMove: 0, released: 0, firstAt: r.processedAt, lastAt: r.processedAt, maxAi: 0, reasons: {} }; m.set(r.campaign, c); }
             c.recipients.add(r.user); c.messages++;
@@ -142,7 +145,7 @@
         const since = now - n * DAY;
         const m = new Map();
         for (const r of records) {
-            if (r.processedAt < since) continue;
+            if (r.processedAt < since || isPromo(r)) continue;
             let u = m.get(r.user);
             if (!u) { u = { user: r.user, moved: 0, wouldMove: 0, flagged: 0, released: 0, last: 0 }; m.set(r.user, u); }
             if (isMove(r)) u.moved++; else if (r.action === 'would-move') u.wouldMove++; else u.flagged++;
@@ -228,7 +231,7 @@
     // opts: the settings in force (orgDomains, aiSuspicious, aiThreshold), for "rules and AI together".
     function modelHealth(records, now, n, opts = {}) {
         const since = now - n * DAY;
-        const rs = records.filter(r => r.processedAt >= since && r.ai && typeof r.ai.probability === 'number');
+        const rs = records.filter(r => r.processedAt >= since && !isPromo(r) && r.ai && typeof r.ai.probability === 'number');
         const buckets = Array.from({ length: 10 }, (_, i) => ({ from: i * 10, to: i * 10 + 10, count: 0, released: 0, falseAlarms: 0 }));
         for (const r of rs) {
             const b = buckets[Math.min(9, Math.floor(r.ai.probability * 10))];
@@ -377,8 +380,32 @@
     function verdictKind(r) {
         if (!r) return null;
         if (r.spam || r.trigger === 'spam') return 'spam';
+        if (isPromo(r)) return 'promotional';
         return ['move', 'would-move', 'flag'].includes(r.action) ? 'phishing' : null;
     }
+    // (0.6.52) Review → Promotional: the waiting promotional emails, one item per company (the From address's organization),
+    // most emails first: its keys (at most REVIEW_GROUP_MAX), recipients, sending addresses, a few subjects, the signs, and
+    // when the first and the last came.
+    function promoGroups(list) {
+        const m = new Map();
+        for (const r of list) {
+            const c = r.promotional && r.promotional.company;
+            if (!c) continue;
+            let g = m.get(c);
+            if (!g) { g = { company: c, keys: [], users: new Set(), senders: new Set(), subjects: [], signs: new Set(), count: 0, firstAt: null, lastAt: null }; m.set(c, g); }
+            g.count++;
+            if (g.keys.length < REVIEW_GROUP_MAX) g.keys.push(r.key);
+            if (r.user && g.users.size < REVIEW_GROUP_MAX) g.users.add(r.user);
+            if (r.sender && r.sender.address && g.senders.size < 50) g.senders.add(r.sender.address);
+            if (r.subject && g.subjects.length < 3 && !g.subjects.includes(r.subject)) g.subjects.push(r.subject);
+            for (const x of r.promotional.signs || []) g.signs.add(x);
+            const at = r.receivedAt || r.processedAt;
+            if (at && (!g.firstAt || at < g.firstAt)) g.firstAt = at;
+            if (at && (!g.lastAt || at > g.lastAt)) g.lastAt = at;
+        }
+        return [...m.values()].map(g => ({ company: g.company, count: g.count, keys: g.keys, users: [...g.users], senders: [...g.senders], subjects: g.subjects, signs: [...g.signs], firstAt: g.firstAt, lastAt: g.lastAt }))
+            .sort((a, b) => b.count - a.count || (b.lastAt || 0) - (a.lastAt || 0));
+    }
 
-    return { DAY, dayOf, dayIn, addDays, setTimeZone, TRIGGERS, signalCategory, summary, trend, topReasons, campaigns, users, filterRecords, modelHealth, readiness, toCsv, activity, isAdminAction, activityCsv, rechecked, recheckAlert, recheckReason, reviewGroups, verdictKind };
+    return { DAY, dayOf, dayIn, addDays, setTimeZone, TRIGGERS, signalCategory, summary, trend, topReasons, campaigns, users, filterRecords, modelHealth, readiness, toCsv, activity, isAdminAction, activityCsv, rechecked, recheckAlert, recheckReason, promoGroups, reviewGroups, verdictKind };
 });
