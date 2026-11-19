@@ -769,3 +769,15 @@ ul.plain-list li { margin: 2px 0; overflow-wrap: break-word; word-break: normal;
 .allow-review:not(:has(.review-row.suspended)) { border-left-color: var(--serious); }
 /* (0.6.32) A training rule whose header was seen in an email it didn't match. */
 .training-miss { margin-top: 4px; max-width: 46ch; }
+
+/* (0.6.35) Settings → Sender lists: each list's label, saying what it does. */
+.list-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 2px 0 8px; }
+.list-label { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 6px; border: 1px solid; white-space: nowrap; }
+.list-label.small-label { font-size: 11px; padding: 1px 7px; }
+.list-label.trusted { color: var(--good-text, var(--good)); border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.list-label.spam { color: var(--s5); border-color: var(--s5); background: color-mix(in srgb, var(--s5) 14%, transparent); }
+.list-label.brand { color: var(--s1); border-color: var(--s1); background: color-mix(in srgb, var(--s1) 12%, transparent); }
+.list-label.link { color: var(--muted); border-color: var(--border); background: var(--surface-2); }
+.list-label.kept { color: var(--s4); border-color: var(--s4); background: color-mix(in srgb, var(--s4) 12%, transparent); }
+.spam-sender-opt { margin: 8px 0 0; }
+.spam-add { margin-top: 10px; }

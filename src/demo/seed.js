@@ -205,6 +205,8 @@ async function buildDemo({ now = Date.now(), cfg }) {
     // (0.6.32) A made-up training vendor's rule whose header was seen from an address it doesn't list.
     await store.setState('phishTraining', { rules: [{ id: 'demo-trainer', name: 'Madeup Trainer', header: 'x-madeup-test', headerShown: 'X-MADEUP-TEST', valueHash: null, ips: ['192.0.2.0/26'] }], domains: [], by: 'demo-admin@example.org', at: now - 20 * DAY });
     await store.setState('phishTrainingMissed', { 'demo-trainer': { name: 'Madeup Trainer', count: 2, first: now - 26 * 3600e3, last: now - 3 * 3600e3, notedAt: now - 26 * 3600e3, ip: '198.51.100.7', why: 'Gmail received it from 198.51.100.7, not one of the rule\'s sending addresses' } });
+    // (0.6.35) A spam sender an admin added from Review (made up).
+    await store.setState('spamSenders', { 'deal-blast.example': { by: 'demo-admin@example.org', at: now - 4 * DAY, from: 'review', count: 0 } });
     await store.setState('spamRescued', { 'coupon-blast.example': { users: ['demo-a', 'demo-b', 'demo-c', 'demo-d'], first: now - 12 * DAY, last: now - 2 * DAY, shared: true, keep: false } });
     // (the colleague-name check read the demo directory while the made-up mail was judged: as of now)
     const cn = await store.getState('colleagueNames');

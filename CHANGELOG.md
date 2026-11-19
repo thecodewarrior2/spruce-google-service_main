@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.35: Spam senders, and Allowlist becomes Sender lists
+
+- **Spam senders:** answering **Spam** in Review now also offers "With Spam, also send future mail from <domain> straight
+  to Spam", ticked by default for admins (moderators' Spam answers label the email only). The sender's verified mail then
+  goes straight to Spam, as spam, whatever the other checks find (monitor mode: recorded as "would move"; the brake
+  holds it like any move). A sender is its organization's domain, or the address itself at a personal mail provider.
+  Never for a forged copy (DMARC not passing), mail from inside, an allowlisted sender, a person who took that sender's
+  spam back out of Spam, or while the 30-day check has the domain suspended. Admins also add and remove them on the
+  page. The email's card shows **Always to Spam** beside the sender's address, and its reason names the list
+  (`spamSenderFor`, `addSpamSender` in `src/pipeline.js`; state `spamSenders`; `GET`/`POST /api/spam-senders`).
+- **Settings → Allowlist is now Settings → Sender lists,** one card per list, each labeled with what it does:
+  **Never moved** (Trusted senders), **Always to Spam** (Spam senders), **Brand's own sender** (brand senders your
+  reviewers confirmed), **Link site allowed** (Link sites), **Not moved for some people** (spam people took back), with
+  the 30-day check's **Needs review** at the top. The page's address stays #/allowlist; messages and docs say Sender
+  lists.
+- The 30-day check covers Spam senders' domains too.
+- Tests: `test/spam-senders.test.js` (a made-up recipe site). The demo has a spam sender.
+- **Checks level 33:** delivered mail of the last hours is checked again after this update.
+
+
 ## 0.6.34: a newsletter's hidden link to its own site isn't a decoy
 
 - **A cooking site's newsletter was flagged as phishing:** it hides an invisible, empty link to its own site beside a

@@ -578,10 +578,13 @@ class Service {
         // (a phishing-training email is let through, unchecked, on arrival: said so, 0.5.44)
         const training = await this.trainingOf(facts);
         if (training) decision = { action: 'none', trigger: null, why: `a phishing-training email (${training.name}): let through unchecked, as set in Settings → Phishing training. The checks below show what they would find` };
-        const trainingMiss = training ? [] : await this.trainingMissOf(facts);   // (0.6.32) why a rule's header didn't make it training
+        const trainingMiss = training ? [] : await this.trainingMissOf(facts);
+        // (0.6.35) A sender on Spam senders: straight to Spam, as on arrival.
+        const spamSender = training ? null : await this.spamSenderFor(mailbox, facts, result, allowlisted).catch(() => null);
+        if (spamSender) decision = { action: this.cfg.mode === 'enforce' ? 'move' : 'would-move', trigger: 'spam', why: `spam: ${spamSender.key} is on Settings → Sender lists → Spam senders (added by ${spamSender.by})` };   // (0.6.32) why a rule's header didn't make it training
         const domain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
         return {
-            pasted: true, training: training ? training.name : null, trainingMiss, key: null, messageId: null, rfc822MessageId: messageIdOf(facts.messageIdHeader), user: mailbox,
+            pasted: true, training: training ? training.name : null, trainingMiss, spamSender: spamSender ? spamSender.key : null, key: null, messageId: null, rfc822MessageId: messageIdOf(facts.messageIdHeader), user: mailbox,
             receivedAt: facts.date || null, processedAt: this.now(),
             sender: { name: facts.senderName.slice(0, 200), address: facts.senderAddress.slice(0, 320), domain }, subject: facts.subject.slice(0, 300),
             status: result.status, score: result.score, signals: result.signals.slice(0, 30), links: result.links.slice(0, 20), checks: result.checks || null,
@@ -807,12 +810,18 @@ class Service {
         result.allowlistedUnverified = allowlisted && !verified;
         await this.applySpamMemory(user, facts, result);
         // (0.6.30) From a domain an allow list holds but the 30-day check suspended: tagged, so an admin finds (and can
-        // release) the emails it got while waiting for review (Settings → Allowlist).
+        // release) the emails it got while waiting for review (Settings → Sender lists).
         result.allowSuspended = await this.allowSuspendedFor((facts.senderAddress.split('@')[1] || '').toLowerCase());
         // (0.6.7) The brake is read only when it matters: when the email would be moved (enforce mode). It was read
         // for every email; the decision is the same.
         let decision = decide(result, this.cfg, { brake: false });
-        if (!alreadyMoved && decision.action === 'move' && await this.brakeOn(now)) decision = decide(result, this.cfg, { brake: true });
+        // (0.6.35) A sender on Spam senders: straight to Spam, as spam (monitor mode: would be).
+        const spamSender = await this.spamSenderFor(user, facts, result, allowlisted).catch(() => null);
+        if (spamSender) {
+            result.spamSender = spamSender.key;
+            decision = { action: this.cfg.mode === 'enforce' ? 'move' : 'would-move', trigger: 'spam', why: `spam: ${spamSender.key} is on Settings → Sender lists → Spam senders (added by ${spamSender.by})${this.cfg.mode === 'enforce' ? '' : ' (monitor mode: not moved)'}` };
+        }
+        if (!alreadyMoved && decision.action === 'move' && await this.brakeOn(now)) decision = spamSender ? Object.assign({}, decision, { action: 'would-move', why: `${decision.why}; the brake is on, so it was left in the Inbox` }) : decide(result, this.cfg, { brake: true });
         if (alreadyMoved) decision = { action: 'move', trigger: decision.trigger, why: `${decision.why || 'moved'} (moved by an earlier try)` };
         if (userPlaced && (decision.action === 'move' || decision.action === 'would-move')) {
             decision = { action: 'flag', trigger: decision.trigger, why: `${decision.why}; the user moved it into the Inbox themselves (out of Spam or another folder), so it isn't moved` };
@@ -881,7 +890,7 @@ class Service {
             subject: this.cfg.storeSubjects ? facts.subject.slice(0, 300) : '',
             campaign: campaign.key, campaignLabel,
             status: result.status, score: result.score, signals: result.signals.slice(0, 20), links: result.links.slice(0, 10), checks: result.checks || null,
-            ai: aiRecord(result.ai, this.cfg), ...(result.allowSuspended ? { allowSuspended: result.allowSuspended } : {}),
+            ai: aiRecord(result.ai, this.cfg), ...(result.allowSuspended ? { allowSuspended: result.allowSuspended } : {}), ...(result.spamSender ? { spamSender: result.spamSender } : {}),
             auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.headerFrom ? { headerFrom: facts.auth.headerFrom } : {}, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
@@ -961,7 +970,7 @@ class Service {
         const keys = Object.keys(all).sort((a, b) => (all[b].last || 0) - (all[a].last || 0));
         for (const k of keys.slice(SPAM_RESCUED_MAX)) delete all[k];
         await this.store.setState('spamRescued', all);
-        if (becameShared && !e.keep) await this.store.addEvent({ kind: 'spam-rescued', text: `${e.users.length} people took mail from ${sender} back out of Spam, where the service had moved it as spam. Its mail is no longer moved as spam for anyone (it is still checked for phishing). If it is mail your district wants, add it to Settings → Allowlist; if it is spam after all, choose "Keep moving it" in Settings → Allowlist → Spam people took back.` });
+        if (becameShared && !e.keep) await this.store.addEvent({ kind: 'spam-rescued', text: `${e.users.length} people took mail from ${sender} back out of Spam, where the service had moved it as spam. Its mail is no longer moved as spam for anyone (it is still checked for phishing). If it is mail your district wants, add it to Settings → Sender lists; if it is spam after all, choose "Keep moving it" in Settings → Sender lists → Spam people took back.` });
     }
     // Whether this person (or, once SPAM_SHARED people took it back, everyone) keeps this sender's spam: null, or why.
     async spamKept(user, address) {
@@ -979,7 +988,7 @@ class Service {
         const why = await this.spamKept(user, facts.senderAddress).catch(() => null);
         if (why) result.spam = undefined;
     }
-    // Settings → Allowlist: the senders several people took back (0.6.26), newest first; keep: an admin's "keep moving it".
+    // Settings → Sender lists: the senders several people took back (0.6.26), newest first; keep: an admin's "keep moving it".
     async spamRescuedList() {
         const all = (await this.store.getState('spamRescued')) || {};
         const now = this.now();
@@ -997,12 +1006,60 @@ class Service {
             : `${by} chose to stop moving spam from ${sender} for everyone, as ${e.users.length} people took some back.` });
         return { ok: true, list: await this.spamRescuedList() };
     }
+    // (0.6.35) Spam senders: an admin's list (Settings → Sender lists → Spam senders) of senders whose verified mail goes
+    // straight to Spam, as spam, whatever the other checks find: added from a Spam answer in Review ("Also send future
+    // mail from this sender straight to Spam", ticked by default for admins) or on the page. A sender is its
+    // organization's domain, or the address itself at a personal mail provider (spamSenderKey). Only when Gmail's DMARC
+    // check passed for it (a forged copy is judged as usual), never mail from inside or an allowlisted sender, not for a
+    // person who took that sender's spam back out of Spam, nor while the 30-day check has it suspended. State spamSenders.
+    async spamSenderList() {
+        const all = (await this.store.getState('spamSenders')) || {};
+        return Object.entries(all).map(([key, v]) => ({ key, by: v.by, at: v.at, from: v.from || 'page', count: v.count || 0, last: v.last || null }))
+            .sort((a, b) => (b.at || 0) - (a.at || 0));
+    }
+    async addSpamSender(sender, by, { from = 'page' } = {}) {
+        const E = spruce.load();
+        const raw = String(sender || '').trim().toLowerCase();
+        const key = raw.includes('@') ? this.spamSenderKey(raw) : (E.registrableDomain(raw) || raw);
+        if (!key || /\s/.test(key) || !/\.[a-z]{2,}$/.test(key)) return { error: 'Give a domain (newsletter.example) or, at a personal mail provider, an address.', status: 400 };
+        if (this.cfg.orgDomains.some(o => key === o || key.endsWith('.' + o) || key.endsWith('@' + o))) return { error: 'Your own domains can\'t be spam senders.', status: 400 };
+        if (!key.includes('@') && E.isPersonalMailDomain(key)) return { error: 'A personal mail provider is everyone\'s: give the address instead.', status: 400 };
+        const all = Object.assign({}, (await this.store.getState('spamSenders')) || {});
+        const had = all[key];
+        all[key] = Object.assign({ by, at: this.now(), from, count: 0 }, had);
+        if (Object.keys(all).length > 2000) return { error: 'The list is full (2,000 senders).', status: 409 };
+        await this.store.setState('spamSenders', all);
+        this._spamSenders = null;
+        if (!had) await this.store.addEvent({ kind: 'settings', text: `${by} added ${key} to Spam senders${from === 'review' ? ' (answering Spam in Review)' : ''}: its verified mail goes straight to Spam, as spam.` });
+        return { ok: true, key, list: await this.spamSenderList() };
+    }
+    async removeSpamSender(key, by) {
+        const all = Object.assign({}, (await this.store.getState('spamSenders')) || {});
+        const k = String(key || '').toLowerCase();
+        if (!all[k]) return { error: 'That sender isn\'t on the list.', status: 404 };
+        delete all[k];
+        await this.store.setState('spamSenders', all);
+        this._spamSenders = null;
+        await this.store.addEvent({ kind: 'settings', text: `${by} removed ${k} from Spam senders: its mail is checked as usual.` });
+        return { ok: true, list: await this.spamSenderList() };
+    }
+    // The spam-sender entry an email's sender is on, or null (the conditions above).
+    async spamSenderFor(user, facts, result, allowlisted) {
+        if (allowlisted || !result || result.inside || !result.verified) return null;
+        if (!this._spamSenders || this.now() - this._spamSenders.at > 60000) this._spamSenders = { at: this.now(), all: (await this.store.getState('spamSenders')) || {} };
+        const key = this.spamSenderKey(facts.senderAddress);
+        const e = key && this._spamSenders.all[key];
+        if (!e) return null;
+        if (await this.allowSuspendedFor(String(facts.senderAddress || '').toLowerCase().split('@')[1] || '')) return null;
+        if (await this.store.getCached('spamok', `${senderHash(user)}|${senderHash(key)}`)) return null;
+        return Object.assign({ key }, e);
+    }
     // (0.6.29) Brand senders the organization's reviewers confirmed: "False alarm" on an email whose only sign was a brand's
     // name on an address that isn't the brand's (kind brand-name-other, 5), the other signs only "from outside" or "the
     // first email from this sender", and Gmail's DMARC check passing for the sender's domain. The brand and the sender's
     // registrable domain are kept (state brandSenders, at most BRAND_SENDERS_MAX); from then on, verified mail from that
     // domain under that brand's name isn't counted for it, and the AI is told it is the brand's sender (shared.js
-    // brandSenderConfirmed). Settings → Allowlist lists them; an admin removes one there.
+    // brandSenderConfirmed). Settings → Sender lists lists them; an admin removes one there.
     brandSenderOf(rec) {
         if (!rec || !rec.sender || !rec.auth || rec.auth.dmarc !== 'pass' || rec.inside) return null;
         const E = spruce.load();
@@ -1028,7 +1085,7 @@ class Service {
         for (const k of keys.slice(BRAND_SENDERS_MAX)) delete all[k];
         await this.store.setState('brandSenders', all);
         this._brandSenders = null;
-        if (!had) await this.store.addEvent({ kind: 'brand-sender', text: `${by} marked an email from ${rec.sender.address} a false alarm: ${b.domain} is now a confirmed sender for ${b.brand}. Its verified mail under ${b.brand}'s name isn't counted as an imitation (Settings → Allowlist → Brand senders your reviewers confirmed).` });
+        if (!had) await this.store.addEvent({ kind: 'brand-sender', text: `${by} marked an email from ${rec.sender.address} a false alarm: ${b.domain} is now a confirmed sender for ${b.brand}. Its verified mail under ${b.brand}'s name isn't counted as an imitation (Settings → Sender lists → Brand senders your reviewers confirmed).` });
         return b;
     }
     async brandSenderSet() {
@@ -1292,12 +1349,18 @@ class Service {
     // mode); 'not-in-inbox' (already in Spam, or moved back by an admin, whose decision stands); or null.
     // (0.6.26) spam: confirmed, as spam rather than phishing (falseAlarm false, spam true): Review's "Spam", and the
     // retraining export's class.
-    async mark(key, falseAlarm, by, { move = false, quiet = false, spam = false } = {}) {
+    async mark(key, falseAlarm, by, { move = false, quiet = false, spam = false, addSender = false } = {}) {
         const rec = await this.store.getRecord(key);
         if (!rec) return { error: 'not found' };
         let out = await this.store.updateRecord(key, Object.assign({ falseAlarm: !!falseAlarm, markedBy: by, spam: !falseAlarm && !!spam }, rec.unclear ? { unclear: false } : {}));
         if (falseAlarm && rec.falseAlarm !== true) await this.store.incStat(this.dayOf(this.now()), 'falseAlarms');
         if (falseAlarm) await this.learnBrandSender(rec, by).catch(e => this.log.error('brand sender:', e));
+        // (0.6.35) A Spam answer with "Also send future mail from this sender straight to Spam": a verified outside sender only.
+        let spamSenderAdded = null;
+        if (!falseAlarm && spam && addSender && rec.auth && rec.auth.dmarc === 'pass' && !rec.inside && rec.sender && rec.sender.address) {
+            const r = await this.addSpamSender(rec.sender.address, by, { from: 'review' }).catch(() => null);
+            if (r && r.ok) spamSenderAdded = r.key;
+        }
         // A false alarm loses the Suspicious label it was given (0.5.33).
         if (falseAlarm && rec.suspiciousLabel) {
             try { await this.gmail.modify(rec.user, rec.messageId, [], [await this.gmail.labelId(rec.user, this.cfg.suspiciousLabelName)]); out = await this.store.updateRecord(key, { suspiciousLabel: false }); }
@@ -1319,7 +1382,7 @@ class Service {
                 if (!quiet) await this.store.addEvent({ kind: 'mark', user: rec.user, text: `${by} confirmed an email from ${rec.sender.address} to ${rec.user} as ${as} and moved it to Spam.` });
             }
         }
-        return { record: out, moved, released };
+        return { record: out, moved, released, spamSenderAdded };
     }
 
     // (0.5.60) An admin's "Ignore, treat as suspicious": neither clearly phishing nor clearly safe (an outside request
@@ -2213,14 +2276,14 @@ class Service {
     // action: release | false-alarm | phishing | unclear (set aside). { done, skipped, failed }. Each works as
     // for one email: phishing still in the Inbox is moved to Spam too (enforce mode; moved says how many), a
     // false alarm in Spam goes back to the Inbox (released says how many). One Activity line for all of them.
-    async bulk(keys, action, by) {
+    async bulk(keys, action, by, { addSender = false } = {}) {
         const out = { done: 0, skipped: 0, failed: 0 };
         if (action === 'phishing' || action === 'spam') out.moved = 0;
         if (action === 'false-alarm') out.released = 0;
         await pool(keys, 10, async (key) => {
             try {
                 const r = action === 'release' ? await this.release(key, by, { quiet: true }) : action === 'unclear' ? await this.setAside(key, by, { quiet: true })
-                    : await this.mark(key, action === 'false-alarm', by, { move: action === 'phishing' || action === 'spam', quiet: true, spam: action === 'spam' });
+                    : await this.mark(key, action === 'false-alarm', by, { move: action === 'phishing' || action === 'spam', quiet: true, spam: action === 'spam', addSender: action === 'spam' && addSender });
                 if (r && r.record) out.done++; else out.skipped++;
                 if (r && r.moved === 'moved') out.moved++;
                 if (r && r.released) out.released++;

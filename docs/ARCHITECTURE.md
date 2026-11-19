@@ -188,6 +188,14 @@ name exist, with mail servers, with a website); a pass a day. The first pass tak
 appears later, or one registered in the last 30 days, is an alert and a strong sign in mail from it, replies
 to it and links to it. Admins mark each one: the district's own, harmless, or a threat.
 
+## Spam senders
+
+(0.6.35.) State `spamSenders`: senders (a registrable domain, or an address at a personal mail provider) an admin put on
+Settings → Sender lists → Spam senders, from a Spam answer in Review or on the page. In `judge` (and Check an email),
+after the policy's decision, a verified outside sender on it (`spamSenderFor`: DMARC passing, not allowlisted, not
+taken back by this person, not suspended by the 30-day check) gets trigger `spam`: moved (enforce) or would be
+(monitor), the brake holding it like any move.
+
 ## The allow lists' 30-day check
 
 (0.6.30, `src/allowwatch.js`.) The hourly job looks up the domains on the allow lists that are due (never looked up, or
@@ -338,7 +346,7 @@ Their data is never exported for retraining: their terms don't allow it to train
   vocabulary doesn't have, when they start a sentence; most capitalized words in the middle of one.
   Nothing is stored or counted. `tools/check-training-file.js` refuses a file with leftovers, and
   `docs/RETRAINING.md` covers the rest.
-- **The policy, changed on the dashboard** (Settings → Policy, Settings → Allowlist).
+- **The policy, changed on the dashboard** (Settings → Policy, Settings → Sender lists).
   - **Which settings:** `MODE`, `AI_MOVE_THRESHOLD`, `AI_SUSPICIOUS_THRESHOLD`, `BRAKE_PER_HOUR`,
     `TIME_ZONE`, `ALLOW_DOMAINS`, `ALLOW_ADDRESSES` and `RETENTION_DAYS`, kept in Firestore as
     `state/policy-<key>`. Each document's expiry date (`expireAt`) is computed from the retention in

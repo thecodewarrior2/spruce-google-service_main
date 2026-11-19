@@ -8,7 +8,7 @@
 //     extension's senderDomainShared: one listing of a hacked school site must not flag all staff mail);
 //   - registry dates: up to LINK_AGE_LOOKUPS unfamiliar link domains, and the sender's (registrable) domain;
 //   - Spamhaus's DBL and ZRD (0.5.37; off by default): the sender's domain and link sites, at most 6 an email.
-// (0.5.73) An allowed link domain (Settings → Allowlist, ctx.allowLinkDomains, and its subdomains) is matched
+// (0.5.73) An allowed link domain (Settings → Sender lists, ctx.allowLinkDomains, and its subdomains) is matched
 // against the phishing lists by exact address only, as the organization's own domains are: a listing of its
 // whole domain (a newsletter's click tracker listed by mistake) is a note of no weight, a listing of the exact
 // page still flags the link. Cloudflare, Safe Browsing, Spamhaus and where a link leads are checked as before.
@@ -213,7 +213,7 @@ async function networkChecks(E, intel, facts, judged, ctx) {
     const passed = allowedListed.filter(x => x.list && !web.some(j => j.network && [hostOf(j.url), hostOf(j.finalUrl)].includes(x.host)));
     if (passed.length) {
         const hosts = [...new Set(passed.map(x => x.host))], lists = [...new Set(passed.map(x => x.list))];
-        signals.push({ weight: 0, kind: 'allowed-link-domain', text: `${hosts.length === 1 ? `A link's site (${hosts[0]}) is` : `Links' sites (${hosts.slice(0, 3).join(', ')}) are`} on ${lists.join(' and ')}, but ${hosts.length === 1 ? 'it is an allowed link domain' : 'they are allowed link domains'} (Settings → Allowlist): a listing of the whole domain isn't counted. The other link checks still apply.` });
+        signals.push({ weight: 0, kind: 'allowed-link-domain', text: `${hosts.length === 1 ? `A link's site (${hosts[0]}) is` : `Links' sites (${hosts.slice(0, 3).join(', ')}) are`} on ${lists.join(' and ')}, but ${hosts.length === 1 ? 'it is an allowed link domain' : 'they are allowed link domains'} (Settings → Sender lists): a listing of the whole domain isn't counted. The other link checks still apply.` });
     }
     if (senderOnList) signals.push({ weight: 5, kind: 'scam-sender-list', text: `The sender's address is on a list of known scam senders (${senderOnList}).` });
     // Spamhaus (0.5.37): the sender's domain on the DBL (phishing, malware, botnet control: 5; low reputation: 2;

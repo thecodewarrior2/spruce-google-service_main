@@ -329,7 +329,7 @@ the dashboard offers only versions at that level or lower.
 
 `MODE`, `AI_MOVE_THRESHOLD`, `AI_SUSPICIOUS_THRESHOLD`, `AI_SCANS_INSIDE`, `AI_MOVES_INSIDE`, `SUSPICIOUS_LABEL`,
 `RECHECK`, `BRAKE_PER_HOUR`, `TIME_ZONE` and `RETENTION_DAYS` (Settings → Policy), `ALLOW_DOMAINS`,
-`ALLOW_ADDRESSES` and `ALLOW_LINK_DOMAINS` (Settings → Allowlist), `SAFE_BROWSING`, `SPAMHAUS` and `ABUSECH` (their
+`ALLOW_ADDRESSES` and `ALLOW_LINK_DOMAINS` (Settings → Sender lists), `SAFE_BROWSING`, `SPAMHAUS` and `ABUSECH` (their
 Settings pages) and `WATCH_SCOPE` (Settings → Mailboxes) can also be changed on the dashboard, with the project ID,
 which the dashboard checks against `GOOGLE_CLOUD_PROJECT`.
 Those changes are kept in Firestore (`state/policy-<key>`) and read by both services at least every
@@ -359,8 +359,8 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `MOVE_ON_RULES` | `true` | the extension's "flagged" verdict moves; so does spam (0.6.19: padded list mail with nothing else suspicious) |
 | `AI_SCANS_INSIDE` | `false` | the AI model also reads mail from inside the organization (your domains, DMARC passing); off, the rule checks alone read it (links, headers, the rest). Also on the dashboard: Settings → Policy, "AI on inside mail" |
 | `AI_MOVES_INSIDE` | `false` | let the AI score alone move mail from inside the organization (only mail from your domains with DMARC passing counts as inside); it needs the AI to read inside mail, so it turns `AI_SCANS_INSIDE` on too. Also on the dashboard: Settings → Policy, "AI alone moves inside mail" (turning it on needs a ticked agreement) |
-| `ALLOW_DOMAINS`, `ALLOW_ADDRESSES` | none | never moved, when Gmail's DMARC check passed for the sender's domain (also on the dashboard: Settings → Allowlist). Your own domains can't be allowlisted |
-| `ALLOW_LINK_DOMAINS` | none | link sites a phishing list's listing of their whole domain doesn't flag (0.5.73; a newsletter's click tracker listed by mistake), in every sender's mail; a listing of the exact page still does, and the other link checks still apply. Not passed by `install.sh`: set on the dashboard (Settings → Allowlist, "Link domains") or in the services' environment. Shared hosting, link shorteners and your own domains are refused |
+| `ALLOW_DOMAINS`, `ALLOW_ADDRESSES` | none | never moved, when Gmail's DMARC check passed for the sender's domain (also on the dashboard: Settings → Sender lists). Your own domains can't be allowlisted |
+| `ALLOW_LINK_DOMAINS` | none | link sites a phishing list's listing of their whole domain doesn't flag (0.5.73; a newsletter's click tracker listed by mistake), in every sender's mail; a listing of the exact page still does, and the other link checks still apply. Not passed by `install.sh`: set on the dashboard (Settings → Sender lists, "Link domains") or in the services' environment. Shared hosting, link shorteners and your own domains are refused |
 | `RECHECK` | `true` | re-check delivered mail (0.5.35): emails left in the Inbox keep one-way hashes of their link sites and sender; when a phishing list's daily download adds one, every copy still in an Inbox is checked again in full (and moved, or recorded in monitor mode, as on arrival); suspicious mail is looked at again an hour and a day after it arrived; since 0.5.51 also mail from, replying to or linking to a look-alike of your domain once found or marked a threat, and recent mail after an update that changes how email is checked (`RECHECK_AFTER_UPDATE_HOURS`). Also on the dashboard: Settings → Policy, "Re-check delivered mail" |
 | `LOOKALIKE_WATCH` | `true` | the look-alike watch (0.5.36): look-alikes of `ORG_DOMAINS` asked of Cloudflare's public DNS resolver, a pass a day (Threats → Look-alikes); the new ones are alerts and strong signs in mail |
 | `DONATE_BUTTON` | `true` | the Donate button on Help → About & credits (0.5.46); `off` hides it |

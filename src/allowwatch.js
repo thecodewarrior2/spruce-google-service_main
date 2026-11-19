@@ -3,7 +3,7 @@
 // allowed link domains, brand senders the reviewers confirmed, senders whose spam people took back) is looked up
 // once when it is first seen, then again every 30 days: its registration (RDAP: when it was registered, when it
 // expires, its registrar and name servers) and its reputation (Cloudflare's malware and phishing blocks, the
-// phishing lists, Spamhaus's DBL when it is on). A change flags it for review: Settings → Allowlist, Today's Needs
+// phishing lists, Spamhaus's DBL when it is on). A change flags it for review: Settings → Sender lists, Today's Needs
 // attention, Activity, and an email to every admin (ADMIN_EMAILS and the members of ADMIN_GROUP). A change that
 // means the domain may have lapsed or changed hands (registered again, expired, gone, or now blocked or listed)
 // also SUSPENDS it: it isn't trusted until an admin answers. A new registrar or new name servers only flag it
@@ -15,7 +15,7 @@ const CHECK_EVERY_MS = 30 * DAY;
 const PER_RUN = 20;
 const SUSPEND = new Set(['registered-again', 'gone', 'expired', 'blocked', 'listed', 'spamhaus']);
 const LIST_NAMES = { allowDomains: 'allowlisted senders', allowAddresses: 'allowlisted addresses', allowLinkDomains: 'allowed link domains',
-    brandSenders: 'brand senders your reviewers confirmed', spamRescued: 'spam people took back' };
+    brandSenders: 'brand senders your reviewers confirmed', spamRescued: 'spam people took back', spamSenders: 'spam senders' };
 
 const day = (t) => new Date(t).toISOString().slice(0, 10);
 
@@ -58,6 +58,7 @@ function install(Service, { isAllowed }) {
             for (const d of this.cfg.allowLinkDomains || []) put(d, 'allowLinkDomains');
             for (const v of Object.values((await this.store.getState('brandSenders')) || {})) if (v && v.domain) put(v.domain, 'brandSenders');
             for (const [k, v] of Object.entries((await this.store.getState('spamRescued')) || {})) if (v && v.shared && !k.includes('@')) put(k, 'spamRescued');
+            for (const k of Object.keys((await this.store.getState('spamSenders')) || {})) if (!k.includes('@')) put(k, 'spamSenders');   // (0.6.35)
             return out;
         },
         // A domain's registration and reputation now.
@@ -129,10 +130,10 @@ function install(Service, { isAllowed }) {
         async allowReviewAlert(d, e) {
             const lists = e.lists.map(l => LIST_NAMES[l] || l).join(', ');
             const what = e.review.changes.map(c => c.text).join('; ');
-            const text = `${d} (on ${lists}) needs review: ${what}. ${e.review.suspended ? 'It may have lapsed or changed hands, so it is suspended: no longer trusted until an admin answers in Settings → Allowlist ("Still trusted", or remove it).' : 'It is still trusted; check it in Settings → Allowlist ("Still trusted", or remove it).'}`;
+            const text = `${d} (on ${lists}) needs review: ${what}. ${e.review.suspended ? 'It may have lapsed or changed hands, so it is suspended: no longer trusted until an admin answers in Settings → Sender lists ("Still trusted", or remove it).' : 'It is still trusted; check it in Settings → Sender lists ("Still trusted", or remove it).'}`;
             await this.alert('allowlist-review', text, { domain: d });
             await this.adminMail(`S.P.R.U.C.E: ${d} on your allow list needs review${e.review.suspended ? ' (suspended)' : ''}`,
-                `${text}\n\nThe allow lists are checked every 30 days: a domain whose registration or reputation changed may have expired and been registered by someone else, or been sold.${this.cfg.dashboardUrl ? `\n\nSettings → Allowlist: ${this.cfg.dashboardUrl}#/allowlist` : ''}\n`)
+                `${text}\n\nThe allow lists are checked every 30 days: a domain whose registration or reputation changed may have expired and been registered by someone else, or been sold.${this.cfg.dashboardUrl ? `\n\nSettings → Sender lists: ${this.cfg.dashboardUrl}#/allowlist` : ''}\n`)
                 .catch(err => this.log.error('allowlist review mail:', err));
         },
         // An email in every admin's Inbox (as the weekly summary is sent).
@@ -153,7 +154,7 @@ function install(Service, { isAllowed }) {
             }
             return { sent, to };
         },
-        // Settings → Allowlist: the domains waiting for review, with the emails held back while suspended.
+        // Settings → Sender lists: the domains waiting for review, with the emails held back while suspended.
         async allowReviewList() {
             const st = await this.allowWatchState();
             const rows = Object.entries(st.domains).filter(([, v]) => v && v.review);

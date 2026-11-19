@@ -1149,7 +1149,7 @@
                 kvRow('The rules', 'the rule checks add up signs: dangerous or brand-new links, a look-alike or impersonated sender, forged headers, a failed sender check, requests for passwords, codes or money, a new outside sender. 3 is amber, 5 is flagged. The AI score is separate.'),
                 kvRow('Campaign pause', `After ${num(d.campaignHoldAfter)} copies of one campaign are moved on weaker evidence, moving its other copies pauses until you confirm it as phishing or dismiss it as a false alarm; until then they stay in the Inbox, like any email not moved. Strong evidence never pauses (CAMPAIGN_HOLD_AFTER)`),
                 kvRow('Alerts', d.alertEmail ? `Emailed to ${d.alertEmail} by Cloud Monitoring` : 'Shown in Health → Activity; not emailed (ALERT_EMAIL, deploy/install.sh)'),
-                kvRow('Never moved', allowed || addresses ? `the allowlist: ${num(allowed)} domain${allowed === 1 ? '' : 's'} and ${num(addresses)} address${addresses === 1 ? '' : 'es'} (Settings → Allowlist)` : 'nothing allowlisted (Settings → Allowlist)'),
+                kvRow('Never moved', allowed || addresses ? `the allowlist: ${num(allowed)} domain${allowed === 1 ? '' : 's'} and ${num(addresses)} address${addresses === 1 ? '' : 'es'} (Settings → Sender lists)` : 'nothing allowlisted (Settings → Sender lists)'),
                 kvRow('Label on moved mail', d.movedLabel)))];
     }
     // (0.6.26) Spam people took back: when someone moves mail the service moved as spam back out of Spam, that sender's
@@ -1158,7 +1158,7 @@
         let list = [];
         try { list = (await api('/api/spam-rescued')).list || []; } catch (e) { return null; }
         const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Spam people took back' }),
-            h('p', { class: 'sub', text: 'When someone moves mail the service moved as spam back out of Spam, that sender\'s spam isn\'t moved for them again for 6 months (only from a sender Gmail verified; phishing is never affected: it is still checked and moved). When 3 or more people took back the same sender\'s, it isn\'t moved as spam for anyone; it is listed here. If it is mail your district wants, add it to the allowlist below; if it is spam after all, keep moving it (each person who took some back still keeps theirs).' }));
+            h('p', { class: 'sub', text: 'When someone moves mail the service moved as spam back out of Spam, that sender\'s spam isn\'t moved for them again for 6 months (only from a sender Gmail verified; phishing is never affected: it is still checked and moved). When 3 or more people took back the same sender\'s, it isn\'t moved as spam for anyone; it is listed here. If it is mail your district wants, add it to Trusted senders above; if it is spam after all, keep moving it (each person who took some back still keeps theirs).' }));
         if (!list.length) { card.append(h('p', { class: 'empty', text: 'No sender yet: nobody\'s spam has been taken back by 3 or more people.' })); return card; }
         const draw = (rows) => {
             card.querySelectorAll('table').forEach(t => t.remove());
@@ -1227,15 +1227,64 @@
         if (project && !isModerator()) card.append(h('label', { class: 'project' }, h('span', { text: 'Google Cloud project ID, to trust a suspended domain again' }), project));
         return card;
     }
+    // (0.6.35) Settings → Sender lists (was Allowlist): one card per list, each with a label for what it does.
+    const LIST_LABELS = {
+        trusted: ['Never moved', 'trusted', 'Its mail is never moved or marked suspicious, whatever the checks find, as long as Gmail\'s DMARC check passes for it (a forged address is judged like any other).'],
+        spam: ['Always to Spam', 'spam', 'Its verified mail goes straight to Spam, as spam, whatever the other checks find (monitor mode: recorded as "would move"). A forged copy, mail from inside, and a person who took its spam back are judged as usual.'],
+        brand: ['Brand\'s own sender', 'brand', 'Its verified mail under the brand\'s name isn\'t counted as an imitation; every other check still applies.'],
+        link: ['Link site allowed', 'link', 'Not a sender: a phishing list\'s listing of the whole domain doesn\'t flag links to it (the other link checks still apply).'],
+        kept: ['Not moved for some people', 'kept', 'People took its spam back out of Spam: not moved as spam for them (for anyone once 3 did).']
+    };
+    const listHead = (k) => h('div', { class: 'list-head' }, h('span', { class: `list-label ${LIST_LABELS[k][1]}`, text: LIST_LABELS[k][0] }), h('span', { class: 'small muted', text: LIST_LABELS[k][2] }));
+    async function spamSendersCard() {
+        let list = [];
+        try { list = (await api('/api/spam-senders')).list || []; } catch (e) { return null; }
+        const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Spam senders' }), listHead('spam'),
+            h('p', { class: 'sub', text: 'Add one when answering Spam in Review ("also send future mail from this sender straight to Spam"), or here: a domain (newsletter.example), or an address at a personal mail provider. The 30-day check looks at each domain too.' }));
+        const draw = (rows) => {
+            card.querySelectorAll('table, p.empty').forEach(t => t.remove());
+            const at = card.querySelector('.spam-add');
+            const tbl = rows.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Sender', 'Added', 'By', ''].map(t => h('th', { text: t })))),
+                h('tbody', {}, rows.map(r => h('tr', {}, h('td', {}, h('span', { class: 'list-label spam small-label', text: 'Always to Spam' }), ' ', h('b', { text: r.key })),
+                    h('td', { text: `${new Date(r.at).toLocaleDateString()}${r.from === 'review' ? ', from Review' : ''}` }), h('td', { text: r.by || '–' }),
+                    h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
+                        e.target.disabled = true;
+                        try { const out = await api('/api/spam-senders', { method: 'POST', body: { key: r.key, remove: true } }); toast(`${r.key} is checked as usual again.`); draw(out.list || []); }
+                        catch (err) { toast(`Couldn't do that: ${err.message}`); e.target.disabled = false; } } }, 'Remove')))))) : h('p', { class: 'empty', text: 'None yet.' });
+            card.insertBefore(tbl, at);
+        };
+        const input = h('input', { type: 'text', placeholder: 'newsletter.example', 'aria-label': 'Spam sender to add', autocomplete: 'off', spellcheck: 'false' });
+        const add = h('button', { class: 'btn', type: 'button' }, 'Add');
+        add.addEventListener('click', async () => {
+            if (!input.value.trim()) return;
+            add.disabled = true;
+            try { const out = await api('/api/spam-senders', { method: 'POST', body: { sender: input.value.trim() } }); toast(`${out.key} added: its verified mail goes straight to Spam.`); input.value = ''; draw(out.list || []); }
+            catch (err) { toast(`Couldn't add it: ${err.message}`); }
+            finally { add.disabled = false; }
+        });
+        card.append(isModerator() ? h('div', { class: 'spam-add' }) : h('div', { class: 'spam-add toolbar' }, input, add));
+        draw(list);
+        return card;
+    }
     async function allowlist() {
         const d = await settingsData();
-        return [h('h1', { text: 'Allowlist' }), h('p', { class: 'sub', text: 'Senders whose mail is never moved or marked suspicious, whatever the checks find, as long as Gmail\'s DMARC check passes for them (a forged address is judged like any other). Each change needs the Google Cloud project ID, and is noted in Health → Activity → What admins did.' }),
-            h('div', { class: 'alert warning' }, h('div', {}, h('b', { text: 'Add only senders you trust. ' }), 'If one of their accounts is taken over, the phishing it sends isn\'t caught. Your own domains can\'t be added: a staff account taken over would never be moved. Single addresses in them can.')),
-            h('p', { class: 'sub', text: 'Link domains are different: not senders, but link sites a phishing list flagged by mistake (a newsletter\'s click tracker). A list that names their whole domain no longer flags their links, in anyone\'s mail; a list naming the exact page still does, and Cloudflare, Safe Browsing and where each link leads are checked as before. The email shows a note saying the listing wasn\'t counted. Emails already checked keep their verdict: Re-scan one to check it again.' }),
+        const TRUSTED_ROWS = ALLOW_ROWS.filter(r => r.key !== 'allowLinkDomains'), LINK_ROWS = ALLOW_ROWS.filter(r => r.key === 'allowLinkDomains');
+        const brand = await brandSendersCard(), kept = await spamRescuedCard();
+        if (brand) brand.insertBefore(listHead('brand'), brand.children[1]);
+        if (kept) kept.insertBefore(listHead('kept'), kept.children[1]);
+        const trusted = policyCard(d, TRUSTED_ROWS, 'Trusted senders', 'A change needs the Google Cloud project ID, applies within 30 seconds and is noted in Health → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.');
+        const linkPrev = pageBusy;
+        const links = policyCard(d, LINK_ROWS, 'Link sites', 'For a link site a phishing list flagged by mistake (a newsletter\'s click tracker). A list naming the exact page still flags it. Emails already checked keep their verdict: Re-scan one to check it again. ALLOW_LINK_DOMAINS only in the services\' environment.');
+        const linkBusy = pageBusy; pageBusy = () => linkPrev() || linkBusy();
+        for (const [card, k] of [[trusted, 'trusted'], [links, 'link']]) { const h2 = card.querySelector('h2'); if (h2) h2.after(listHead(k)); }
+        return [h('h1', { text: 'Sender lists' }), h('p', { class: 'sub', text: 'The senders and sites the checks treat differently, each list labeled with what it does. Every domain on them is checked again every 30 days. Changes are noted in Health → Activity → What admins did.' }),
+            h('div', { class: 'alert warning' }, h('div', {}, h('b', { text: 'Add only senders you trust to Trusted senders. ' }), 'If one of their accounts is taken over, the phishing it sends isn\'t caught. Your own domains can\'t be added: a staff account taken over would never be moved. Single addresses in them can.')),
             await allowReviewCard(),
-            await spamRescuedCard(),
-            await brandSendersCard(),
-            policyCard(d, ALLOW_ROWS, 'Allowlist', 'A change applies within 30 seconds and is noted in Health → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES; ALLOW_LINK_DOMAINS only in the services\' environment) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.')];
+            trusted,
+            await spamSendersCard(),
+            brand,
+            links,
+            kept];
     }
     // Settings → Mailboxes (0.5.53): who is checked (the pilot, the default, or the whole domain, switched here with
     // a ticked box, the project ID and the admin's own address), and the mailboxes watched, a page of 100 at a time
@@ -1611,8 +1660,12 @@
         const n = strength(Math.abs(w));
         return h('span', { class: `dots ${tone}`, role: 'img', 'aria-label': ['', 'Weak sign', 'Medium sign', 'Strong sign'][n] }, [1, 2, 3].map(i => h('span', { class: i <= n ? 'on' : '' })));
     }
+    // (0.6.35) "Also send future mail from this sender straight to Spam", under Review's buttons: ticked by default for
+    // admins, remembered while the page is open; a Spam answer adds the sender (verified, outside) to Spam senders.
+    let spamAddSender = true;
     // Answers every copy of the items given (one copy: its own endpoint, so Activity names it; more: in batches of 500).
     async function answerGroups(st, groups, action) {
+        const addSender = action === 'spam' && spamAddSender && !isModerator();
         const Q = QUEUES[st.queue];
         const keys = groups.flatMap(g => g.keys);
         let msg;
@@ -1621,14 +1674,14 @@
             if (action === 'unclear') { await api('/api/unclear', { method: 'POST', body: { key } }); msg = SET_ASIDE; }
             else {
                 // Moved only in enforce mode, as the button said (the server checks the mode, and the Inbox, again).
-                const out = await api('/api/mark', { method: 'POST', body: { key, falseAlarm: action === 'false-alarm', spam: action === 'spam', move: (action === 'phishing' || action === 'spam') && st.mode === 'enforce' } });
+                const out = await api('/api/mark', { method: 'POST', body: { key, falseAlarm: action === 'false-alarm', spam: action === 'spam', move: (action === 'phishing' || action === 'spam') && st.mode === 'enforce', addSender } });
                 msg = action === 'false-alarm' ? (out.released ? `${Q.noDone.replace(/\.$/, '')}, and moved back to the Inbox.` : Q.noDone)
-                    : action === 'spam' ? (out.moved === 'moved' ? 'Confirmed as spam and moved to Spam.' : 'Confirmed as spam.') : phishedText(out.moved);
+                    : action === 'spam' ? `${out.moved === 'moved' ? 'Confirmed as spam and moved to Spam.' : 'Confirmed as spam.'}${out.spamSenderAdded ? ` ${out.spamSenderAdded} is now on Spam senders: its mail goes straight to Spam.` : ''}` : phishedText(out.moved);
             }
         } else {
             const sum = { done: 0, moved: 0, released: 0, failed: 0 };
             for (let i = 0; i < keys.length; i += 500) {
-                const out = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 500), action } });
+                const out = await api('/api/bulk', { method: 'POST', body: { keys: keys.slice(i, i + 500), action, addSender } });
                 sum.done += out.done || 0; sum.moved += out.moved || 0; sum.released += out.released || 0; sum.failed += out.failed || 0;
             }
             msg = action === 'unclear' ? `Set aside: ${num(sum.done)} copies left as they are, not used for retraining.`
@@ -1777,6 +1830,8 @@
         return h('div', { class: 'rv-open' },
             h('div', { class: 'rv-head' },
                 h('div', { class: 'rv-who' }, 'From ', m.sender.address ? addr(m.sender.address, m.sender.name ? `${m.sender.name} <${m.sender.address}>` : m.sender.address) : (m.sender.name || 'an unknown sender'),
+                    // (0.6.35) The sender's list, beside its address.
+                    m.spamSender ? [' ', h('a', { class: 'list-label spam small-label', href: '#/allowlist', title: `${m.spamSender} is on Settings → Sender lists → Spam senders`, text: 'Always to Spam' })] : null,
                     h('br'), 'To ', shortList(users, `Who received "${m.subject || 'this email'}"`, { copy: true, describe: (k) => `${num(k)} people in your organization received a copy${g.keys.length > 1 ? `; ${num(g.keys.length)} copies wait for review` : ''}.` }),
                     g.senders.length > 1 ? [h('br'), `From ${num(g.senders.length)} addresses: `, shortList(g.senders, 'Who sent it', { copy: true, describe: (k) => `The copies came from ${num(k)} sender addresses.` })] : null,
                     h('div', { class: 'rv-verdict' }, kindTag(kindOf(m)), h('b', { text: asKind(m) })),
@@ -1799,6 +1854,14 @@
                 canRead ? h('button', { class: 'rv-link', type: 'button', onclick: () => showAiReading(m), title: 'Read from Gmail now: the whole email as received, and what the AI reads of it (nothing is kept)' }, 'Show the email') : null,
                 rescanButton(m, 'rv-link review-rescan'),
                 g.campaign ? h('a', { class: 'rv-link', href: `#/messages?${q({ campaign: g.campaign })}` }, 'Every copy') : null),
+            // (0.6.35) The Spam answer can add the sender to Spam senders (admins; a verified outside sender only).
+            isModerator() ? null : (() => {
+                const can = m.auth && m.auth.dmarc === 'pass' && !m.inside && m.sender && m.sender.address;
+                if (!can) return h('p', { class: 'small muted spam-sender-opt', text: 'Spam here labels this email only: its sender can\'t be added to Spam senders, as Gmail didn\'t verify it (or it is from inside).' });
+                const box = h('input', { type: 'checkbox', checked: spamAddSender });
+                box.addEventListener('change', () => { spamAddSender = box.checked; });
+                return h('label', { class: 'choice spam-sender-opt' }, box, h('span', {}, 'With Spam, also send future mail from ', h('b', { text: m.sender.domain || m.sender.address.split('@')[1] }), ' straight to Spam (Settings → Sender lists → Spam senders; it skips the other checks).'));
+            })(),
             h('p', { class: 'small muted rv-help', text: `${g.keys.length > 1 ? `One answer covers all ${num(g.keys.length)} copies. ` : ''}Ignore takes it out of the queue and keeps it out of retraining; Skip leaves it here, undecided.${canRead ? ' Show the email reads it from Gmail now, the whole email and what the AI reads of it: nothing is kept.' : ''}${st.mode === 'enforce' ? '' : ' Monitor mode: nothing is moved.'}` }));
     }
 
@@ -2159,7 +2222,7 @@
         return root;
     }
 
-    // --- Settings → Policy and Settings → Allowlist: the policy, changed here with the project ID ---------------
+    // --- Settings → Policy and Settings → Sender lists: the policy, changed here with the project ID ---------------
     // POLICY_ROWS (the mode, the AI lines and switches, the label, re-checking, the brake, the time zone, how long
     // records are kept) and ALLOW_ROWS (the allowlists). Each Change opens a form under its row; it
     // needs the project ID, and switching to enforce mode the agreement too. Live updates wait while a form
@@ -2867,7 +2930,7 @@
         threats: { label: 'Threats', groups: [[null, [['campaigns', 'Campaigns'], ['rechecked', 'Re-checked'], ['lookalikes', 'Look-alikes']]]] },
         mail: { label: 'Mail', groups: [[null, [['messages', 'Messages'], ['check', 'Check an email'], ['users', 'Users']]]] },
         health: { label: 'Health', groups: [[null, [['status', 'Service status'], ['readiness', 'Readiness'], ['health', 'Model health'], ['dmarc', 'DMARC & reputation'], ['trainingexport', 'Retraining examples'], ['activity', 'Activity']]]] },
-        settings: { label: 'Settings', groups: [['Protection', [['settings', 'Policy'], ['allowlist', 'Allowlist']]],
+        settings: { label: 'Settings', groups: [['Protection', [['settings', 'Policy'], ['allowlist', 'Sender lists']]],
             ['Threat feeds', [['safebrowsing', 'Safe Browsing'], ['spamhaus', 'Spamhaus'], ['abusech', 'abuse.ch']]],
             ['Organization', [['mailboxes', 'Mailboxes'], ['summary', 'Weekly summary'], ['clicks', 'Link clicks'], ['phishtraining', 'Phishing training']]],
             ['System', [['retraining', 'Retraining'], ['update', 'Update'], ['about', 'About']]]] },

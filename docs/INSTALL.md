@@ -250,7 +250,7 @@ When it finishes, it prints the **dashboard address**.
 - **The policy settings** can also be changed on the dashboard: the mode, the AI move threshold and
   suspicious line, the AI on inside mail and "AI alone moves inside mail", the brake, the time zone, how long
   records are kept, the Suspicious label and re-checking delivered mail on **Settings → Policy → Change**; the
-  allowlist and allowed link domains on **Settings → Allowlist**; Safe Browsing, Spamhaus and abuse.ch on their
+  allowlist and allowed link domains on **Settings → Sender lists**; Safe Browsing, Spamhaus and abuse.ch on their
   own Settings pages; who is checked on **Settings → Mailboxes** (`POLICY_KEYS` in `src/config.js`).
   - Each change needs the Google Cloud project ID, and switching to enforce mode also needs **I agree**.
   - A change applies everywhere within 30 seconds and is noted in Health → Activity → What admins did.

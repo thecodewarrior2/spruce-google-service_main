@@ -1,5 +1,5 @@
 # S.P.R.U.C.E Mail Protection Service: the policy settings changed on the dashboard (Settings → Policy and
-# Settings → Allowlist), for
+# Settings → Sender lists), for
 # deploy/install.sh and deploy/upgrade.sh, which source this file (it isn't run on its own).
 #
 # The dashboard keeps its changes of MODE, AI_MOVE_THRESHOLD, AI_SUSPICIOUS_THRESHOLD, BRAKE_PER_HOUR,

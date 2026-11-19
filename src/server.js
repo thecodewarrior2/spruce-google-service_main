@@ -724,7 +724,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // Move one email back to the Inbox (admins only: a moderator marks it a false alarm instead).
         'POST /api/release': async (q, body, admin) => service.release(String(body.key || ''), admin.email),
         // move: phishing still in the Inbox is moved to Spam too (enforce mode).
-        'POST /api/mark': async (q, body, admin) => service.mark(String(body.key || ''), body.falseAlarm === true, admin.email, { move: body.move === true, spam: body.spam === true }),
+        // (0.6.35) addSender: "Also send future mail from this sender straight to Spam" (admins only: it skips the checks).
+        'POST /api/mark': async (q, body, admin) => service.mark(String(body.key || ''), body.falseAlarm === true, admin.email, { move: body.move === true, spam: body.spam === true, addSender: body.addSender === true && admin.role !== 'moderator' }),
         // (0.6.26) Spam several people took back out of Spam: the list, and an admin's "keep moving it" (or undoing it).
         'GET /api/spam-rescued': async () => ({ list: await service.spamRescuedList() }),
         'POST /api/spam-rescued': async (q, body, admin) => service.setSpamKeep(String(body.sender || ''), body.keep === true, admin.email),
@@ -739,6 +740,10 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (row.suspended) { const bad = await projectCheck(admin, body, `trusting ${domain} again after its 30-day check`); if (bad) return bad; }
             return service.resolveAllowReview(domain, admin.email, { release: body.release === true });
         },
+        // (0.6.35) Spam senders: their verified mail goes straight to Spam. Admins add (a domain, or an address at a personal
+        // provider) and remove them; Review's Spam answer can add one too.
+        'GET /api/spam-senders': async () => ({ list: await service.spamSenderList() }),
+        'POST /api/spam-senders': async (q, body, admin) => (body.remove ? service.removeSpamSender(String(body.key || ''), admin.email) : service.addSpamSender(String(body.sender || ''), admin.email, { from: 'page' })),
         'GET /api/brand-senders': async () => ({ list: await service.brandSenderList() }),
         'POST /api/brand-senders': async (q, body, admin) => service.removeBrandSender(String(body.key || ''), admin.email),
         // (0.5.60) Ignore, treat as suspicious: reviewed, left as it is, not used for retraining.
@@ -836,7 +841,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'POST /api/bulk': async (q, body, admin) => {
             const keys = Array.isArray(body.keys) ? [...new Set(body.keys.map(String))].slice(0, 500) : [];
             if (!['release', 'false-alarm', 'phishing', 'spam', 'unclear'].includes(body.action) || !keys.length) return { error: 'Choose emails and what to do with them.', status: 400 };
-            return service.bulk(keys, body.action, admin.email);
+            return service.bulk(keys, body.action, admin.email, { addSender: body.addSender === true && admin.role !== 'moderator' });
         },
         // What needs an admin (the browser tab's title shows the count): the brake, held campaigns, users
         // who took flagged mail back; and how many emails wait for review.

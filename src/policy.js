@@ -23,7 +23,7 @@
 const AI_SUSPICIOUS = 0.65;
 
 // Whether an address is allowlisted: the exact address, or its domain or a parent domain (ALLOW_ADDRESSES,
-// ALLOW_DOMAINS, Settings → Allowlist). Only the address: whether DMARC passed is the caller's to check.
+// ALLOW_DOMAINS, Settings → Sender lists). Only the address: whether DMARC passed is the caller's to check.
 function isAllowed(cfg, address) {
     const a = String(address || '').toLowerCase();
     const d = a.split('@')[1] || '';
