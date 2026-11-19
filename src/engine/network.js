@@ -194,6 +194,37 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         j.reason = `${j.reason}: another established company's own domain, proven to be ${company[0].toUpperCase()}${company.slice(1)}'s (${proof.how}); not counted`;
         j.brandToBrand = reg;
     }
+    // (0.6.46) A link whose text shows one domain and which goes to another, where one of them is a well-known brand's own
+    // and public records prove the other is that brand's too (the ownership lookup, kept 60 days): the same company's
+    // two domains (quickbooks.com text on an intuit.com link), not a disguise. Not counted; one note. No list by hand.
+    const sameCompany = [];
+    const sameCandidates = intel.ownership && intel.ownership.of ? web.filter(j => (j.severity === 'danger' || j.severity === 'caution') && !j.network && !j.mailer && !j.ownBrand && !j.brandToBrand) : [];
+    for (const j of sameCandidates) {
+        const host = mismatchHost(j.reason);
+        const text = ((/^link text shows (\S+)/.exec(j.reason) || [])[1] || '').toLowerCase();
+        const destReg = host && E.registrableDomain(host), textReg = text && E.registrableDomain(text);
+        if (!destReg || !textReg || destReg === textReg) continue;
+        const destBrand = E.brandOfDomain(destReg), textBrand = E.brandOfDomain(textReg);
+        if (!!destBrand === !!textBrand) continue;      // both known (another check) or neither (nothing to prove against)
+        const brand = destBrand || textBrand, other = destBrand ? textReg : destReg;
+        if (!(E.SENDER_NAME_BRANDS || []).some(b => b.name === brand)) continue;
+        const key = `${other}|${brand}`;
+        if (!proofs.has(key)) {
+            let timer;
+            const late = new Promise(r => { timer = setTimeout(() => r(null), OWN_LINK_WAIT_MS); });
+            proofs.set(key, Promise.race([intel.ownership.of(other, brand), late]).catch(() => null).finally(() => clearTimeout(timer)));
+        }
+        const proof = await proofs.get(key);
+        if (!proof || proof.state !== 'owned') continue;
+        sameCompany.push({ text, dest: destReg, brand, how: proof.how });
+        j.severity = null;
+        j.reason = `${j.reason}: both ${brand}'s, as public records prove (${proof.how}); not counted`;
+        j.sameCompany = brand;
+    }
+    if (sameCompany.length) {
+        const c = sameCompany[0], n = sameCompany.length;
+        signals.push({ weight: 0, kind: 'same-company-link', text: `${n === 1 ? `A link shows ${c.text} but goes` : `${n} links show one site but go`} to ${c.dest}: both are ${c.brand}'s, as public records prove (${c.how}). Not counted.` });
+    }
     if (brandToBrand.length) {
         const b = brandToBrand[0], n = brandToBrand.length;
         signals.push({ weight: 0, kind: 'brand-to-brand-link', text: `${n === 1 ? `A link shows ${b.text} but goes` : `${n} links show a well-known brand but go`} to ${b.reg}, an established company's own domain (${b.how}; not blocked, not new), and Gmail's DMARC check passed for the sender: one company's offer on another's site, not a disguise. Not counted.` });

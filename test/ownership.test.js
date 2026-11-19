@@ -107,9 +107,10 @@ test('in the email\'s verdict: "Xoom, a PayPal Service" from a domain shown to b
     const brandSign = (r) => r.signals.filter(s => /PayPal/.test(s.text || '')).map(s => s.weight);
     assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', intelWith('owned', 'its name servers are PayPal\'s (ns1-pchnet.paypal.com)'))), [0]);
     const likely = intelWith('likely', 'registered through MarkMonitor Inc., a corporate registrar; registered 20 years ago');
-    // (0.6.20) An established company's domain, its DMARC passing, no link anywhere else: no sign; a link elsewhere: 3.
+    // (0.6.20) An established company's domain, its DMARC passing, no link anywhere else: no sign; (0.6.46) a link
+    // elsewhere: half a point (the link is judged on its own).
     assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', likely)), [0]);
-    assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', likely, 'Your money transfer was delivered. Review it: https://transfer-review.example/login')), [E.SIGNAL_CAUTION_SCORE]);
+    assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', likely, 'Your money transfer was delivered. Review it: https://transfer-review.example/login')), [0.5]);
     assert.deepEqual(brandSign(await judge('noreply@xoom-transfers.example', intelWith('unknown'))), [5]);
     assert.deepEqual(brandSign(await judge('noreply@service.xoom.com', null)), [5], 'without the lookups: as before');
 });
@@ -201,4 +202,33 @@ test('0.6.17: any company by the name its domain carries: the same proof as for 
     ({ own, http } = make({}));
     assert.deepEqual(await own.ofCompany('email-abc.example', 'abc', []), { state: 'unknown', how: '' });
     assert.equal(http.asked.length, 0, 'a name under 4 letters isn\'t looked up');
+});
+
+// 0.6.46: the company's own name servers under a third domain named after it; the answers kept 60 days (refreshed after
+// 50), no proof 7 days, a failed lookup 6 hours (never a lower score: it counts as no proof).
+test('0.6.46: name servers under a third domain named after the company, shared by both, are proof; a provider\'s aren\'t', async () => {
+    let { own } = make({ 'pp-payments.example|NS': ['ns1.paypalcorp-dns.example', 'ns0098.secondary.dnshost.example'], 'paypal.com|NS': ['ns1.paypalcorp-dns.example', 'ns0119.secondary.dnshost.example'] });
+    assert.deepEqual(await own.of('pp-payments.example', 'PayPal'), { state: 'owned', how: 'it and paypal.com are both served by paypalcorp-dns.example\'s own name servers (ns1.paypalcorp-dns.example)' });
+    ({ own } = make({ 'pp-payments.example|NS': ['ns1.bighost-dns.example'], 'paypal.com|NS': ['ns1.bighost-dns.example', 'ns2.other.example'] }));
+    assert.equal((await own.of('pp-payments.example', 'PayPal')).state, 'unknown', 'a host not named after the company: anyone\'s');
+});
+
+test('0.6.46: how long answers are kept; an old proof is refreshed in the background; a failure is kept 6 hours', async () => {
+    const DAY = 86400000, store = new MemoryStore();
+    let t = Date.now(), calls = 0;
+    const http = { request: async (url) => { calls++; if (/failing-lookup/.test(url)) throw new Error('timeout'); return { ok: true, status: 200, json: async () => ({ Status: 0, Answer: [] }) }; } };
+    const own = createOwnership({ http, store, engine: E, rdapServer: async () => null, now: () => t });
+    const ttl = (key) => store.cached.get(`own|${key}`).exp - Date.now();
+    assert.deepEqual(await own.of('failing-lookup.example', 'PayPal'), { state: 'unknown', how: '', failed: true });
+    assert.ok(Math.abs(ttl('failing-lookup.example|PayPal') - 6 * 3600000) < 60000, 'a failure: 6 hours');
+    assert.equal((await own.of('no-proof.example', 'PayPal')).state, 'unknown');
+    assert.ok(Math.abs(ttl('no-proof.example|PayPal') - 7 * DAY) < 60000, 'no proof: 7 days');
+    // An old proof in the shared store: returned at once, and asked again in the background.
+    await store.setCached('own', 'old-proof.example|PayPal', { at: t - 51 * DAY, state: 'owned', how: 'made up' }, 60 * DAY);
+    const before = calls;
+    const other = createOwnership({ http, store, engine: E, rdapServer: async () => null, now: () => t });
+    assert.deepEqual(await other.of('old-proof.example', 'PayPal'), { state: 'owned', how: 'made up' });
+    await new Promise(r => setTimeout(r, 50));
+    assert.ok(calls > before, 'refreshed in the background');
+    assert.equal((await store.getCached('own', 'old-proof.example|PayPal')).state, 'owned', 'a refresh that finds nothing doesn\'t replace a proof');
 });

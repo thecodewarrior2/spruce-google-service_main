@@ -609,57 +609,58 @@ function brandOfSender(domain) {
 
 // Brands people impersonate in sender names. ambiguous: also an ordinary word or name ("Apple
 // Smith", "Chase"), so it only counts next to words like Support, Security or Billing.
-// domains: sending domains known to be the brand's besides its own name (checked against their public
-// registrant records); home: the brand's main domain(s), whose DNS speaks for the brand when another
-// domain's ownership is checked (brandOwnership in background.js; defaults to domains).
+// domains (or home): the brand's main domain only, the one whose public records speak for the brand. (0.6.46) Every
+// other domain is proven the brand's from public records when its mail or links name the brand (src/intel/ownership.js,
+// kept 60 days), never listed by hand here; one the records can't prove is learned from a reviewer's Not phishing
+// (Brand senders).
 const SENDER_NAME_BRANDS = [
     { name: 'Google', tokens: ['google', 'gmail', 'google workspace', 'youtube'], home: ['google.com'] },
     { name: 'Microsoft', tokens: ['microsoft', 'office 365', 'microsoft 365', 'outlook', 'onedrive', 'sharepoint', 'teams'], ambiguousTokens: ['outlook', 'teams'], home: ['microsoft.com'] },
     { name: 'Apple', tokens: ['apple', 'icloud', 'itunes', 'app store'], ambiguousTokens: ['apple'], home: ['apple.com'] },
-    { name: 'Amazon', tokens: ['amazon', 'amazon prime', 'aws'], domains: ['amazonmusic.com'], home: ['amazon.com'] },
+    { name: 'Amazon', tokens: ['amazon', 'amazon prime', 'aws'], domains: [], home: ['amazon.com'] },
     { name: 'PayPal', tokens: ['paypal'], home: ['paypal.com'] },
-    { name: 'Meta', tokens: ['facebook', 'instagram', 'whatsapp', 'meta'], ambiguousTokens: ['meta'], home: ['facebook.com', 'meta.com', 'instagram.com'] },
+    { name: 'Meta', tokens: ['facebook', 'instagram', 'whatsapp', 'meta'], ambiguousTokens: ['meta'], home: ['facebook.com'] },
     { name: 'LinkedIn', tokens: ['linkedin'], home: ['linkedin.com'] },
     { name: 'Netflix', tokens: ['netflix'], domains: ['netflix.com'] },
-    { name: 'DocuSign', tokens: ['docusign'], domains: ['docusign.com', 'docusign.net'] },
-    { name: 'Dropbox', tokens: ['dropbox'], domains: ['dropbox.com', 'dropboxmail.com'] },
+    { name: 'DocuSign', tokens: ['docusign'], domains: ['docusign.com'] },
+    { name: 'Dropbox', tokens: ['dropbox'], domains: ['dropbox.com'] },
     { name: 'Wells Fargo', tokens: ['wells fargo'], domains: ['wellsfargo.com'] },
-    { name: 'Bank of America', tokens: ['bank of america'], domains: ['bankofamerica.com', 'bofa.com'] },
-    { name: 'Chase', tokens: ['chase'], ambiguousTokens: ['chase'], domains: ['chase.com', 'jpmorgan.com'] },
+    { name: 'Bank of America', tokens: ['bank of america'], domains: ['bankofamerica.com'] },
+    { name: 'Chase', tokens: ['chase'], ambiguousTokens: ['chase'], domains: ['chase.com'] },
     { name: 'Coinbase', tokens: ['coinbase'], domains: ['coinbase.com'] },
-    { name: 'Adobe', tokens: ['adobe'], domains: ['adobe.com', 'adobesign.com', 'echosign.com'] },   // (service 0.6.21) Acrobat Sign's own domains
+    { name: 'Adobe', tokens: ['adobe'], domains: ['adobe.com'] },
     { name: 'FedEx', tokens: ['fedex'], domains: ['fedex.com'] },
-    { name: 'UPS', tokens: ['ups'], ambiguousTokens: ['ups'], domains: ['ups.com', 'upsemail.com'] },
-    { name: 'DHL', tokens: ['dhl'], domains: ['dhl.com', 'dhl.de'] },
-    { name: 'USPS', tokens: ['usps', 'postal service'], domains: ['usps.com', 'usps.gov'] },
+    { name: 'UPS', tokens: ['ups'], ambiguousTokens: ['ups'], domains: ['ups.com'] },
+    { name: 'DHL', tokens: ['dhl'], domains: ['dhl.com'] },
+    { name: 'USPS', tokens: ['usps', 'postal service'], domains: ['usps.com'] },
     { name: 'IRS', tokens: ['irs', 'internal revenue service'], domains: ['irs.gov'] },
-    { name: 'Norton', tokens: ['norton', 'norton 360'], ambiguousTokens: ['norton'], domains: ['norton.com', 'nortonlifelock.com', 'gen.digital'] },
+    { name: 'Norton', tokens: ['norton', 'norton 360'], ambiguousTokens: ['norton'], domains: ['norton.com'] },
     { name: 'McAfee', tokens: ['mcafee'], domains: ['mcafee.com'] },
-    { name: 'Geek Squad', tokens: ['geek squad'], domains: ['geeksquad.com', 'bestbuy.com'] },
+    { name: 'Geek Squad', tokens: ['geek squad'], domains: ['geeksquad.com'] },
     { name: 'Venmo', tokens: ['venmo'], domains: ['venmo.com'] },
     { name: 'Zelle', tokens: ['zelle'], domains: ['zellepay.com'] },
-    { name: 'Cash App', tokens: ['cash app', 'cashapp'], domains: ['cash.app', 'square.com', 'squareup.com'] },
+    { name: 'Cash App', tokens: ['cash app', 'cashapp'], domains: ['cash.app'] },
     { name: 'eBay', tokens: ['ebay'], domains: ['ebay.com'] },
     { name: 'Walmart', tokens: ['walmart'], domains: ['walmart.com'] },
     { name: 'Xero', tokens: ['xero'], domains: ['xero.com'] },   // (0.6.32) accounting software, a common bank-connection lure
     { name: 'Costco', tokens: ['costco'], domains: ['costco.com'] },
     // (0.6.33) The banks that issue stores' co-branded cards (a store's card mail comes from them, under the store's name).
-    { name: 'TD Bank', tokens: ['td bank'], domains: ['tdbank.com', 'td.com'] },
-    { name: 'Synchrony', tokens: ['synchrony', 'synchrony bank'], domains: ['synchrony.com', 'mysynchrony.com', 'synchronybank.com', 'syf.com'] },
-    { name: 'Citi', tokens: ['citi', 'citibank', 'citi cards'], ambiguousTokens: ['citi'], domains: ['citi.com', 'citibank.com', 'citicards.com'] },
+    { name: 'TD Bank', tokens: ['td bank'], domains: ['tdbank.com'] },
+    { name: 'Synchrony', tokens: ['synchrony', 'synchrony bank'], domains: ['synchrony.com'] },
+    { name: 'Citi', tokens: ['citi', 'citibank', 'citi cards'], ambiguousTokens: ['citi'], domains: ['citi.com'] },
     { name: 'U.S. Bank', tokens: ['u s bank', 'us bank'], domains: ['usbank.com'] },
-    { name: 'Barclays', tokens: ['barclays', 'barclaycard'], domains: ['barclays.com', 'barclaysus.com', 'barclaycardus.com'] },
-    { name: 'Bread Financial', tokens: ['bread financial', 'comenity', 'comenity bank'], domains: ['breadfinancial.com', 'comenity.net', 'comenity.com'] },
+    { name: 'Barclays', tokens: ['barclays', 'barclaycard'], domains: ['barclays.com'] },
+    { name: 'Bread Financial', tokens: ['bread financial', 'comenity', 'comenity bank'], domains: ['breadfinancial.com'] },
     { name: 'Capital One', tokens: ['capital one'], domains: ['capitalone.com'] },
-    { name: 'American Express', tokens: ['american express', 'amex'], domains: ['americanexpress.com', 'aexp.com'] },
+    { name: 'American Express', tokens: ['american express', 'amex'], domains: ['americanexpress.com'] },
     { name: 'Discover', tokens: ['discover', 'discover card'], ambiguousTokens: ['discover'], domains: ['discover.com'] },
-    { name: 'Verizon', tokens: ['verizon'], domains: ['verizon.com', 'verizonwireless.com'] },
-    { name: 'AT&T', tokens: ['at&t', 'att'], ambiguousTokens: ['att'], domains: ['att.com', 'att.net', 'att-mail.com'] },
-    { name: 'Xfinity', tokens: ['xfinity', 'comcast'], domains: ['xfinity.com', 'comcast.com', 'comcast.net'] },
-    { name: 'Spotify', tokens: ['spotify'], domains: ['spotify.com', 'spotifymail.com'] },
-    { name: 'Steam', tokens: ['steam'], ambiguousTokens: ['steam'], domains: ['steampowered.com', 'steamcommunity.com'] },
-    { name: 'Intuit', tokens: ['intuit', 'quickbooks', 'turbotax'], domains: ['intuit.com', 'quickbooks.com', 'turbotax.com'] },
-    { name: 'Zoom', tokens: ['zoom'], ambiguousTokens: ['zoom'], domains: ['zoom.us', 'zoom.com'] }
+    { name: 'Verizon', tokens: ['verizon'], domains: ['verizon.com'] },
+    { name: 'AT&T', tokens: ['at&t', 'att'], ambiguousTokens: ['att'], domains: ['att.com'] },
+    { name: 'Xfinity', tokens: ['xfinity', 'comcast'], domains: ['xfinity.com'] },
+    { name: 'Spotify', tokens: ['spotify'], domains: ['spotify.com'] },
+    { name: 'Steam', tokens: ['steam'], ambiguousTokens: ['steam'], domains: ['steampowered.com'] },
+    { name: 'Intuit', tokens: ['intuit', 'quickbooks', 'turbotax'], domains: ['intuit.com'] },
+    { name: 'Zoom', tokens: ['zoom'], ambiguousTokens: ['zoom'], domains: ['zoom.us'] }
 ];
 const SENDER_CONTEXT_WORDS = /\b(support|security|account|accounts|billing|team|service|services|help|helpdesk|alert|alerts|notification|notifications|payment|payments|customer|verification|verify|notice|center|centre|id|online|store|delivery|shipping|refund|invoice|admin|no-?reply|official|protection|fraud|department)\b/;
 
@@ -876,7 +877,9 @@ function nameAddressSigns(name, address, own, colleagues, ownership, context) {
         }
         else if (ownership && ownership.state === 'owned') out.push({ weight: 0, text: `The sender's name says “${shown}”; ${ownershipNote(ownership, reg, claimed.name)}.` });
         else if (viaPlatformSign(name, address, domain, claimed, context, shown)) out.push(viaPlatformSign(name, address, domain, claimed, context, shown));
-        else if (ownership && ownership.state === 'likely') out.push({ weight: SIGNAL_CAUTION_SCORE, kind: 'brand-name-likely', text: `The sender's name says “${shown}”, and ${address} isn't a known ${claimed.name} address, though ${ownershipNote(ownership, reg, claimed.name)}. Make sure it's really who you expect.` });
+        // (0.6.46) Likely the brand's (a corporate registrar plus a link to it: forgers can't use those registrars): half a
+        // point when Gmail's DMARC check passed for the sender, the full caution when it didn't.
+        else if (ownership && ownership.state === 'likely') out.push({ weight: context && context.dmarc === 'pass' && !dmarcFailed ? 0.5 : SIGNAL_CAUTION_SCORE, kind: 'brand-name-likely', text: `The sender's name says “${shown}”, and ${address} isn't a known ${claimed.name} address, though ${ownershipNote(ownership, reg, claimed.name)}. Make sure it's really who you expect.` });
         else if (nameOnOtherEnding(claimed, reg)) out.push({ weight: SIGNAL_CAUTION_SCORE, text: `The sender's name says “${shown}”, and ${reg} carries ${claimed.name}'s name under another ending, but it isn't known to be ${claimed.name}'s. Make sure it's really who you expect.` });   // [5.90-4] amber, never moved
         else if (nameSpeaksAboutBrand(name)) out.push({ weight: SIGNAL_CAUTION_SCORE, text: thirdPartyNameText(shown, address, claimed.name) });   // [5.92] amber, never moved
         else if (partnerProgramName(name, claimed, domain, context)) out.push({ weight: 0, kind: 'brand-partner-name', text: `The sender's name says “${shown}”: a program of ${claimed.name} run by the organization the name also gives, writing from its own address (${address}, its sender check passed), not ${claimed.name} itself.` });   // (service 0.6.19)

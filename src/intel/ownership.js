@@ -22,7 +22,12 @@
 const { TtlCache } = require('./http');
 
 const DOH = 'https://cloudflare-dns.com/dns-query';
-const KEEP_MS = 30 * 24 * 60 * 60 * 1000, UNKNOWN_KEEP_MS = 24 * 60 * 60 * 1000;
+// (0.6.46) Answers kept: proof (owned) and likely 60 days, refreshed in the background once REFRESH_MS old so a busy
+// morning never waits on one; "no proof" 7 days; a lookup that failed (a request with no answer) 6 hours, so a domain on
+// many emails isn't asked again and again meanwhile. A failure never lowers a score: it counts as no proof.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const KEEP_MS = 60 * DAY_MS, REFRESH_MS = 50 * DAY_MS, UNKNOWN_KEEP_MS = 7 * DAY_MS, FAILED_KEEP_MS = 6 * 60 * 60 * 1000;
+const keepFor = (v) => (v.state !== 'unknown' ? KEEP_MS : v.failed ? FAILED_KEEP_MS : UNKNOWN_KEEP_MS);
 const MEMO_MS = 6 * 60 * 60 * 1000;
 const WAIT_MS = 4000;          // each request; the whole answer is awaited at most OWNERSHIP_WAIT_MS (analyze.js)
 const CORPORATE_REGISTRARS = /markmonitor|csc corporate domains|corporation service company|com laude|nom-iq|safenames|godaddy corporate domains|brandsight|lexsynergy|nameshield|ip twins|registrarsafe|abion\b|appdetex|safebrands/i;
@@ -69,6 +74,20 @@ function sameOperatorNs(a, b) {
     const poolsB = new Set(b.map(pool).filter(Boolean));
     const shared = a.find(h => pool(h) && poolsB.has(pool(h)));
     return shared ? { kind: 'pool', host: shared } : null;
+}
+// (0.6.46) A name server both domains use, under a third domain named after the company (its name, a token of it, or the
+// first word of either domain: ns1.jpmorganchase.com for chase.com and jpmorgan.com), not a provider's: '' if none.
+function ownNameServer(a, b, reg, home, brand) {
+    const regOf = (h) => h.split('.').slice(-2).join('.');
+    const words = [brand.name, ...(brand.tokens || []), reg.split('.')[0], home.split('.')[0]].map(w => String(w).toLowerCase().replace(/[^a-z0-9]/g, '')).filter(w => w.length >= 3);
+    const B = new Set(b);
+    return a.find(h => {
+        if (!B.has(h) || NS_SHARED.test(h) || NS_CUSTOMER_POOL.some(re => re.test(h))) return false;
+        const d = regOf(h);
+        if (d === reg || d === home) return false;
+        const label = d.split('.')[0].replace(/[^a-z0-9]/g, '');
+        return words.some(w => label.includes(w));
+    }) || '';
 }
 // Whether an RDAP registrant names the brand (its name or tokens, not its ambiguous ones), as whole words.
 function registrantNamesBrand(E, registrant, brand) {
@@ -140,6 +159,9 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
 
     async function lookup(reg, brand) {
         const proof = [], hints = [];
+        // (0.6.46) Requests with no answer, counted: an unknown answer after one is a failure (kept 6 hours, not 7 days).
+        let failures = 0;
+        const settle = async (f) => { try { return await f(); } catch (e) { failures++; return null; } };
         const homes = (brand.home || brand.domains || []).slice(0, 3).filter(h => h !== reg);
         // 1. DMARC reporting, either way.
         const myTags = await settle(() => dmarcTags(reg));
@@ -166,8 +188,13 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
             for (const home of homes) {
                 const under = ns.find(h => h === home || h.endsWith(`.${home}`));
                 if (under) { proof.push(`its name servers are ${brand.name}'s (${under})`); break; }
-                const same = ns.length ? sameOperatorNs(ns, (await settle(() => nameServers(home))) || []) : null;
+                const homeNs = ns.length ? (await settle(() => nameServers(home))) || [] : [];
+                const same = ns.length ? sameOperatorNs(ns, homeNs) : null;
                 if (same && same.kind === 'exact') { proof.push(`it uses the same name servers as ${home} (${same.host})`); break; }
+                // (0.6.46) Both served by name servers under a third domain named after the company (ns1.jpmorganchase.com
+                // for chase.com and jpmorgan.com): the company's own DNS, which a forger's domain can't be served from.
+                const own = ownNameServer(ns, homeNs, reg, home, brand);
+                if (own) { proof.push(`it and ${home} are both served by ${E.registrableDomain(own) || own}'s own name servers (${own})`); break; }
                 if (same && !poolHint) poolHint = `its DNS provider assigned it the same name servers as ${home} (${same.host})`;
             }
             if (!proof.length && poolHint) hints.push(poolHint);
@@ -186,9 +213,35 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
         const age = info.created ? Math.floor((now() - info.created) / 86400000) : null;
         if (age !== null && age >= 365) hints.push(`registered ${Math.floor(age / 365)} year${age >= 730 ? 's' : ''} ago`);
         const state = proof.length ? 'owned' : corporate && hints.length >= 2 ? 'likely' : 'unknown';
-        return { state, how: state === 'owned' ? proof.join('; ') : state === 'likely' ? hints.join('; ') : '' };
+        return Object.assign({ state, how: state === 'owned' ? proof.join('; ') : state === 'likely' ? hints.join('; ') : '' }, state === 'unknown' && failures ? { failed: true } : {});
     }
 
+    // A domain's answer: this instance's memory, else the shared store (an old proof refreshed in the background), else
+    // asked now (one lookup at a time per domain and brand).
+    // refresh: an old proof asked again; a refresh that finds less (nothing, or a failure) doesn't replace it: the proof
+    // stays until its 60 days end, then the domain is asked afresh.
+    function ask(key, reg, brand, { refresh = false } = {}) {
+        if (!flights.has(key)) {
+            flights.set(key, (async () => {
+                const v = await lookup(reg, brand).catch(() => ({ state: 'unknown', how: '', failed: true }));
+                if (refresh && v.state === 'unknown') return v;
+                await store.setCached('own', key, Object.assign({ at: now() }, v), keepFor(v)).catch(() => {});
+                memo.set(key, v, Math.min(MEMO_MS, keepFor(v)));
+                return v;
+            })().finally(() => flights.delete(key)));
+        }
+        return flights.get(key);
+    }
+    async function answer(key, reg, brand) {
+        const stored = await store.getCached('own', key).catch(() => null);
+        if (stored && stored.state) {
+            const { at, ...v } = stored;
+            if (v.state !== 'unknown' && now() - (Number(at) || 0) > REFRESH_MS) ask(key, reg, brand, { refresh: true }).catch(() => {});
+            memo.set(key, v, MEMO_MS);
+            return v;
+        }
+        return ask(key, reg, brand);
+    }
     // { state: 'owned' | 'likely' | 'unknown', how } for a domain and the brand a sender's name claims.
     async function of(domain, brandName) {
         const brand = (E.SENDER_NAME_BRANDS || []).find(b => b.name === brandName);
@@ -197,17 +250,7 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
         const key = `${reg}|${brand.name}`;
         const mem = memo.get(key);
         if (mem) return mem;
-        const stored = await store.getCached('own', key).catch(() => null);
-        if (stored && stored.state) { memo.set(key, stored, MEMO_MS); return stored; }
-        if (!flights.has(key)) {
-            flights.set(key, (async () => {
-                const v = await lookup(reg, brand).catch(() => ({ state: 'unknown', how: '' }));
-                await store.setCached('own', key, v, v.state === 'unknown' ? UNKNOWN_KEEP_MS : KEEP_MS).catch(() => {});
-                memo.set(key, v, v.state === 'unknown' ? Math.min(MEMO_MS, UNKNOWN_KEEP_MS) : MEMO_MS);
-                return v;
-            })().finally(() => flights.delete(key)));
-        }
-        return flights.get(key);
+        return answer(key, reg, brand);
     }
     // (0.6.17) The same proof for a company that isn't in the brand table: a link's own domain, named after the
     // company (email-lakeviewhotels.example: "lakeviewhotels"), against that company's name and main site(s). { state, how }.
@@ -219,19 +262,9 @@ function createOwnership({ http, store, engine: E, rdapServer, now = () => Date.
         const key = `${reg}|company:${token}`;
         const mem = memo.get(key);
         if (mem) return mem;
-        const stored = await store.getCached('own', key).catch(() => null);
-        if (stored && stored.state) { memo.set(key, stored, MEMO_MS); return stored; }
-        if (!flights.has(key)) {
-            flights.set(key, (async () => {
-                const v = await lookup(reg, brand).catch(() => ({ state: 'unknown', how: '' }));
-                await store.setCached('own', key, v, v.state === 'unknown' ? UNKNOWN_KEEP_MS : KEEP_MS).catch(() => {});
-                memo.set(key, v, v.state === 'unknown' ? Math.min(MEMO_MS, UNKNOWN_KEEP_MS) : MEMO_MS);
-                return v;
-            })().finally(() => flights.delete(key)));
-        }
-        return flights.get(key);
+        return answer(key, reg, brand);
     }
     return { of, ofCompany };
 }
 
-module.exports = { createOwnership, sameOperatorNs, registrantNamesBrand, reportMailboxes, accountMailbox, CORPORATE_REGISTRARS };
+module.exports = { createOwnership, sameOperatorNs, registrantNamesBrand, reportMailboxes, accountMailbox, ownNameServer, CORPORATE_REGISTRARS };

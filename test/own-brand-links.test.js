@@ -66,3 +66,21 @@ test('no proof, DMARC not passing, a link elsewhere, or a lookup against it: jud
     const amber = await judge(mail({ links: linkTo(`click.${OWN}`, 'www.lakeviewhotels.example') }), intelOf({ owner: {} }));
     assert.equal(amber.links[0].severity, 'caution', 'an ordinary site\'s text, unproven: amber as before');
 });
+
+// 0.6.46: a link whose text shows one domain and which goes to another, one of them a known brand's own and the other proven
+// that brand's by public records: the same company's two domains, not a disguise. No list by hand.
+test('a link between a brand\'s own domain and one public records prove its: not dangerous; unproven: as before', async () => {
+    const OTHER = 'intuit-payroll-mail.example';
+    const raw = Buffer.from(['From: Payroll Notes <news@payroll-notes.example>', `To: ${USER}`, 'Subject: Your payroll summary', 'Message-ID: <i1@payroll-notes.example>',
+        'Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=payroll-notes.example', 'Content-Type: text/html; charset=utf-8', '',
+        `<p>Your summary is ready.</p><p><a href="https://${OTHER}/summary">intuit.com/summary</a></p>`].join('\r\n'));
+    const asked = [];
+    const intelFor = (state) => Object.assign(intelOf(), { ownership: { of: async (d, brand) => { asked.push([d, brand]); return { state, how: 'its name servers are Intuit\'s (made up)' }; }, ofCompany: async () => ({ state: 'unknown', how: '' }) } });
+    const proven = await judge(raw, intelFor('owned'));
+    assert.ok(!proven.signals.some(s => s.kind === 'dangerous-links'), JSON.stringify(proven.signals));
+    assert.match(proven.signals.find(s => s.kind === 'same-company-link').text, /goes to intuit-payroll-mail\.example: both are Intuit's/);
+    assert.deepEqual(asked[0], [OTHER, 'Intuit']);
+    const unproven = await judge(raw, intelFor('unknown'));
+    assert.ok(unproven.links.some(l => l.severity && /intuit-payroll-mail/.test(l.reason || '')), 'not proven: the link check stands');
+    assert.ok(!unproven.signals.some(s => s.kind === 'same-company-link'));
+});

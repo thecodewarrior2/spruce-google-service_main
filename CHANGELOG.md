@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.46: No hand-kept brand domains: public records prove them, "likely" counts half a point
+
+- **The brand list keeps only each brand's main domain.** The 39 other domains it listed by hand (Instagram for Meta,
+  QuickBooks for Intuit, td.com for TD Bank…) are gone; the ownership lookup proves them from public records instead.
+  Checked against today's live records: 32 are proven, 6 are "likely", and 1 (dhl.de) has nothing to go on.
+- **New proof:** two domains served by name servers under a third domain named after the company (ns1.jpmorganchase.com
+  serves chase.com and jpmorgan.com): the company's own DNS, which a forger's domain can't be served from.
+- **"Likely" (a corporate registrar plus a link to the brand) counts half a point** when Gmail confirmed the sender
+  (DMARC); 3 when it didn't, or when the domain is new or on a list. Unconfirmed stays at 5: that is what brand phishing
+  looks like.
+- **Links:** a link whose text shows one domain and which goes to another, one of them a brand's own and the other
+  proven that brand's, is the same company's (text quickbooks.com, link to intuit.com): not counted, one note.
+- **Answers kept longer:** proof and "likely" 60 days, refreshed in the background after 50 (a refresh that finds less
+  never replaces a proof); no proof 7 days; a failed lookup 6 hours, so a domain on many emails isn't asked again and
+  again. A failure never lowers a score: it counts as no proof.
+- How email is judged changes: checks level 38, so recent delivered mail is checked again after the update.
+
+
 ## 0.6.45: Brand ownership from shared DMARC reporting; Sender lists show 8 entries, the rest in a popup
 
 - **Brand ownership** (the public-records lookup, 0.5.64): a domain whose DMARC reports go to the very same mailbox as the

@@ -33,7 +33,9 @@ test('a card issuer\'s mail under the brand\'s name, from its own established do
 
 test('still counted: sender check failing, a link elsewhere, a new domain, or no corporate record', async () => {
     assert.equal(nameSign(await judge({ dmarc: 'fail' }, intelOf())).weight, 3, 'DMARC failed');
-    assert.equal(nameSign(await judge({ html: `<p>Confirm your PayPal Credit account.</p><p><a href="https://paypal-credit-review.example/login">Account Summary</a></p>${LINKS}` }, intelOf())).weight, 3, 'a link to another domain');
+    // (0.6.46) Likely the brand's (a corporate registrar), its sender check passing: half a point, also with a link
+    // elsewhere (the link is judged on its own).
+    assert.equal(nameSign(await judge({ html: `<p>Confirm your PayPal Credit account.</p><p><a href="https://paypal-credit-review.example/login">Account Summary</a></p>${LINKS}` }, intelOf())).weight, 0.5, 'a link to another domain');
     assert.equal(nameSign(await judge({}, intelOf({ days: 10 }))).weight, 3, 'a new domain');
     assert.equal(nameSign(await judge({}, intelOf({ state: 'unknown' }))).weight, 5, 'nothing in the public records: as before');
     assert.equal(nameSign(await judge({}, intelOf({ state: 'owned' }))).weight, 0, 'proven the brand\'s: as before');

@@ -19,11 +19,14 @@ const mail = ({ from = '"Dana Madeup via Adobe Acrobat Sign" <adobesign@adobesig
 const judge = async (opts) => analyze(await mail(opts), { mailbox: USER, orgDomains: [ORG], firstTime: true, readAttachments: false });
 const brandSigns = (r) => r.signals.filter(s => /isn't Adobe's address/.test(s.text));
 
-test('Acrobat Sign\'s domains are Adobe\'s', () => {
+// (0.6.46) Acrobat Sign's domains are no longer listed by hand: the public records prove them Adobe's (the ownership lookup,
+// test/ownership.test.js); the AI is told so when they do.
+test('Acrobat Sign\'s domains are Adobe\'s when the public records prove it', () => {
     const adobe = E.SENDER_NAME_BRANDS.find(b => b.name === 'Adobe');
-    for (const d of ['adobesign.com', 'na4.adobesign.com', 'echosign.com', 'adobe.com']) assert.ok(E.senderDomainOwnedBy(adobe, d), d);
+    assert.ok(E.senderDomainOwnedBy(adobe, 'adobe.com'));
     assert.ok(!E.senderDomainOwnedBy(adobe, 'adobesign-docs.example'));
-    assert.equal(E.aiSenderIdentity('Dana Madeup via Adobe Acrobat Sign', 'adobesign@adobesign.com', { own: [ORG] }).owner, 'yes');
+    assert.equal(E.aiSenderIdentity('Dana Madeup via Adobe Acrobat Sign', 'adobesign@adobesign.com', { own: [ORG], ownership: { state: 'owned', how: 'made-up proof' } }).owner, 'yes');
+    assert.equal(E.aiSenderIdentity('Dana Madeup via Adobe Acrobat Sign', 'adobesign@adobesign.com', { own: [ORG] }).owner, 'no', 'unproven');
 });
 
 test('a signature request through Acrobat Sign: a notification for the person who sent it, no brand sign', async () => {

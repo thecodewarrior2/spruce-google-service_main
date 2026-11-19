@@ -471,7 +471,10 @@ function partnerNameInContext(signals) {
 // linking to its own long-held domain, not someone borrowing the brand to send the reader elsewhere.
 function establishedSenderInContext(E, facts, judged, signals, verified) {
     const i = signals.findIndex(s => s && s.kind === 'brand-name-likely');
-    if (i < 0 || !verified || signals.some(s => s && YOUNG_OR_LISTED.has(s.kind))) return;
+    if (i < 0) return;
+    // (0.6.46) Its domain new or on a list: the full caution again (3), whatever the sender check says.
+    if (signals.some(s => s && YOUNG_OR_LISTED.has(s.kind))) { if (signals[i].weight < 3) signals[i] = Object.assign({}, signals[i], { weight: 3 }); return; }
+    if (!verified) return;
     const regOf = (h) => { const x = String(h || '').toLowerCase(); try { return E.registrableDomain(x) || x; } catch (e) { return x; } };
     const sender = regOf(String(facts.senderAddress || '').split('@').pop());
     const hostOf = (u) => { try { return new URL(u).hostname; } catch (e) { return ''; } };
