@@ -91,6 +91,7 @@ function campaignTemplates() {
         // Suspicious but below the move rules (a young sender domain and a rules score of 3, the AI between its suspicious
         // and move lines): recorded only, left in the Inbox, for Review's "Suspicious (not moved)". (0.6.40) The webinar
         // isn't: its sender is confirmed (DMARC) and the AI scores it low, so the rules alone don't make it suspicious.
+        // (0.6.53) phish-tiny 0.25.0 scores the survey 99.9%, so the demo moves it; Review's tests fix it at 80%.
         { id: 'survey', recipients: 7, daysAgo: 3, spread: 0.3, make: (to) => eml({ fromName: 'Staff Benefits Team', from: 'benefits@staff-perks-portal.example', to, dmarc: 'pass',
             subject: 'Complete the benefits survey',
             html: '<p>Dear Staff Member,</p><p>Your benefits survey is waiting. Complete it this week to receive a $25 gift card.</p><p><a href="https://forms.survey-host.example/s/benefits-2026">Start the survey</a></p>' }) },

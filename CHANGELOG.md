@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.53: phish-tiny 0.25.0
+
+- **The AI model is phish-tiny 0.25.0** (TinyPhishLLM `eef303f`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.22.0),
+  the same input format 3 (the sync checked all 95 reference cases). Its training adds published research collections
+  of phishing and genuine mail, more published shop scams and genuine shop mail, and a district's fourth de-identified
+  export (never published).
+- **What changes**, against 0.22.0 at the 90% line (held-out sets, never trained on; TinyPhishLLM's changelog): a
+  district's held-out phishing or spam missed 19 of 25 → 12; its held-out genuine mail called phishing 13 of 94 → 5;
+  published phishing missed 31 of 954 → 19; published genuine called phishing 5 of 861 → 6; every hand-written and
+  regression case right. Worse: 3 of 55 context pairs wrong (was 0), 3 of 14 platform shares (was 2).
+- **Known weakness, seen on this project's made-up test emails:** 0.25.0 scores some short genuine-looking outside mail
+  much higher than 0.22.0 did, so the AI alone moves it (from 90%; in monitor mode, the default, nothing is moved): a
+  newsletter whose link goes through its mail service's click tracker 93% (was low enough to leave), a sale padded with
+  hidden filler 100% (was 32%, moved as spam; now moved as phishing, which "spam someone took back" never covers), a
+  survey offering a gift card 99.9% (was 81%, suspicious). Review → Moved shows them; marking one a false alarm keeps
+  it out of the next training. The demo's survey is now moved rather than suspicious.
+- **Tests:** `test/fixtures/pin-ai.js` fixes the AI's answer for chosen made-up emails in tests of the rules and the
+  service's own logic (`test/spam-memory.test.js`, Review's suspicious queue in `test/qol.test.js`), so a new model
+  doesn't change what they check; `test/mailers.test.js` checks that the rules alone never move the newsletter.
+- **Checks level 43:** after this update, recent delivered mail is checked again.
+
 ## 0.6.52: Promotional mail goes to Review, one answer per company
 
 - **Promotional mail is recognized without a list of platforms:** mail Gmail put in its Promotions category, or that carries

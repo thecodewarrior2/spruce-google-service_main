@@ -11,6 +11,7 @@ const { Service } = require('../src/pipeline');
 const { MemoryStore } = require('../src/store/memory');
 const { createApp } = require('../src/server');
 const { buildDemo } = require('../src/demo/seed');
+const { pinAi } = require('./fixtures/pin-ai');
 const { RecordCache } = require('../src/dashboard/cache');
 const { buildDigest, isSummary } = require('../src/digest');
 
@@ -225,9 +226,13 @@ test('review, suspicious queue: Phishing moves a suspicious email still in the I
     assert.deepEqual(ev.map(e => e.text), [`it.head@${ORG} confirmed as phishing 3 emails at once (2 moved to Spam).`]);
 });
 
+// (0.6.53) The suspicious queue's tests need the demo's survey between the AI's suspicious and move lines, as its
+// comment in seed.js says: fixed at 80% here (phish-tiny 0.22.0 gave 81%; 0.25.0 gives 99.9%, and moves it).
+const demoWithSuspicious = async (cfg) => { const unpin = pinAi([[/^Complete the benefits survey$/, 0.8]]); try { return await buildDemo({ cfg, now: Date.now() }); } finally { unpin(); } };
+
 test('dashboard: Review\'s suspicious queue (not moved, still in the Inbox, unreviewed, newest first), both counts, and the mode with an email', async () => {
     const cfg = loadConfig({ DEMO: '1', MODE: 'monitor', ORG_DOMAINS: ORG });
-    const { store } = await buildDemo({ cfg, now: Date.now() });
+    const { store } = await demoWithSuspicious(cfg);
     const gmail = { labelId: async (u, n) => `L_${n}`, modify: async () => ({}) };
     const service = new Service({ cfg, store, gmail });
     const { base, close } = await serve(createApp({ cfg, store, service }));
@@ -261,7 +266,7 @@ test('dashboard: Review\'s suspicious queue (not moved, still in the Inbox, unre
 // alone by the later checks; marking it afterwards replaces it. One email, and every copy at once.
 test('dashboard: Review\'s "Ignore, treat as suspicious": out of the queue, left as it is, never a training example', async () => {
     const cfg = loadConfig({ DEMO: '1', MODE: 'monitor', ORG_DOMAINS: ORG });
-    const { store } = await buildDemo({ cfg, now: Date.now() });
+    const { store } = await demoWithSuspicious(cfg);
     const gmail = { labelId: async (u, n) => `L_${n}`, modify: async () => { throw new Error('nothing is moved or relabeled'); } };
     const service = new Service({ cfg, store, gmail });
     const { base, close } = await serve(createApp({ cfg, store, service }));

@@ -9,6 +9,12 @@ const { Service } = require('../src/pipeline');
 const { MemoryStore } = require('../src/store/memory');
 const { readMessage } = require('../src/engine/mime');
 const T = require('../src/training');
+const { pinAi } = require('./fixtures/pin-ai');
+
+// (0.6.53) These tests are about the memory, not the AI: its score for the padded sale is fixed at 30% (phish-tiny
+// 0.22.0 gave 32%; 0.25.0 gives 100%, and then moves it as phishing, which the memory never covers).
+const unpin = pinAi([[/^Big spring sale$/, 0.3]]);
+test.after(unpin);
 
 const ORG = 'maple-schools.example';
 const [PAT, SAM, AVERY, RILEY] = ['pat.fakewell', 'sam.testwood', 'avery.mockwell', 'riley.exemplar'].map(u => `${u}@${ORG}`);
