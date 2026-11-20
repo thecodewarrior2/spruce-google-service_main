@@ -469,6 +469,10 @@ const PROTECTED_BRANDS = ['paypal.com', 'microsoft.com', 'office.com', 'office36
     'comcast.com', 'zoom.us', 'slack.com', 'salesforce.com', 'intuit.com', 'quickbooks.com', 'venmo.com', 'zellepay.com', 'cash.app',
     'stripe.com', 'shopify.com', 'github.com', 'twitter.com', 'telegram.org', 'discord.com', 'booking.com', 'airbnb.com', 'norton.com',
     'mcafee.com', 'geeksquad.com', 'dhl.com', 'ups.com', 'irs.gov', 'att.com'];
+// (0.6.54) A protected brand's other real domains, whose names the checks would otherwise read as the brand's look-alike:
+// T-Mobile mails and links from t-mobile.com (tmobile.com, without the hyphen, is its too), and hyphens are ignored when
+// names are compared. The real thing, like the brands above; never compared as brands themselves.
+const BRAND_OWN_DOMAINS = ['t-mobile.com'];
 // Closed ".brand" top-level domains, each run by the brand itself (IANA's root zone database, checked
 // November 2026): only the brand registers names under them, so nothing there imitates anyone. Microsoft
 // 365 uses cloud.microsoft for Forms, Bookings, Teams and Outlook, which read as "cloud" one letter from
@@ -550,7 +554,7 @@ function lookalikeOf(host) {
     host = String(host || '').toLowerCase().replace(/\.$/, '');
     const reg = registrableDomain(host);
     if (!reg) return null;
-    for (const brand of PROTECTED_BRANDS) if (hostMatches(host, brand)) return null;   // the real thing
+    for (const brand of PROTECTED_BRANDS.concat(BRAND_OWN_DOMAINS)) if (hostMatches(host, brand)) return null;   // the real thing
     if (BRAND_TLDS.has(host.split('.').pop())) return null;                           // a brand's own top-level domain
     const label = reg.split('.')[0];
     const uLabel = unicodeLabel(label);
@@ -566,6 +570,11 @@ function lookalikeOf(host) {
         if (bl.length >= 6 && label !== bl && !(NOT_BRAND_TYPOS[bl] && NOT_BRAND_TYPOS[bl].has(label)) && editDistanceAtMost1(label, bl)) return `is one letter away from ${brand}`;
         if (tokens.length > 1 && tokenSkeletons.some((k, i) => k === bl && tokens[i] !== bl)) return `imitates ${brand} with look-alike characters`;
         if (tokens.length > 1 && tokens.includes(bl) && tokens.some(t => CREDENTIAL_WORDS.has(t))) return `uses the name "${bl}" but isn't ${brand}`;
+    }
+    // (0.6.54) A brand's own hyphenated name with sign-in words around it ("t-mobile-secure").
+    for (const own of BRAND_OWN_DOMAINS) {
+        const ol = own.split('.')[0];
+        if (uLabel !== ol && (uLabel.startsWith(`${ol}-`) || uLabel.endsWith(`-${ol}`) || uLabel.includes(`-${ol}-`)) && tokens.some(t => CREDENTIAL_WORDS.has(t))) return `uses the name "${ol}" but isn't ${own}`;
     }
     return null;
 }

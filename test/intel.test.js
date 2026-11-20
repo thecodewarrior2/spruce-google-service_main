@@ -99,6 +99,38 @@ test('Safe Browsing: one batched request; no #part ever, no query for one-time l
     assert.equal((await down.checkUrls(links)).get(links[0].url).verdict, 'unknown');
 });
 
+// (0.6.54) Safe Browsing's quota: an update or a restart doesn't ask Google again (answers in the shared store, as a
+// one-way hash of the address), and copies arriving together share one request.
+test('Safe Browsing: answers shared by every instance and kept across restarts (only a hash stored); copies arriving together share one request', async () => {
+    const net = fakeNet();
+    const store = new MemoryStore();
+    const cfg = { cloudflareThreats: false, safeBrowsing: true, safeBrowsingKey: 'k-123' };
+    const make = () => createThreats({ http: createHttp({ fetch: net.fetch }), cfg, engine: E, store });
+    const sbCalls = () => net.calls.filter(c => /safebrowsing/.test(c.url));
+    const a = make();
+    // Three copies of one campaign checked at once: one request, each address once.
+    const copy = [{ url: 'https://phish-page.example/claim', text: 'Claim' }, { url: 'https://fine.example/offer', text: 'Offer' }];
+    const outs = await Promise.all([a.checkUrls(copy), a.checkUrls(copy), a.checkUrls(copy)]);
+    assert.equal(sbCalls().length, 1, 'one request for the three copies');
+    assert.deepEqual(sbCalls()[0].body.threatInfo.threatEntries.map(e => e.url).sort(), ['https://fine.example/offer', 'https://phish-page.example/claim']);
+    assert.ok(outs.every(o => o.get(copy[0].url).verdict === 'unsafe' && o.get(copy[1].url).verdict === 'clean'));
+    // Another instance, or this one after an update: the stored answers, no request.
+    const b = make();
+    const again = await b.checkUrls(copy);
+    assert.equal(sbCalls().length, 1, 'no new request after a restart');
+    assert.equal(again.get(copy[0].url).verdict, 'unsafe');
+    assert.match(again.get(copy[0].url).reason, /phishing or a deceptive site/);
+    assert.equal(again.get(copy[1].url).verdict, 'clean');
+    // Only a hash of each address is kept, never the address.
+    const kept = JSON.stringify([...store.cached.entries()]);
+    assert.ok(!/phish-page|fine\.example|claim|offer/.test(kept), kept);
+    // A failed lookup isn't kept: asked again next time.
+    const down = createThreats({ http: createHttp({ fetch: fakeNet({ fail: /safebrowsing/ }).fetch }), cfg, engine: E, store });
+    assert.equal((await down.checkUrls([{ url: 'https://other.example/x', text: 'x' }])).get('https://other.example/x').verdict, 'unknown');
+    await make().checkUrls([{ url: 'https://other.example/x', text: 'x' }]);
+    assert.equal(sbCalls().length, 2, 'the address that failed is looked up again');
+});
+
 test('phishing lists: synced once a day into the shared store, sanitized like the extension, matched locally', async () => {
     const net = fakeNet();
     const store = new MemoryStore();

@@ -120,7 +120,7 @@ Firestore, in your own project and region (`src/store/firestore.js`). Each docum
 | `moveCounts` | the brake's hourly counters; the mass-share counters | 2 days |
 | `events` | Activity: alerts, admins' actions, errors | `AUDIT_DAYS` |
 | `blobs` | the phishing lists, gzipped, shared by every instance | replaced daily |
-| `cache` | registry dates of domains; brand-ownership answers (0.5.64) | 30 days (an unknown answer: 1 day) |
+| `cache` | registry dates of domains; brand-ownership answers (0.5.64); Safe Browsing's answers (0.6.54: a hash of the link address, never the address, and the verdict) | 30 days (an unknown answer: 1 day); Safe Browsing: a listed link 1 day, a clean one 30 minutes |
 | `state` | one document per setting or state: the policy changed on the dashboard (`policy-*`), the brake, the lists' health, each optional service's key metadata (never the key) and health, the re-check queue, the look-alike watch, the phishing-training rules (secret values as hashes), the last update, the weekly summary and retraining switches… | until changed |
 
 Secrets (the Safe Browsing, Spamhaus and abuse.ch keys) are only in Secret Manager.
@@ -245,7 +245,10 @@ and can answer the tagged emails as false alarms.
 All off by default, each turned on on its own Settings page with a key kept in Secret Manager:
 
 - **Google Safe Browsing** (Lookup API v4): link addresses (no `#` part; one-time links without their query),
-  the key in a header. Free for non-commercial use.
+  the key in a header. Free for non-commercial use. (0.6.54) To spare its daily quota, answers are kept in the shared
+  store (`cache`, a listed link a day, a clean one 30 minutes; under a one-way hash of the address, never the address),
+  so an update, a restart or another instance doesn't ask again; copies arriving together share one lookup, and the
+  addresses asked within 50 ms of each other go in one request (up to 500).
 - **Spamhaus** (the free Data Query Service): the DBL and ZRD, by DNS, `<name>.<key>.dbl.dq.spamhaus.net`,
   through Cloud Run's resolver; at most `SPAMHAUS_DAILY_MAX` lookups a day for every instance together, each
   name once an hour; a refused lookup asked again (a new key takes up to an hour to sync across Spamhaus's

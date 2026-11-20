@@ -966,7 +966,8 @@
                     h('div', { class: 'ctx muted', text: c.before ? c.before.text : '(the start of the text)' }),
                     h('div', { class: 'ctx weighed' }, h('span', { text: r.sentences[c.index].text }), badge(r.sentences[c.index].weight)),
                     h('div', { class: 'ctx muted', text: c.after ? c.after.text : '(the end of the text)' }))));
-            body.append(h('h3', { text: 'About the sender and links' }), h('div', { class: 'reading-line' }, h('div', { class: 'mono small', text: r.head }), badge(r.headWeight)));
+            // (0.6.54) With a Copy button: the exact line the AI read, to paste into a report.
+            body.append(h('h3', {}, 'About the sender and links ', copyButton(r.head, 'line about the sender and links')), h('div', { class: 'reading-line' }, h('div', { class: 'mono small', text: r.head }), badge(r.headWeight)));
             const shown = r.sentences.map((x, i) => [x, i]).filter(([x]) => !x.filler);
             const left = r.sentences.length - shown.length;
             body.append(...[h('h3', { text: `The whole text, sentence by sentence${weighed.size ? ' (what weighed most is marked)' : ''}` }),
@@ -2361,7 +2362,8 @@
                     const st = c.ok === true ? 'ok' : c.ok === false ? 'todo' : 'unknown';
                     return h('li', { class: st },
                         h('span', { class: 'sr-only', text: c.ok === true ? 'Works: ' : c.ok === false ? 'Problem: ' : 'Not checked: ' }),
-                        h('div', { class: 'svc-text' }, h('div', { text: c.text }), c.fix ? h('div', { class: 'muted small', text: `What to do: ${c.fix}` }) : null),
+                        // (0.6.54) A check whose fix is a page here links straight to it.
+                        h('div', { class: 'svc-text' }, h('div', { text: c.text }), c.fix ? h('div', { class: 'muted small' }, 'What to do: ', c.link ? h('a', { href: c.link, text: c.fix }) : c.fix) : null),
                         h('span', { class: `svc-state ${st}` }, h('span', { class: 'dot', 'aria-hidden': 'true' }), c.ok === true ? 'Working' : c.ok === false ? 'Problem' : 'Not checked'));
                 }))),
                 h('div', { class: 'status-side' },

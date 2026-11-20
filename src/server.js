@@ -327,7 +327,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     // Health → Service status's checks: [{ id, ok (true, false, or null: couldn't check), text, fix }].
     async function statusChecks() {
         const now = Date.now(), out = [];
-        const add = (id, ok, text, fix) => out.push({ id, ok, text, fix: ok === true ? null : fix || null });
+        // link (0.6.54): the dashboard page the fix names, opened by clicking it.
+        const add = (id, ok, text, fix, link) => out.push(Object.assign({ id, ok, text, fix: ok === true ? null : fix || null }, ok !== true && link ? { link } : {}));
         // The AI model: loaded here (the dashboard: Check an email), and in the worker (every email).
         const ms = spruce.load().model.status();
         const loadFix = 'Until it loads, emails are judged by the rule checks alone. Look in the service\'s logs (Cloud Run → Logs) for "the AI model could not be loaded", then run bash deploy/install.sh again.';
@@ -414,7 +415,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // (install.sh always sets it, to the admin group by default: empty means ALERT_EMAIL=off, a choice)
         add('alerts', true, cfg.alertEmail ? `Alerts are emailed to ${cfg.alertEmail}.` : 'Alerts aren\'t emailed (ALERT_EMAIL=off): they show in Health → Activity.');
         const errors = (await eventsSince(now - 24 * 3600 * 1000, 50000)).filter(e => e.kind === 'error').length;
-        add('errors', errors === 0, errors ? `${errors} errors in the last day.` : 'No errors in the last day.', 'Health → Activity → Errors and gaps.');
+        add('errors', errors === 0, errors ? `${errors} errors in the last day.` : 'No errors in the last day.', 'Health → Activity → Errors and gaps.', '#/activity?days=7&kind=error');
         const brake = await store.getState('brake');
         add('brake', !brake, brake ? 'The domain-wide brake is on: nothing is moved.' : 'The domain-wide brake is off.', 'Today → Resume.');
         return out;

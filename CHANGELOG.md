@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.54: T-Mobile's own mail isn't a look-alike; Safe Browsing's answers kept across updates; two shortcuts
+
+- **T-Mobile's own domain isn't a look-alike any more:** its marketing (from mktg.t-mobile.com, links to www.t-mobile.com
+  and secure.t-mobile.com) was read as imitating tmobile.com "with look-alike characters", because hyphens are ignored when
+  names are compared: every link got a look-alike warning, and the AI's input said "the domain imitates a well-known brand".
+  t-mobile.com is now T-Mobile's own, like tmobile.com; imitations of either spelling are still found (t-mobi1e.com,
+  tmobile-login.com), and so, newly, is T-Mobile's hyphenated name with sign-in words (t-mobile-secure.com).
+- **Safe Browsing's daily quota lasts:** its answers were remembered only in each instance's memory, so every update or
+  restart (and every new instance) asked Google again for the same links. They are now kept in the shared store too
+  (Firestore `cache`, for as long as before: a listed link a day, a clean one 30 minutes), under a one-way hash of the
+  address, never the address itself. Copies of a campaign arriving together now share one lookup instead of each asking
+  before the first answer is back, and the links asked within 50 ms of each other go to Google in one request (up to 500).
+  A failed lookup is still "not checked", never "safe", and isn't kept.
+- **Message → What the AI reads:** a Copy button beside "About the sender and links" copies the exact line the AI read
+  about the sender and its links (for a report).
+- **Health → Service status:** "What to do: Health → Activity → Errors and gaps." is a link straight to Activity's errors.
+- How email is judged changes (the look-alike check): checks level 44, so recent delivered mail is checked again after
+  the update.
+
 ## 0.6.53: phish-tiny 0.25.0
 
 - **The AI model is phish-tiny 0.25.0** (TinyPhishLLM `eef303f`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.22.0),

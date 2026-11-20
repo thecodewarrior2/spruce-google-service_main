@@ -38,7 +38,7 @@ function createIntel({ cfg, store, engine, fetch: fetchImpl, version = '0', log 
     if (!offline) companies.start();
     return {
         // (always made: Safe Browsing can be turned on from the dashboard at any time)
-        threats: createThreats({ http, cfg, engine, version, sbKey }),
+        threats: createThreats({ http, cfg, engine, version, sbKey, store }),
         sbKey,
         keys,
         // Spamhaus's DBL and ZRD (0.5.37; off by default): looked up per email when on, with a key.

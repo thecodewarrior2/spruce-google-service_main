@@ -97,6 +97,8 @@ It also keeps, shared by every instance:
   has got (`state/lookalikeWatch`);
 - **the phishing lists:** gzipped in Firestore, replaced daily (a download with the same entries isn't written again, 0.6.7), with each list's last download (when, and the error if it failed: `state/feedHealth`);
 - **registry dates of domains:** 30 days; an unknown one, a day;
+- **Safe Browsing's answers** (0.6.54): a one-way hash of each link address looked up (never the address) and Google's
+  verdict, a listed link a day, a clean one 30 minutes, so an update or another instance doesn't ask again;
 - **brand-ownership answers** (whose a domain is, 0.5.64): 30 days; an unknown one, a day.
 
 And:

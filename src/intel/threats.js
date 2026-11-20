@@ -13,7 +13,13 @@
 //   policy setting, read at each lookup). The key goes in a header, never in the address.
 // Answers are remembered (TTL) so a campaign's 40 copies cost one lookup: a host blocked a day, clean or
 // nonexistent 6 hours, with no address records 10 minutes; a link listed a day, clean 30 minutes. A lookup that
-// fails is "unknown", never "safe".
+// fails is "unknown", never "safe". (0.6.54) Safe Browsing lookups are also shared while they run: a link address
+// already being looked up (copies arriving together, before the first answer is remembered) waits for that answer,
+// and the addresses asked within SB_BATCH_MS of each other go to Google in one request (up to 500), so a burst of
+// mail costs a few requests rather than one per email. (0.6.54) And they are kept in the shared store too (cache/sb|…,
+// for as long as in memory), so an update, a restart or another instance doesn't ask Google again: only a one-way hash
+// of the address is kept there, with the answer, never the address.
+const crypto = require('crypto');
 const { TtlCache } = require('./http');
 
 const SINKHOLE_RE = /^(0\.0\.0\.0|127\.|::$|::1$|0:0:0:0:0:0:0:0)/;
@@ -22,6 +28,7 @@ const CF_REFERENCE = 'https://cloudflare-dns.com/dns-query';
 const SB_URL = 'https://safebrowsing.googleapis.com/v4/threatMatches:find';
 const SB_TYPES = { MALWARE: 'malware', SOCIAL_ENGINEERING: 'phishing or a deceptive site', UNWANTED_SOFTWARE: 'unwanted software', POTENTIALLY_HARMFUL_APPLICATION: 'a harmful app' };
 const CLEAN_TTL = 6 * 60 * 60 * 1000, BAD_TTL = 24 * 60 * 60 * 1000;
+const SB_BATCH_MS = 50, SB_BATCH_MAX = 500;
 // A lookup service whose every lookup has failed for this long is "down" (0.5.28): the admins are alerted
 // (setAlert: the service's, at most once a day). Our own request limits ("service busy") don't count.
 const OUTAGE_MS = 30 * 60 * 1000;
@@ -29,7 +36,8 @@ const HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62
 
 // sbKey: src/intel/sbkey.js (the key in use, and where each lookup's outcome is noted); without it, the
 // environment's cfg.safeBrowsingKey.
-function createThreats({ http, cfg, engine, version = '0', sbKey = null, now = () => Date.now() }) {
+// store (0.6.54): the shared store, where Safe Browsing's answers are kept for every instance (optional).
+function createThreats({ http, cfg, engine, version = '0', sbKey = null, store = null, now = () => Date.now() }) {
     const hostCache = new TtlCache(), urlCache = new TtlCache();
     // Since when every lookup of each service has failed (null: it works), and who to tell.
     const down = { cloudflare: null, safeBrowsing: null };
@@ -113,6 +121,84 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, now = (
         if (oneTime) u.search = '';
         return u.href;
     }
+    // (0.6.54) An address's key in the shared store: a one-way hash, so no address is kept there.
+    const sbId = (s) => crypto.createHash('sha256').update(`spruce-sb|${s}`).digest('hex').slice(0, 32);
+    const sbTtl = (r) => (r.verdict === 'unsafe' ? BAD_TTL : 30 * 60 * 1000);
+    async function sharedAnswers(addresses) {
+        if (!store || !store.getCached) return new Map();
+        const got = await Promise.all(addresses.map(s => store.getCached('sb', sbId(s)).catch(() => null)));
+        const out = new Map();
+        addresses.forEach((s, i) => {
+            const v = got[i];
+            if (!v || !v.verdict || !(v.until > now())) return;
+            const { until, ...r } = v;
+            urlCache.set(s, r, until - now());
+            out.set(s, r);
+        });
+        return out;
+    }
+    // (0.6.54) One Safe Browsing request for the addresses gathered in the last SB_BATCH_MS (or SB_BATCH_MAX of them):
+    // each address's answer resolves everyone waiting for it.
+    const inflight = new Map();     // address → Promise of its answer
+    let batch = null;               // { key, waiting: Map(address → resolve), timer }
+    function ask(s, key) {
+        if (inflight.has(s)) return inflight.get(s);
+        if (batch && batch.key !== key) flush();
+        if (!batch) {
+            batch = { key, waiting: new Map(), timer: setTimeout(flush, SB_BATCH_MS) };
+        }
+        const b = batch, p = new Promise(resolve => b.waiting.set(s, resolve));
+        inflight.set(s, p);
+        if (b.waiting.size >= SB_BATCH_MAX) flush();
+        return p;
+    }
+    function flush() {
+        const b = batch;
+        batch = null;
+        if (!b) return;
+        clearTimeout(b.timer);
+        send(b).catch(() => {});
+    }
+    async function send(b) {
+        const sent = [...b.waiting.keys()], answers = new Map();
+        const body = { client: { clientId: 'spruce-mail-protection', clientVersion: version },
+            threatInfo: { threatTypes: Object.keys(SB_TYPES), platformTypes: ['ANY_PLATFORM'], threatEntryTypes: ['URL'], threatEntries: sent.map(url => ({ url })) } };
+        try {
+            const res = await http.request(SB_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': b.key }, body: JSON.stringify(body) }, 6000);
+            if (!res.ok) {
+                let why = '';
+                try { why = String((((await res.json()) || {}).error || {}).message || ''); } catch (e) { /* not JSON */ }
+                throw Object.assign(new Error(`HTTP ${res.status}${why ? `: ${why.slice(0, 120)}` : ''}`), { sbAnswered: true });
+            }
+            const data = await res.json();
+            const bad = new Map();
+            for (const m of data.matches || []) if (m.threat && m.threat.url) bad.set(m.threat.url, SB_TYPES[m.threatType] || String(m.threatType || 'a threat').toLowerCase());
+            for (const s of sent) {
+                const r = bad.has(s) ? { verdict: 'unsafe', by: 'Google Safe Browsing', reason: `Google Safe Browsing lists it as ${bad.get(s)}` } : { verdict: 'clean', by: 'Google Safe Browsing' };
+                urlCache.set(s, r, sbTtl(r));
+                answers.set(s, r);
+            }
+            try { if (sbKey) await sbKey.noteResult(true, null); await outcome('safeBrowsing', true); } catch (e) { /* noted next time */ }
+        } catch (e) {
+            const r = { verdict: 'unknown', by: 'Google Safe Browsing', reason: `not checked (${e.name === 'ServiceBusyError' ? 'service busy' : 'lookup failed'})` };
+            for (const s of sent) answers.set(s, r);
+            // Google refusing the key (revoked, restricted, quota): the admins are told at once (sbkey.js); a network
+            // blip isn't worth it, but every lookup failing for OUTAGE_MS is.
+            try {
+                if (sbKey && e.sbAnswered) await sbKey.noteResult(false, e.message);
+                else if (e.name !== 'ServiceBusyError') await outcome('safeBrowsing', false);
+            } catch (e2) { /* noted next time */ }
+        } finally {
+            for (const s of sent) { inflight.delete(s); b.waiting.get(s)(answers.get(s) || { verdict: 'unknown', by: 'Google Safe Browsing', reason: 'not checked (lookup failed)' }); }
+        }
+        // Kept for every instance (a failure is not: it is asked again next time).
+        if (store && store.setCached) {
+            await Promise.all(sent.filter(s => answers.get(s) && answers.get(s).verdict !== 'unknown').map(s => {
+                const r = answers.get(s), ttl = sbTtl(r);
+                return store.setCached('sb', sbId(s), Object.assign({}, r, { until: now() + ttl }), ttl).catch(() => {});
+            }));
+        }
+    }
     // links: [{ url, text }] → Map(url → { verdict: 'unsafe'|'clean'|'unknown', by, reason })
     async function checkUrls(links) {
         const out = new Map();
@@ -129,32 +215,12 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, now = (
             sent.get(s).push(l.url);
         }
         if (!sent.size) return out;
-        const body = { client: { clientId: 'spruce-mail-protection', clientVersion: version },
-            threatInfo: { threatTypes: Object.keys(SB_TYPES), platformTypes: ['ANY_PLATFORM'], threatEntryTypes: ['URL'], threatEntries: [...sent.keys()].map(url => ({ url })) } };
-        try {
-            const res = await http.request(SB_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body) }, 6000);
-            if (!res.ok) {
-                let why = '';
-                try { why = String((((await res.json()) || {}).error || {}).message || ''); } catch (e) { /* not JSON */ }
-                throw Object.assign(new Error(`HTTP ${res.status}${why ? `: ${why.slice(0, 120)}` : ''}`), { sbAnswered: true });
-            }
-            const data = await res.json();
-            const bad = new Map();
-            for (const m of data.matches || []) if (m.threat && m.threat.url) bad.set(m.threat.url, SB_TYPES[m.threatType] || String(m.threatType || 'a threat').toLowerCase());
-            for (const [s, originals] of sent) {
-                const r = bad.has(s) ? { verdict: 'unsafe', by: 'Google Safe Browsing', reason: `Google Safe Browsing lists it as ${bad.get(s)}` } : { verdict: 'clean', by: 'Google Safe Browsing' };
-                urlCache.set(s, r, r.verdict === 'unsafe' ? BAD_TTL : 30 * 60 * 1000);
-                for (const o of originals) out.set(o, r);
-            }
-            if (sbKey) await sbKey.noteResult(true, null);
-            await outcome('safeBrowsing', true);
-        } catch (e) {
-            for (const originals of sent.values()) for (const o of originals) out.set(o, { verdict: 'unknown', by: 'Google Safe Browsing', reason: `not checked (${e.name === 'ServiceBusyError' ? 'service busy' : 'lookup failed'})` });
-            // Google refusing the key (revoked, restricted, quota): the admins are told at once (sbkey.js); a network
-            // blip isn't worth it, but every lookup failing for OUTAGE_MS is.
-            if (sbKey && e.sbAnswered) await sbKey.noteResult(false, e.message);
-            else if (e.name !== 'ServiceBusyError') await outcome('safeBrowsing', false);
-        }
+        // Answers another instance (or this one before an update) already got from Google.
+        for (const [s, r] of await sharedAnswers([...sent.keys()])) { for (const o of sent.get(s)) out.set(o, r); sent.delete(s); }
+        if (!sent.size) return out;
+        const addresses = [...sent.keys()];
+        const answers = await Promise.all(addresses.map(s => ask(s, key)));
+        addresses.forEach((s, k) => { for (const o of sent.get(s)) out.set(o, answers[k]); });
         return out;
     }
     return { checkHosts, checkUrls, forLookup, enabled: { cloudflare: useCf, get safeBrowsing() { return sbOn(); } },

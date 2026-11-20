@@ -125,6 +125,7 @@ test('dashboard: the review list, what needs an admin, the summary\'s switch and
         assert.equal((await (await post('/api/digest/send', {})).json()).demo, true);
         assert.equal((await post('/api/digest/send', {})).status, 429, 'not twice in a minute');
         // Status: works, then Identity-Aware Proxy on the worker shows as a problem with what to do.
+        await store.addEvent({ kind: 'error', text: 'A made-up error for the test.' });
         let s = (await get('/api/status')).checks;
         assert.equal(s.find(c => c.id === 'iap').ok, true); assert.equal(s.find(c => c.id === 'version').ok, true); assert.equal(s.find(c => c.id === 'invoker').ok, true);
         iap = true;
@@ -133,6 +134,9 @@ test('dashboard: the review list, what needs an admin, the summary\'s switch and
         s = (await get('/api/status?fresh=1')).checks;
         const c = s.find(x => x.id === 'iap');
         assert.equal(c.ok, false); assert.match(c.fix, /--no-iap/);
+        // (0.6.54) Errors in the last day: the fix links straight to Activity's errors.
+        const err = (await get('/api/status?fresh=1')).checks.find(x => x.id === 'errors');
+        assert.equal(err.ok, false); assert.equal(err.link, '#/activity?days=7&kind=error'); assert.match(err.fix, /Errors and gaps/);
     } finally { await close(); }
 });
 

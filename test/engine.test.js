@@ -92,6 +92,23 @@ test('look-alike domains (0.5.6): a brand\'s own top-level domain and the word "
     }
 });
 
+// (0.6.54) A reported false alarm: T-Mobile's own marketing (mktg.t-mobile.com, links to www.t-mobile.com) was read as
+// imitating tmobile.com "with look-alike characters" (hyphens are ignored when names are compared), in the links and
+// in the AI's identity line. t-mobile.com is T-Mobile's; imitations of either spelling are still found.
+test('look-alike domains (0.6.54): t-mobile.com is T-Mobile\'s own, not a look-alike of tmobile.com; imitations still are', async () => {
+    const E = require('../src/engine/spruce').load();
+    for (const h of ['t-mobile.com', 'www.t-mobile.com', 'secure.t-mobile.com', 'mktg.t-mobile.com', 'tmobile.com', 't-mobile-arena.com']) assert.equal(E.lookalikeOf(h), null, h);
+    for (const [h, re] of [['t-mobi1e.com', /imitates tmobile\.com/], ['t-rnobile.com', /imitates tmobile\.com/], ['tmobile-login.com', /uses the name "tmobile"/],
+        ['t-mobile-secure.com', /uses the name "t-mobile" but isn't t-mobile\.com/], ['secure-t-mobile.com', /uses the name "t-mobile"/]]) assert.match(E.lookalikeOf(h) || '', re, h);
+    // The reported email, made up from its shape: the sender passes DMARC, its links go to T-Mobile's own sites.
+    const raw = Buffer.from(['From: "T-Mobile" <tmobile@mktg.t-mobile.com>', 'To: pat.madeup@maple-schools.example', 'Subject: Protect the phone that powers your life',
+        'Message-ID: <tm1@mktg.t-mobile.com>', 'Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=mktg.t-mobile.com', 'Content-Type: text/html; charset=utf-8', '',
+        '<p>Get Protection 360 today.</p><p><a href="https://secure.t-mobile.com/protection">Check it out</a> <a href="https://www.t-mobile.com/unsubscribe">unsubscribe</a></p>'].join('\r\n'));
+    const r = await analyze(await readMessage(raw), CTX);
+    assert.ok(!r.links.some(l => /look-alike/.test(String(l.reason || ''))), JSON.stringify(r.links));
+    assert.ok(!JSON.stringify(r.signals).includes('look-alike'), JSON.stringify(r.signals));
+});
+
 test('allowlisted senders are "trusted": never escalated, whatever the checks find', async () => {
     const r = await analyze(await readMessage(fixture('phish-storage.eml')), Object.assign({ trusted: true }, CTX));
     assert.equal(r.status, 'trusted');
