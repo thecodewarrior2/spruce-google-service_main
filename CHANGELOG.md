@@ -12,9 +12,11 @@
   the rules clean and the phishing answer under the suspicious line, is moved as spam like padded list mail
   (`MOVE_ON_RULES`, monitor mode, the brake; the user can take it back out). From a sender Gmail confirmed it is never
   moved for that: the company's marketing is listed in Review → Promotional, where an admin answers once per company.
+  Mail Gmail put in its Promotions tab is never moved on the spam answer either, whoever sent it: it is already out of
+  the main inbox, and a small business without DMARC sends there too.
   Mail from inside is never moved as spam.
 - A model without a spam answer (the pinned phish-tiny 0.25.0) gives none, and nothing is judged differently until a model
-  with one is synced. Checks level 45, so recent delivered mail is checked again after the update.
+  with one is synced. Checks level 46, so recent delivered mail is checked again after the update.
 
 ## 0.6.54: T-Mobile's own mail isn't a look-alike; Safe Browsing's answers kept across updates; two shortcuts
 

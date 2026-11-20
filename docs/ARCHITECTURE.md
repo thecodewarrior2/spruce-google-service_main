@@ -210,7 +210,9 @@ among mail that isn't phishing): `src/engine/model.js` reads it beside `logits` 
 with the phishing one (`spamMargins`, by the same hash); `analyze` and `reading` return `spam` = P(spam) = (1 - P(phishing))
 x sigmoid(spam margin) (`spamOf`), null for a model without one. `engine/analyze.js` puts it in `ai.spam`; the record keeps
 it (`aiRecord`), the list's brief as `aiSpam`. `policy.js aiSpamOf`: at or over `aiThreshold`, the phishing answer under
-`aiSuspicious`, rules status `clean`, an outside sender **not** verified → `{ why }`, which `decide` treats like the padded
+`aiSuspicious`, rules status `clean`, an outside sender **not** verified, not in Gmail's Promotions tab
+(`result.gmailPromotions`: `CATEGORY_PROMOTIONS` among the message's labels, set by `judge`, the re-scan and the re-check;
+kept on the record) → `{ why }`, which `decide` treats like the padded
 list mail rule (`trigger: 'spam'`, `MOVE_ON_RULES`, monitor mode, the brake). A verified sender's is never moved for it:
 `promotional.js aiMarketingSign` adds it to `promotionalOf`'s signs (Review → Promotional). Spam, by the model's
 definition (TinyPhishLLM's changelog): a business's bulk marketing, wanted or not.

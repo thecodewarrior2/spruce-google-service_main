@@ -712,6 +712,7 @@ class Service {
         const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(rec.user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(),
             threadSize: await this.threadSizeOf(rec.user, rec.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
+        result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
         const decision = decide(result, this.cfg, {});
         const ai = aiRecord(result.ai, this.cfg);
         // What it was on arrival: kept from the first re-scan on (a record re-scanned by 0.5.3 still has it in ai).
@@ -814,6 +815,8 @@ class Service {
         const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
             colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize, brandSenders: await this.brandSenderSet() });
         result.allowlistedUnverified = allowlisted && !verified;
+        // (0.6.55) In Gmail's Promotions tab: never moved on the AI's spam answer alone (policy.js aiSpamOf).
+        result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
         await this.applySpamMemory(user, facts, result);
         // (0.6.30) From a domain an allow list holds but the 30-day check suspended: tagged, so an admin finds (and can
         // release) the emails it got while waiting for review (Settings → Sender lists).
@@ -906,7 +909,7 @@ class Service {
             subject: this.cfg.storeSubjects ? facts.subject.slice(0, 300) : '',
             campaign: campaign.key, campaignLabel,
             status: result.status, score: result.score, signals: result.signals.slice(0, 20), links: result.links.slice(0, 10), checks: result.checks || null,
-            ai: aiRecord(result.ai, this.cfg), ...(result.allowSuspended ? { allowSuspended: result.allowSuspended } : {}), ...(result.spamSender ? { spamSender: result.spamSender } : {}), ...(result.platformNote ? { platformNote: true } : {}),
+            ai: aiRecord(result.ai, this.cfg), ...(result.allowSuspended ? { allowSuspended: result.allowSuspended } : {}), ...(result.spamSender ? { spamSender: result.spamSender } : {}), ...(result.platformNote ? { platformNote: true } : {}), ...(result.gmailPromotions ? { gmailPromotions: true } : {}),
             auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.headerFrom ? { headerFrom: facts.auth.headerFrom } : {}, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
@@ -2075,6 +2078,7 @@ class Service {
         const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime, intel: this.intel,
             colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), threadSize: await this.threadSizeOf(user, msg.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
+        result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
         await this.applySpamMemory(user, facts, result);
         let decision = decide(result, this.cfg, { brake: await this.brakeOn() });
         const was = before ? before.action : 'none';

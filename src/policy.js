@@ -74,11 +74,13 @@ function rulesOnlyVerified(r, cfg) {
 // (pipeline.js promotionalOf), where an admin answers once per company. From an unverified sender outside the
 // organization, with nothing else suspicious (the rule checks clean, the phishing answer under the suspicious line), an
 // answer at or above the move threshold (AI_MOVE_THRESHOLD) is spam: { why } for the spam rules (moved like padded list
-// mail: MOVE_ON_RULES, monitor mode, the brake), else null.
+// mail: MOVE_ON_RULES, monitor mode, the brake), else null. Never for mail Gmail put in its Promotions tab
+// (result.gmailPromotions, the pipeline's from the message's labels): it is already out of the main inbox, and a small
+// business without DMARC sends there too; the spam answer is for unconfirmed marketing Gmail left in the main inbox.
 function aiSpamOf(result, cfg) {
     const ai = result && result.ai;
     const q = ai && typeof ai.spam === 'number' ? ai.spam : null;
-    if (q === null || q < cfg.aiThreshold || result.inside || result.verified || result.status !== 'clean') return null;
+    if (q === null || q < cfg.aiThreshold || result.inside || result.verified || result.gmailPromotions || result.status !== 'clean') return null;
     const p = typeof ai.probability === 'number' ? ai.probability : null;
     const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : AI_SUSPICIOUS;
     if (p === null || p >= line) return null;

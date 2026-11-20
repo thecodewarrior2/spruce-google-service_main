@@ -1,8 +1,8 @@
 'use strict';
 // 0.6.55: the AI's spam answer (phish-tiny 0.26.0 on: output spam_logits). Spam is a business's bulk marketing, wanted or
 // not (an email can't show whether its reader signed up). From a sender Gmail couldn't confirm (DMARC), with nothing else
-// suspicious, an answer at or over the move line is moved as spam by the spam rules; from a confirmed sender it is never
-// moved for that, only listed in Review → Promotional. Every sender, address and email here is made up.
+// suspicious, an answer at or over the move line is moved as spam by the spam rules, unless Gmail put it in its Promotions
+// tab; from a confirmed sender it is never moved for that, only listed in Review → Promotional. Every sender, address and email here is made up.
 const test = require('node:test');
 const assert = require('node:assert');
 const { loadConfig } = require('../src/config');
@@ -28,6 +28,7 @@ test('the policy: the AI\'s spam answer moves unverified outside mail as spam, n
     assert.equal(decide(result(), c, { brake: true }).action, 'would-move', 'the brake');
     assert.equal(decide(result({ verified: true }), c).action, 'none', 'a confirmed sender: never moved for this (Review → Promotional instead)');
     assert.equal(decide(result({ inside: true }), c).action, 'none', 'never from inside');
+    assert.equal(decide(result({ gmailPromotions: true }), c).action, 'none', 'never mail Gmail put in its Promotions tab');
     assert.equal(decide(result({ ai: { probability: 0.02, spam: 0.85 } }), c).action, 'none', 'under the move line');
     assert.equal(decide(result({ ai: { probability: 0.02, spam: null } }), c).action, 'none', 'a model without a spam answer');
     assert.equal(decide(result({ status: 'caution', score: 3 }), c).action, 'flag', 'something else suspicious: judged as before, not as spam');
@@ -78,13 +79,17 @@ test('the pipeline: unverified marketing moved as spam; a confirmed company\'s l
         svc.modified = modified;
         return svc;
     };
-    const judge = async (svc, opts = {}) => { n++; return svc.judge(PAT, { id: `m${n}`, threadId: `t${n}`, internalDate: Date.now(), labelIds: ['INBOX'] }, await readMessage(raw(PAT, Object.assign({ n }, opts)))); };
+    const judge = async (svc, opts = {}, labelIds = ['INBOX']) => { n++; return svc.judge(PAT, { id: `m${n}`, threadId: `t${n}`, internalDate: Date.now(), labelIds }, await readMessage(raw(PAT, Object.assign({ n }, opts)))); };
     const svc = make('enforce');
     const moved = await judge(svc);
     assert.deepEqual([moved.action, moved.trigger], ['move', 'spam'], moved.why);
     const rec = await svc.store.getRecord(moved.key);
     assert.equal(rec.ai.spam, 0.97, 'kept on the record (the dashboard shows it)');
     assert.ok(svc.modified.some(m => m.add.includes('SPAM')));
+    const tab = make('enforce');
+    const inTab = await judge(tab, {}, ['INBOX', 'CATEGORY_PROMOTIONS']);
+    assert.equal(inTab.action, 'none', 'in Gmail\'s Promotions tab: not moved on the spam answer alone');
+    assert.ok(!tab.modified.some(m => m.add.includes('SPAM')));
     const monitor = make('monitor');
     assert.equal((await judge(monitor)).action, 'would-move');
     const confirmed = await judge(make('enforce'), { from: 'news@bigstore.example', dmarc: 'pass' });
