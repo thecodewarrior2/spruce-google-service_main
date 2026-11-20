@@ -2111,7 +2111,15 @@
             h('div', { class: 'promo-main' },
                 h('h2', {}, kindTag('promotional'), c.company),
                 h('p', { class: 'small muted', text: `${num(c.count)} email${c.count === 1 ? '' : 's'} to ${num(c.users.length)} ${c.users.length === 1 ? 'person' : 'people'}, ${dayOf(c.firstAt)}${c.lastAt && dayOf(c.lastAt) !== dayOf(c.firstAt) ? ` to ${dayOf(c.lastAt)}` : ''}. From ${c.senders.slice(0, 3).join(', ')}${c.senders.length > 3 ? ` and ${num(c.senders.length - 3)} more` : ''}.` }),
-                c.subjects.length ? h('ul', { class: 'promo-subjects small' }, c.subjects.map(t => h('li', { text: t }))) : null,
+                // (0.6.55) The emails themselves (each opens its page: the whole email as the AI reads it, under "…show more",
+                // read from the mailbox), the sender check, and the AI's answers.
+                (c.emails || []).length ? h('ul', { class: 'promo-subjects small' }, c.emails.map(e => h('li', {},
+                    h('a', { href: `#/message?${q({ key: e.key })}`, title: 'Open this email: who sent it, the checks, and the whole email as the AI reads it (…show more)', text: e.subject || '(subject not stored)' }),
+                    typeof e.spam === 'number' ? h('span', { class: 'muted', text: ` · spam ${pct(e.spam)}` }) : null)))
+                    : c.subjects.length ? h('ul', { class: 'promo-subjects small' }, c.subjects.map(t => h('li', { text: t }))) : null,
+                h('p', { class: 'small', text: `Sender check: ${c.dmarcPass === c.count ? `Gmail confirmed the sender (DMARC passed) for ${c.count === 1 ? 'it' : `all ${num(c.count)}`}` : `DMARC passed for ${num(c.dmarcPass || 0)} of ${num(c.count)}`}.` }),
+                h('p', { class: 'small', text: typeof c.spamMax === 'number' ? `AI: spam ${c.spamMin === c.spamMax ? pct(c.spamMax) : `${pct(c.spamMin)} to ${pct(c.spamMax)}`}${typeof c.phishMax === 'number' ? `, phishing ${c.phishMax < 0.005 ? 'under 1%' : c.count === 1 ? pct(c.phishMax) : `at most ${pct(c.phishMax)}`}` : ''}.`
+                    : typeof c.phishMax === 'number' ? `AI: phishing ${c.count === 1 ? pct(c.phishMax) : `at most ${pct(c.phishMax)}`} (this model has no spam answer).` : 'AI: no score.' }),
                 h('p', { class: 'small muted', text: `Why: ${c.signs.join('; ')}.` })),
             h('div', { class: 'actions promo-actions' },
                 h('button', { class: 'btn', type: 'button', title: ANSWER.spam.help, onclick: () => answer(c, 'spam') }, enforce ? 'Spam: move to the Spam folder' : 'Spam'),

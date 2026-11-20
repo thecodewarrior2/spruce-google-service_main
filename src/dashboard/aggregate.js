@@ -392,18 +392,26 @@
             const c = r.promotional && r.promotional.company;
             if (!c) continue;
             let g = m.get(c);
-            if (!g) { g = { company: c, keys: [], users: new Set(), senders: new Set(), subjects: [], signs: new Set(), count: 0, firstAt: null, lastAt: null }; m.set(c, g); }
+            if (!g) { g = { company: c, keys: [], users: new Set(), senders: new Set(), subjects: [], emails: [], signs: new Set(), count: 0, dmarcPass: 0, spamMin: null, spamMax: null, phishMax: null, firstAt: null, lastAt: null }; m.set(c, g); }
             g.count++;
             if (g.keys.length < REVIEW_GROUP_MAX) g.keys.push(r.key);
             if (r.user && g.users.size < REVIEW_GROUP_MAX) g.users.add(r.user);
             if (r.sender && r.sender.address && g.senders.size < 50) g.senders.add(r.sender.address);
             if (r.subject && g.subjects.length < 3 && !g.subjects.includes(r.subject)) g.subjects.push(r.subject);
+            // (0.6.55) What an admin weighs before answering: the sender check, the AI's answers, and a few of the emails
+            // themselves (each opens on its own page).
+            const q = r.ai && typeof r.ai.spam === 'number' ? r.ai.spam : null, p = r.ai && typeof r.ai.probability === 'number' ? r.ai.probability : null;
+            if (r.auth && r.auth.dmarc === 'pass') g.dmarcPass++;
+            if (q !== null) { g.spamMin = g.spamMin === null ? q : Math.min(g.spamMin, q); g.spamMax = g.spamMax === null ? q : Math.max(g.spamMax, q); }
+            if (p !== null) g.phishMax = g.phishMax === null ? p : Math.max(g.phishMax, p);
+            if (g.emails.length < 5 && !(r.subject && g.emails.some(e => e.subject === r.subject))) g.emails.push({ key: r.key, subject: r.subject || null, at: r.receivedAt || r.processedAt || null, spam: q, phishing: p, dmarc: (r.auth && r.auth.dmarc) || null });
             for (const x of r.promotional.signs || []) g.signs.add(x);
             const at = r.receivedAt || r.processedAt;
             if (at && (!g.firstAt || at < g.firstAt)) g.firstAt = at;
             if (at && (!g.lastAt || at > g.lastAt)) g.lastAt = at;
         }
-        return [...m.values()].map(g => ({ company: g.company, count: g.count, keys: g.keys, users: [...g.users], senders: [...g.senders], subjects: g.subjects, signs: [...g.signs], firstAt: g.firstAt, lastAt: g.lastAt }))
+        return [...m.values()].map(g => ({ company: g.company, count: g.count, keys: g.keys, users: [...g.users], senders: [...g.senders], subjects: g.subjects, emails: g.emails, signs: [...g.signs],
+            dmarcPass: g.dmarcPass, spamMin: g.spamMin, spamMax: g.spamMax, phishMax: g.phishMax, firstAt: g.firstAt, lastAt: g.lastAt }))
             .sort((a, b) => b.count - a.count || (b.lastAt || 0) - (a.lastAt || 0));
     }
 

@@ -96,3 +96,15 @@ test('the pipeline: unverified marketing moved as spam; a confirmed company\'s l
     assert.deepEqual([confirmed.action, confirmed.trigger], ['promo', 'promotional'], confirmed.why);
     assert.match(confirmed.why, /the AI read it as a business's bulk marketing \(97% spam\)/);
 });
+
+test('Review → Promotional: each company shows the sender check, the AI\'s answers and its emails, each to open', () => {
+    const A = require('../src/dashboard/aggregate');
+    const rec = (i, over = {}) => Object.assign({ key: `k${i}`, user: PAT, action: 'promo', receivedAt: 1000 + i, subject: `Weekend sale ${i}`, sender: { address: 'news@bigstore.example' },
+        auth: { dmarc: 'pass' }, ai: { probability: 0.01 * i, spam: 0.9 + 0.01 * i }, promotional: { company: 'bigstore.example', signs: ['Gmail put it in its Promotions category'] } }, over);
+    const [g] = A.promoGroups([rec(1), rec(2), rec(3, { subject: 'Weekend sale 1' }), rec(4, { ai: { probability: 0.02 } })]);
+    assert.equal(g.count, 4);
+    assert.equal(g.dmarcPass, 4);
+    assert.ok(Math.abs(g.spamMin - 0.91) < 1e-9 && Math.abs(g.spamMax - 0.93) < 1e-9, `${g.spamMin} ${g.spamMax}`);
+    assert.ok(Math.abs(g.phishMax - 0.03) < 1e-9);
+    assert.deepEqual(g.emails.map(e => [e.key, e.subject]), [['k1', 'Weekend sale 1'], ['k2', 'Weekend sale 2'], ['k4', 'Weekend sale 4']], 'one per subject, each with its key');
+});

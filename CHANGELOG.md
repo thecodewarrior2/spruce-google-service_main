@@ -15,6 +15,9 @@
   Mail Gmail put in its Promotions tab is never moved on the spam answer either, whoever sent it: it is already out of
   the main inbox, and a small business without DMARC sends there too.
   Mail from inside is never moved as spam.
+- **Review → Promotional** shows, for each company: Gmail's sender check (how many of its emails passed DMARC), the AI's
+  answers (spam, and the highest phishing score), and up to 5 of its emails (one per subject), each a link to its page,
+  where "…show more" shows the whole email as the AI reads it (read from the mailbox; bodies are never stored).
 - A model without a spam answer (the pinned phish-tiny 0.25.0) gives none, and nothing is judged differently until a model
   with one is synced. Checks level 46, so recent delivered mail is checked again after the update.
 

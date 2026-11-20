@@ -235,7 +235,8 @@ sender signed a one-click unsubscribe (RFC 8058: `List-Unsubscribe` and `List-Un
 of the sender's own organization, which Gmail checked; Gmail and Yahoo require it of bulk senders for marketing mail, not
 for receipts or password resets). Only from an outside sender Gmail verified, and only when the checks found nothing else:
 it is never moved for that. **Review → Promotional** (admins only) lists it one row per company, the sender's own domain
-(never the platform it was sent through), most emails first. **Spam** answers the company's waiting emails Spam (moved to
+(never the platform it was sent through), most emails first; (0.6.55) each row shows the sender check (DMARC), the AI's
+spam and phishing scores, and up to 5 of the emails, each opening its own page (the whole email under "…show more"). **Spam** answers the company's waiting emails Spam (moved to
 the Spam folder in enforce mode; with the box ticked, their senders go on Spam senders, a mailing subdomain or the address,
 so the company's receipts stay checked); from then on, people taking its mail back out of Spam and the 3-person rule below
 work as for any spam. **Keep** leaves them in the Inbox and puts the company on **Settings → Sender lists → Promotional
