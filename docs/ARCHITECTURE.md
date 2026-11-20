@@ -203,10 +203,22 @@ domain); the page adds a domain as typed. `spamListMatch` looks up the address, 
 senders (DMARC passing). `rulesOnlyVerified` (`src/policy.js`) keeps a rules-only score of 3 or more from a verified
 outside sender out of "suspicious" unless the AI agrees; the server applies it to waiting records from before too.
 
+## The AI's spam answer
+
+(0.6.55.) A model whose `model.json` has `spam` (phish-tiny 0.26.0 on) has a second output, `spam_logits` (genuine, spam,
+among mail that isn't phishing): `src/engine/model.js` reads it beside `logits` in the same run and remembers its margin
+with the phishing one (`spamMargins`, by the same hash); `analyze` and `reading` return `spam` = P(spam) = (1 - P(phishing))
+x sigmoid(spam margin) (`spamOf`), null for a model without one. `engine/analyze.js` puts it in `ai.spam`; the record keeps
+it (`aiRecord`), the list's brief as `aiSpam`. `policy.js aiSpamOf`: at or over `aiThreshold`, the phishing answer under
+`aiSuspicious`, rules status `clean`, an outside sender **not** verified → `{ why }`, which `decide` treats like the padded
+list mail rule (`trigger: 'spam'`, `MOVE_ON_RULES`, monitor mode, the brake). A verified sender's is never moved for it:
+`promotional.js aiMarketingSign` adds it to `promotionalOf`'s signs (Review → Promotional). Spam, by the model's
+definition (TinyPhishLLM's changelog): a business's bulk marketing, wanted or not.
+
 ## Promotional mail
 
 (0.6.52, `src/promotional.js`.) `promotionalSigns(facts, labelIds)`: Gmail's `CATEGORY_PROMOTIONS` label on the message, or
-a signed one-click unsubscribe (`oneClickSigned`: `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
+(0.6.55) the AI's spam answer (`aiMarketingSign`, added by `promotionalOf`), or a signed one-click unsubscribe (`oneClickSigned`: `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
 a `DKIM-Signature` whose `d=` is the From address's organization and whose `h=` covers both, and Gmail's DKIM result
 passing). In `judge`, after the policy, Spam senders and the brake, an email whose decision is still `none` gets
 `promotionalOf` (`src/pipeline.js`): with `PROMOTIONAL` on, a verified sender from outside, not allowlisted, not a platform's

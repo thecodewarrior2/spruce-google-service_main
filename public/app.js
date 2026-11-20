@@ -761,7 +761,7 @@
                 { name: 'What happened', get: m => h('div', { class: 'what-happened' }, actionPill(m), kindTag(kindOf(m)),
                     m.recheck ? h('span', { class: 'found-later small' }, alertIcon(`Found after it was delivered (checked again ${when(m.recheck.at)})${m.recheck.clicked ? ': a link in it was clicked' : m.recheck.opened ? ': it had been opened' : ''}`), ' found later') : null) },
                 { name: 'Now', get: m => pill(stateOf(m)) },
-                { name: 'Scores', num: true, sort: m => (m.score || 0) * 1000 + (m.ai || 0), get: m => h('div', { class: 'scores' }, h('div', { text: `AI ${m.ai === null ? '–' : pct(m.ai)}` }), h('div', { class: 'muted small', text: `rules ${m.score === null || m.score === undefined ? '–' : m.score}` })) },
+                { name: 'Scores', num: true, sort: m => (m.score || 0) * 1000 + (m.ai || 0), get: m => h('div', { class: 'scores' }, h('div', { text: `AI ${m.ai === null ? '–' : pct(m.ai)}` }), typeof m.aiSpam === 'number' ? h('div', { class: 'muted small', title: 'The AI\'s spam answer: how sure it is that this is a business\'s bulk marketing', text: `spam ${pct(m.aiSpam)}` }) : null, h('div', { class: 'muted small', text: `rules ${m.score === null || m.score === undefined ? '–' : m.score}` })) },
                 { name: 'When', sort: m => m.processedAt || 0, get: m => h('span', { class: 'nowrap', text: when(m.processedAt) }) }
             ], d.messages, m => go(`#/message?${q({ key: m.key })}`), 'No messages match.', m => (m.recheck && RECHECK_BAD.includes(m.recheck.outcome) ? 'row-alert' : '')))];
     }
@@ -903,6 +903,7 @@
             m.rescan && m.arrival ? h('div', { class: 'small muted', text: `Checked again ${when(m.rescan.at)}. On arrival: ${m.arrival.ai ? `${pct(m.arrival.ai.probability)}, ${m.arrival.ai.model || 'an unknown model'}` : 'no AI score'}.` }) : null,
             (() => { const mt = h('div', { class: `meter ${ai >= aiThreshold ? 'hot' : ''}`, role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Math.round(ai * 100), 'aria-label': 'AI score' }, h('div')); mt.firstChild.style.width = pct(ai); return mt; })(),
             h('div', { class: 'small ai-where', text: `Where it stands: ${pct(ai)} is ${where}.` }),
+            aiSpamLine(m),
             m.ai.reasons && m.ai.reasons.length ? [h('div', { class: 'small muted', text: 'What weighed most (each part scored on its own):' }),
                 m.ai.reasons.map(r => h('div', { class: 'quote', text: r.facts ? 'Who sent it, the sender check and where its links go' : `“${r.sentence}”` }))]
                 : ai >= 0.5 ? h('div', { class: 'small muted', text: 'Which parts weighed most isn\'t kept for this email (STORE_AI_QUOTES=off, or recorded before it was).' }) : null,
@@ -956,7 +957,7 @@
             const weighed = calm ? new Set() : new Set(r.sentences.map((x, i) => [x.weight, i]).filter(([w]) => w > 0).sort((a, b) => b[0] - a[0]).slice(0, 3).map(([, i]) => i));
             const badge = (w) => (w === null || w === undefined ? null : h('span', { class: `lean ${!calm && lean(w) >= 0.5 ? 'hot' : ''}`, text: `${pct(lean(w))} on its own` }));
             const partsHigher = calm && [r.headWeight, ...r.sentences.map(x => x.weight)].some(w => lean(w) >= 0.5);
-            body.append(h('div', { class: 'small' }, h('b', { text: `The AI now: ${pct(r.probability)}` }), ` (${r.model} ${r.version}, the whole email${m.ai && typeof m.ai.probability === 'number' && Math.abs(m.ai.probability - r.probability) >= 0.01 ? `; ${pct(m.ai.probability)} when it was checked` : ''}).`));
+            body.append(h('div', { class: 'small' }, h('b', { text: `The AI now: ${pct(r.probability)}${typeof r.spam === 'number' ? `, spam ${pct(r.spam)}` : ''}` }), ` (${r.model} ${r.version}, the whole email${m.ai && typeof m.ai.probability === 'number' && Math.abs(m.ai.probability - r.probability) >= 0.01 ? `; ${pct(m.ai.probability)} when it was checked` : ''}).`));
             if (partsHigher) body.append(h('div', { class: 'alert info' }, h('div', { text: `The whole email reads as genuine to the AI (${pct(r.probability)}): that is its opinion. Some parts score higher on their own, because without the rest of the email a single line (a link, "click here to accept") reads like many phishing emails; together, the AI doesn't find it phishing.` })));
             // What weighed most, each with the nearest sentence of real text before and after it (blank
             // lines, lone punctuation and invisible padding skipped: reading() marks them filler).
@@ -982,6 +983,19 @@
         }
     }
 
+    // (0.6.55) The AI's spam answer (phish-tiny 0.26.0 on): how sure it is that the email is a business's bulk marketing,
+    // wanted or not, and what the spam rules do with it. Nothing for a model without one.
+    function aiSpamLine(m) {
+        const q = m.ai && typeof m.ai.spam === 'number' ? m.ai.spam : null;
+        if (q === null) return null;
+        const p = m.ai.probability || 0;
+        const where = q < 0.5 ? 'it doesn\'t read as bulk marketing'
+            : q < aiThreshold || p >= aiSuspicious ? `it reads as a business's bulk marketing, under the line where the spam rules act (${pct(aiThreshold)})`
+            : m.inside ? 'it reads as bulk marketing, but the sender is inside your organization, so it is never moved as spam'
+            : m.verified || (m.auth && m.auth.dmarc === 'pass') ? `at or over ${pct(aiThreshold)}, from a sender Gmail confirmed (DMARC): never moved for this alone; the company's marketing is listed in Review → Promotional for one answer`
+            : `at or over ${pct(aiThreshold)}, from a sender Gmail couldn't confirm: moved as spam when nothing else is suspicious (like other spam: moving on the rules on, enforce mode)`;
+        return h('div', { class: 'small ai-spam' }, h('b', { text: `Spam: ${pct(q)}` }), ` (${m.ai.model}: how likely it is a business's bulk marketing, wanted or not; not phishing). ${where.replace(/^./, c => c.toUpperCase())}.`);
+    }
     // One email's decision: a record (Messages), or a pasted email's answer (Check an email: m.pasted).
     // opts.inReview: the review queue shows its own buttons and title.
     function emailView(m, opts = {}) {
@@ -1269,6 +1283,7 @@
                     : 'never (the AI score alone doesn\'t move inside mail: "Let the AI alone move staff email" is off; and moving on the rule checks is off).'),
                 kvRow('Inside or outside', `inside: the From address is in your own domains (${(d.orgDomains || []).join(', ') || 'none set up yet'}) and Gmail confirmed the sender is real (DMARC) for it. Anything else is outside, a forged staff address too. DMARC only decides this (and whether a Trusted sender counts): an outside sender doesn't have to pass or fail it. A failed DMARC check is also one of the rules' signs (2 or 3 points), never required.`),
                 kvRow('Suspicious, not moved', `a rules score of 3 or more (from a sender Gmail confirmed, only when the AI also scores it ${pct(d.aiSuspicious || 0.65)} or more), or an AI score of ${pct(d.aiSuspicious || 0.65)} or more, that doesn't move it${d.aiMovesInside ? '' : ' (an inside sender\'s high AI score included)'}: recorded for review (Review → Suspicious, not moved).`),
+                kvRow('Moved as spam', `${d.moveOnRules ? '' : '(moving on the rule checks is off, so nothing is moved as spam) '}list or marketing mail padded with hidden text, or (with an AI model that has a spam answer) mail the AI is ${pct(d.aiThreshold)} or more sure is a business's bulk marketing, from an outside sender Gmail couldn't confirm (DMARC), with nothing else suspicious. Never mail from inside. Marketing from a sender Gmail confirmed is never moved for that: it is listed in Review → Promotional, and an admin's Spam answer moves that company's later mail.`),
                 kvRow('The rules', 'the rule checks add up signs: dangerous or brand-new links, a look-alike or impersonated sender, forged headers, a failed sender check, requests for passwords, codes or money, a new outside sender. Suspicious from 3, moved from 5. The AI score is separate.'),
                 kvRow('Campaign pause', `After ${num(d.campaignHoldAfter)} copies of one campaign are moved on weaker evidence, moving its other copies pauses until you confirm it as phishing or dismiss it as a false alarm; until then they stay in the Inbox, like any email not moved. Strong evidence never pauses (CAMPAIGN_HOLD_AFTER)`),
                 kvRow('Alerts', d.alertEmail ? `Emailed to ${d.alertEmail} by Cloud Monitoring` : 'Shown in Health → Activity; not emailed (ALERT_EMAIL, deploy/install.sh)'),
@@ -2282,7 +2297,10 @@
         // (0.6.27) Taken for spam: the column says spam, not phishing, and starts with what made it spam (the hidden
         // filler in list mail counts for no rules score, so it isn't among the weighted signs).
         const spamItem = kindOf(m) === 'spam';
-        if (spamItem && (m.trigger === 'spam' || (m.signals || []).some(x => x && x.kind === 'hidden-filler'))) against.unshift([3, 'It is list or marketing mail that hides a block of unrelated text below the message: a spam trick.', 'spam']);
+        if (spamItem && ((m.trigger === 'spam' && /hides a block/.test(m.why || '')) || (m.signals || []).some(x => x && x.kind === 'hidden-filler'))) against.unshift([3, 'It is list or marketing mail that hides a block of unrelated text below the message: a spam trick.', 'spam']);
+        // (0.6.55) The AI's spam answer, where it reads as bulk marketing.
+        const aiSpam = m.ai && typeof m.ai.spam === 'number' ? m.ai.spam : null;
+        if (aiSpam !== null && aiSpam >= 0.5) against.unshift([aiSpam >= aiThreshold ? 4 : 2, `The AI scores it ${pct(aiSpam)} spam: it reads as a business's bulk marketing`, `spam ${pct(aiSpam)}`]);
         const againstTitle = spamItem ? 'Points to spam' : 'Points to phishing';
         for (const l of m.links || []) against.push([l.severity === 'danger' ? 5 : 2, `Link: ${l.reason || l.url}`, 'link']);
         if (ai !== null && ai >= 0.5) against.unshift([ai >= aiThreshold ? 5 : ai >= aiSuspicious ? 3 : 1.5, `The AI scores it ${pct(ai)}: it reads like phishing`, `AI ${pct(ai)}`]);

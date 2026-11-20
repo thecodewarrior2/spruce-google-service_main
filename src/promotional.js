@@ -8,6 +8,7 @@
 //     passing. Gmail and Yahoo require it of bulk senders for marketing and subscribed mail only, not for receipts,
 //     password resets or reservations (Google's sender FAQ), and the signature means a forwarded or forged copy can't
 //     carry it over.
+// (0.6.55) Or the AI's spam answer (aiMarketingSign): a business's bulk marketing, wanted or not.
 // Promotional mail is never moved for that: the pipeline records it for Review → Promotional, where an admin answers once
 // per company (Spam: Spam senders; Keep: not asked again). Only verified mail from outside counts (the pipeline's
 // promotionalOf): the company it is filed under is the From address's organization (spamSenderKey), never the
@@ -60,4 +61,14 @@ function promotionalSigns(facts, labelIds) {
     return out;
 }
 
-module.exports = { promotionalSigns, oneClickSigned, headerValues, dkimTags };
+// (0.6.55) The AI's spam answer as a sign of marketing: at or above the move threshold (AI_MOVE_THRESHOLD), with the
+// phishing answer under the suspicious line. '' otherwise, or with a model that has no spam answer. For a verified
+// sender only (the pipeline's promotionalOf): it is listed for an admin's answer, never moved for it.
+function aiMarketingSign(ai, cfg) {
+    const q = ai && typeof ai.spam === 'number' ? ai.spam : null, p = ai && typeof ai.probability === 'number' ? ai.probability : null;
+    const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : 0.65;
+    if (q === null || p === null || q < cfg.aiThreshold || p >= line) return '';
+    return `the AI read it as a business's bulk marketing (${Math.min(99, Math.round(q * 100))}% spam)`;
+}
+
+module.exports = { promotionalSigns, aiMarketingSign, oneClickSigned, headerValues, dkimTags };

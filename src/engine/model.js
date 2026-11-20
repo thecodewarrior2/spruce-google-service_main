@@ -30,6 +30,10 @@ class Model {
         // The input format the model was trained on (model.json inputFormat; 1 for a model that names none).
         this.tok = tokenizer; this.parts = (facts) => modelInputParts(facts, (manifest && manifest.inputFormat) || 1);
         this.ort = ort; this.session = null; this.margins = new Map();
+        // (0.6.55) A model with a spam answer (phish-tiny 0.26.0 on: model.json spam, output spam_logits): P(spam) =
+        // (1 - P(phishing)) x P(spam | not phishing). Older models have none: spam is then null everywhere.
+        this.hasSpam = !!(manifest && manifest.spam && manifest.spam.output);
+        this.spamMargins = new Map();
         // For Status: not loaded, loading, ready or failed; when, how long, why; the self-check's scores.
         this.state = 'not loaded'; this.loadedAt = null; this.loadMs = null; this.error = null; this.check = null;
     }
@@ -51,13 +55,19 @@ class Model {
     // How strongly the model leans to phishing (its phishing score minus its genuine score) for each text,
     // in one run per BATCH (shorter texts padded, the padding never attended to). A text seen before (by its
     // SHA-256) gives its remembered answer: at most MARGINS_KEPT, the least recently used dropped first.
-    async margins_(texts) {
+    // (0.6.55) With a spam answer, its margin (spam minus genuine, among mail that isn't phishing) is kept too
+    // (this.spamMargins, by the same hash): spamMarginsOut, when given, is filled with it.
+    async margins_(texts, spamMarginsOut = null) {
         const out = new Array(texts.length);
         const todo = [];
         texts.forEach((t, i) => {
             const k = crypto.createHash('sha256').update(String(t)).digest('base64');
             const hit = this.margins.get(k);
-            if (hit !== undefined) { this.margins.delete(k); this.margins.set(k, hit); out[i] = hit; }
+            const spamHit = this.hasSpam ? this.spamMargins.get(k) : null;
+            if (hit !== undefined && (!this.hasSpam || spamHit !== undefined)) {
+                this.margins.delete(k); this.margins.set(k, hit); out[i] = hit;
+                if (spamMarginsOut) spamMarginsOut[i] = this.hasSpam ? spamHit : null;
+            }
             else todo.push({ i, k, ids: this.tok.encode(String(t), this.cfg.maxLen, this.cfg.headTokens || 0) });
         });
         const session = todo.length ? await this.ready() : null;
@@ -67,11 +77,18 @@ class Model {
             part.forEach((x, b) => { for (let t = 0; t < x.ids.length; t++) { ids[b * T + t] = BigInt(x.ids[t]); mask[b * T + t] = 1; } });
             const res = await session.run({ input_ids: new this.ort.Tensor('int64', ids, [B, T]), attention_mask: new this.ort.Tensor('float32', mask, [B, T]) });
             const l = res.logits.data;
+            const sl = this.hasSpam && res[this.meta.spam.output] ? res[this.meta.spam.output].data : null;
             part.forEach((x, b) => {
                 const m = l[b * 2 + 1] - l[b * 2];
                 out[x.i] = m;
                 if (this.margins.size >= MARGINS_KEPT) this.margins.delete(this.margins.keys().next().value);
                 this.margins.set(x.k, m);
+                if (this.hasSpam) {
+                    const q = sl ? sl[b * 2 + 1] - sl[b * 2] : null;
+                    if (this.spamMargins.size >= MARGINS_KEPT) this.spamMargins.delete(this.spamMargins.keys().next().value);
+                    this.spamMargins.set(x.k, q);
+                    if (spamMarginsOut) spamMarginsOut[x.i] = q;
+                }
             });
         }
         return out;
@@ -89,7 +106,7 @@ class Model {
     }
     // What Status shows about the engine here.
     status() {
-        return { model: `${this.meta.name} ${this.meta.version}`, runtime: `ONNX Runtime ${runtimeVersion()}`.trim(), optimization: 'basic', threads: 1,
+        return { model: `${this.meta.name} ${this.meta.version}`, spam: this.hasSpam, runtime: `ONNX Runtime ${runtimeVersion()}`.trim(), optimization: 'basic', threads: 1,
             state: this.state, loadedAt: this.loadedAt, loadMs: this.loadMs, error: this.error, check: this.check };
     }
     async margin(text) { return (await this.margins_([text]))[0]; }
@@ -100,8 +117,9 @@ class Model {
     // more). Only when the email reads as phishing (50% or more), and then all in one run.
     async analyze(facts) {
         const parts = this.parts(facts);
-        const [m] = await this.margins_([`${parts.head} text: ${parts.sentences.join(' ')}`]);
-        const p = 1 / (1 + Math.exp(-m));
+        const q = [];
+        const [m] = await this.margins_([`${parts.head} text: ${parts.sentences.join(' ')}`], q);
+        const p = 1 / (1 + Math.exp(-m)), spam = spamOf(p, q[0]);
         const reasons = [];
         if (p >= 0.5) {
             const sentences = parts.sentences.slice(0, 25).filter(s => s.length >= 12);
@@ -111,7 +129,7 @@ class Model {
             if (w > 0) reasons.push({ sentence: 'Who sent it, the sender check and where its links go', weight: w, facts: true });
         }
         reasons.sort((a, b) => b.weight - a.weight);
-        return { probability: p, reasons: reasons.slice(0, 3), model: this.meta.name, version: this.meta.version };
+        return { probability: p, spam, reasons: reasons.slice(0, 3), model: this.meta.name, version: this.meta.version };
     }
     // What the model read, sentence by sentence, for a person deciding (the dashboard's "show more"): the
     // facts line (subject, sender, sender check, links, layout) and each sentence of the text, each scored on
@@ -122,7 +140,8 @@ class Model {
     // when finding the sentence before and after one that did (weighed: up to 3, in the text's order).
     async reading(facts, max = 40) {
         const parts = this.parts(facts);
-        const [m] = await this.margins_([`${parts.head} text: ${parts.sentences.join(' ')}`]);
+        const q = [];
+        const [m] = await this.margins_([`${parts.head} text: ${parts.sentences.join(' ')}`], q);
         // (0.5.66) The whole text, redacted as the model's input is: the input format keeps 60 sentences of a longer
         // text (modelInputParts: format 3, its first 40 and its last 20, 0.5.67; format 2, its first 60), so the
         // whole text is split and redacted 50 sentences at a time (at most 3,000), and the ones the model doesn't
@@ -143,12 +162,16 @@ class Model {
         const weighed = sentences.map((s, i) => [ws[i], i]).filter(([w, i]) => w > 0 && !all[i].filler)
             .sort((a, b) => b[0] - a[0]).slice(0, 3).map(([, i]) => i).sort((a, b) => a - b)
             .map(i => ({ index: i, before: near(i, -1), after: near(i, 1) }));
-        return { probability: 1 / (1 + Math.exp(-m)), model: this.meta.name, version: this.meta.version,
+        return { probability: 1 / (1 + Math.exp(-m)), spam: spamOf(1 / (1 + Math.exp(-m)), q[0]), model: this.meta.name, version: this.meta.version,
                  head: parts.head, headWeight: ws[sentences.length],
                  sentences: all.map((x, i) => ({ text: x.text, weight: i < sentences.length ? ws[i] : null, filler: x.filler, unread: unread(i) })),
                  weighed, scored: sentences.length, read: readCount, readsEnd, more: 0 };
     }
 }
+
+// (0.6.55) P(spam) from P(phishing) and the spam margin: the share of the mail that isn't phishing that is spam. null
+// without a spam answer (an older model).
+function spamOf(p, q) { return typeof q === 'number' && Number.isFinite(q) ? (1 - p) / (1 + Math.exp(-q)) : null; }
 
 // Characters that show as nothing: zero-width and joiners, the grapheme joiner, soft hyphens, Hangul fillers,
 // byte-order marks (mailing lists pad their preview text with them).
@@ -167,4 +190,4 @@ function loadModel({ dir, manifest, tokenizer, modelInputParts }) {
     return new Model({ file: path.join(dir, 'model.onnx'), manifest, tokenizer, modelInputParts });
 }
 
-module.exports = { Model, loadModel, hasText, shownText, MARGINS_KEPT, CHECK_PHISHING, CHECK_GENUINE };
+module.exports = { Model, loadModel, hasText, shownText, spamOf, MARGINS_KEPT, CHECK_PHISHING, CHECK_GENUINE };

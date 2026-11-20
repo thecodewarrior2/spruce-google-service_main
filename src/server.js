@@ -83,7 +83,7 @@ const MAILBOXES_KEPT_MS = 60 * 1000;
 // The dashboard's view of a record in a list (Messages): what an admin needs, nothing of the email's text
 // beyond the subject (which can be turned off: STORE_SUBJECTS); an email's own page reads the whole record.
 const brief = (r) => ({ key: r.key, user: r.user, processedAt: r.processedAt, sender: r.sender, subject: r.subject, campaign: r.campaign,
-    status: r.status, score: r.score, ai: r.ai ? Math.round((r.ai.probability || 0) * 1000) / 1000 : null, action: r.action, trigger: r.trigger, state: r.state, mode: r.mode || null, movedAt: r.movedAt || null, spam: !!r.spam, releasedByUser: !!r.releasedByUser, falseAlarm: r.falseAlarm, unclear: !!r.unclear,
+    status: r.status, score: r.score, ai: r.ai ? Math.round((r.ai.probability || 0) * 1000) / 1000 : null, aiSpam: r.ai && typeof r.ai.spam === 'number' ? Math.round(r.ai.spam * 1000) / 1000 : null, action: r.action, trigger: r.trigger, state: r.state, mode: r.mode || null, movedAt: r.movedAt || null, spam: !!r.spam, releasedByUser: !!r.releasedByUser, falseAlarm: r.falseAlarm, unclear: !!r.unclear,
     // found after delivery (0.5.35): the Messages list marks it
     recheck: r.recheck ? { at: r.recheck.at, outcome: r.recheck.outcome, opened: !!(r.recheck.opened || (r.recheck.clicks && r.recheck.clicks.opened)), clicked: !!(r.recheck.clicks && r.recheck.clicks.clicked) } : null });
 

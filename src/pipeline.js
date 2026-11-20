@@ -27,7 +27,7 @@ const { indexOf: recheckIndex, lookFor, foundWords, eventNames, eventHasMessageI
 const { checksLevel: currentChecksLevel } = require('./checks-level');
 const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOKALIKE_NEW_DAYS } = require('./lookalike');
 const sims = require('./simulations');
-const { promotionalSigns } = require('./promotional');
+const { promotionalSigns, aiMarketingSign } = require('./promotional');
 
 const DAY = 24 * 60 * 60 * 1000;
 // (0.6.44) The longest one email of a bulk answer may take (its Gmail calls each give up after 20 s and are tried 3 times).
@@ -92,7 +92,7 @@ const addressOf = (from) => { const m = /<([^<>@\s]+@[^<>\s]+)>/.exec(String(fro
 // STORE_AI_QUOTES=off), and why there is no score (an email in a language the model doesn't read).
 function aiRecord(ai, cfg) {
     if (!ai) return null;
-    const out = { probability: ai.probability, model: ai.model,
+    const out = { probability: ai.probability, ...(typeof ai.spam === 'number' ? { spam: ai.spam } : {}), model: ai.model,
         reasons: cfg.storeAiQuotes ? (ai.reasons || []).map(r => ({ sentence: String(r.sentence).slice(0, 160), facts: !!r.facts })) : [] };
     if (ai.skipped) { out.skipped = ai.skipped; out.language = ai.language || null; }
     return out;
@@ -1089,6 +1089,8 @@ class Service {
     async promotionalOf(user, msg, facts, result, { allowlisted = false, relay = null } = {}) {
         if (!this.cfg.promotional || allowlisted || relay || !result || result.inside || !result.verified || result.status === 'trusted') return null;
         const signs = promotionalSigns(facts, (msg && msg.labelIds) || []);
+        const aiSign = aiMarketingSign(result.ai, this.cfg);
+        if (aiSign) signs.push(aiSign);
         if (!signs.length) return null;
         const company = this.spamSenderKey(facts.senderAddress);
         if (!company || this.cfg.orgDomains.some(o => company === o || company.endsWith('.' + o) || company.endsWith('@' + o))) return null;

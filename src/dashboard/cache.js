@@ -40,7 +40,7 @@ function slimmer() {
         sender: r.sender ? Object.freeze({ name: I(r.sender.name), address: I(r.sender.address), domain: I(r.sender.domain) }) : r.sender,
         subject: I(r.subject), campaign: I(r.campaign), campaignLabel: I(r.campaignLabel),
         status: I(r.status), score: r.score, evidence: I(r.evidence), action: I(r.action), trigger: I(r.trigger), why: I(r.why), mode: I(r.mode),
-        ai: r.ai ? Object.freeze({ probability: r.ai.probability, model: I(r.ai.model) }) : r.ai,
+        ai: r.ai ? Object.freeze({ probability: r.ai.probability, ...(typeof r.ai.spam === 'number' ? { spam: r.ai.spam } : {}), model: I(r.ai.model) }) : r.ai,
         signals: Object.freeze((r.signals || []).filter(x => x && x.weight >= 2).map(x => Object.freeze({ kind: I(x.kind), text: I(x.text), weight: x.weight }))),
         state: I(r.state), held: I(r.held), braked: r.braked, userPlaced: r.userPlaced, ownAddressUnverified: r.ownAddressUnverified,
         releasedBy: I(r.releasedBy), releasedAt: r.releasedAt, releasedByUser: r.releasedByUser, falseAlarm: r.falseAlarm, unclear: r.unclear, markedBy: I(r.markedBy),

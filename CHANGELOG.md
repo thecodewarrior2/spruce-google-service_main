@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.55: the AI's spam answer, shown and used by the spam rules
+
+- **Spam is a business's bulk marketing, wanted or not** (the maintainer's definition): sales, coupons, card offers,
+  product newsletters, fundraising appeals. An email can't show whether its reader signed up (anyone can add an
+  unsubscribe link), so whether one company's marketing is wanted stays the service's to decide, not the model's.
+- **Shown:** with a model that has a spam answer (phish-tiny 0.26.0 on: output `spam_logits`), an email's page shows
+  "Spam: 97%" under the AI score, with what the rules do with it; the Messages list beside the AI score; Review among the
+  signs; "…show more" beside the AI's score now.
+- **Used by the spam rules:** 90% or more (`AI_MOVE_THRESHOLD`) from an outside sender Gmail couldn't confirm (DMARC), with
+  the rules clean and the phishing answer under the suspicious line, is moved as spam like padded list mail
+  (`MOVE_ON_RULES`, monitor mode, the brake; the user can take it back out). From a sender Gmail confirmed it is never
+  moved for that: the company's marketing is listed in Review → Promotional, where an admin answers once per company.
+  Mail from inside is never moved as spam.
+- A model without a spam answer (the pinned phish-tiny 0.25.0) gives none, and nothing is judged differently until a model
+  with one is synced. Checks level 45, so recent delivered mail is checked again after the update.
+
 ## 0.6.54: T-Mobile's own mail isn't a look-alike; Safe Browsing's answers kept across updates; two shortcuts
 
 - **T-Mobile's own domain isn't a look-alike any more:** its marketing (from mktg.t-mobile.com, links to www.t-mobile.com

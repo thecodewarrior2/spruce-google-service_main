@@ -5,7 +5,8 @@
 //               extension moves flagged email; MOVE_ON_RULES, on by default), or the AI model's score is at or
 //               above the threshold (90% by default) for a sender outside the organization (inside too with
 //               AI_MOVES_INSIDE). trigger: 'rules', 'ai' or 'rules+ai'; 'spam' (0.6.19) for list or marketing
-//               mail padded with hidden filler and nothing else suspicious: spam, not phishing.
+//               mail padded with hidden filler and nothing else suspicious: spam, not phishing; or (0.6.55) the AI's
+//               spam answer at or above the threshold for an unverified sender outside, nothing else suspicious.
 //   would-move  the same, in monitor mode or while the brake is on (braked): recorded, nothing moved. (The
 //               campaign hold and an admin's decision on a campaign come after this: pipeline.js.)
 //   flag        suspicious but not moved (amber verdict, an AI score of cfg.aiSuspicious or more below the
@@ -67,6 +68,23 @@ function rulesOnlyVerified(r, cfg) {
     return p === null || p < line;
 }
 
+// (0.6.55) The AI's spam answer (phish-tiny 0.26.0 on; ai.spam): how sure it is that the email is a business's bulk
+// marketing, wanted or not, and not phishing. An email can't show whether its reader signed up, so the answer alone never
+// moves mail from a sender Gmail verified (DMARC): that company's marketing goes to Review → Promotional instead
+// (pipeline.js promotionalOf), where an admin answers once per company. From an unverified sender outside the
+// organization, with nothing else suspicious (the rule checks clean, the phishing answer under the suspicious line), an
+// answer at or above the move threshold (AI_MOVE_THRESHOLD) is spam: { why } for the spam rules (moved like padded list
+// mail: MOVE_ON_RULES, monitor mode, the brake), else null.
+function aiSpamOf(result, cfg) {
+    const ai = result && result.ai;
+    const q = ai && typeof ai.spam === 'number' ? ai.spam : null;
+    if (q === null || q < cfg.aiThreshold || result.inside || result.verified || result.status !== 'clean') return null;
+    const p = typeof ai.probability === 'number' ? ai.probability : null;
+    const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : AI_SUSPICIOUS;
+    if (p === null || p >= line) return null;
+    return { why: `the AI was ${Math.min(99, Math.round(q * 100))}% sure it is spam (bulk marketing; moved from ${Math.round(cfg.aiThreshold * 100)}%), Gmail couldn't confirm the sender (DMARC), and nothing else is suspicious`, ai: true };
+}
+
 // The action for an analyzed email ({ action, trigger, why, braked }); state.brake: the domain-wide brake is on.
 function decide(result, cfg, state = {}) {
     if (result.status === 'trusted') return { action: 'none', trigger: null, why: 'the sender is on Trusted senders (Settings → Sender lists)' };
@@ -81,7 +99,9 @@ function decide(result, cfg, state = {}) {
     // (0.6.19) Spam, not phishing (analyze.js signsNeedingCompany): list or marketing mail padded with hidden filler,
     // nothing else suspicious. Moved to Spam like the rest (the user can take it back out), under the same switch as
     // the rules (MOVE_ON_RULES), monitor mode and the brake; never from inside the organization.
-    const spamMove = !ruleMove && !aiMove && cfg.moveOnRules && !!result.spam && !result.inside;
+    // (0.6.55) Or the AI's spam answer for an unverified sender (aiSpamOf), by the same rules.
+    const spamWhy = result.spam || aiSpamOf(result, cfg);
+    const spamMove = !ruleMove && !aiMove && cfg.moveOnRules && !!spamWhy && !result.inside;
     if (!ruleMove && !aiMove && !spamMove) {
         const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : AI_SUSPICIOUS;
         const byRules = (result.status === 'caution' && !rulesOnlyVerified(result, cfg)) || result.status === 'flagged';
@@ -91,11 +111,11 @@ function decide(result, cfg, state = {}) {
     }
     const trigger = ruleMove && aiMove ? 'rules+ai' : ruleMove ? 'rules' : aiMove ? 'ai' : 'spam';
     // (0.6.39) In plain words: what scored how much, and the level that moves.
-    const why = spamMove ? noted(`spam: ${result.spam.why}`) : noted([ruleMove ? `the rule checks scored it ${result.score} (moved from 5)` : '',
+    const why = spamMove ? noted(`spam: ${spamWhy.why}`) : noted([ruleMove ? `the rule checks scored it ${result.score} (moved from 5)` : '',
                        aiMove ? `the AI was ${Math.round(p * 100)}% sure it is phishing (moved from ${Math.round(cfg.aiThreshold * 100)}%)${result.inside ? ' (the sender is staff; "Let the AI alone move staff email" is on)' : ''}` : ''].filter(Boolean).join(' and '));
     if (cfg.mode !== 'enforce') return { action: 'would-move', trigger, why: `${why} (monitor mode: nothing is moved)` };
     if (state.brake) return { action: 'would-move', trigger, why: `${why} (not moved: the brake is on)`, braked: true };
     return { action: 'move', trigger, why };
 }
 
-module.exports = { decide, isAllowed, suspiciousWhy, rulesOnlyVerified, AI_SUSPICIOUS };
+module.exports = { decide, isAllowed, suspiciousWhy, rulesOnlyVerified, aiSpamOf, AI_SUSPICIOUS };

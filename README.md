@@ -104,13 +104,14 @@ For each new Inbox message:
 | The rules flag it (score 5+), from any sender | **Move to Spam** (label `SPRUCE/Moved`) |
 | The AI scores **90%** or more (`AI_MOVE_THRESHOLD`), sender outside the organization (or a staff address without DMARC passing): the AI score alone, no rule, link check or other sign needs to agree | **Move to Spam** |
 | **Spam, not phishing** (0.6.19): list or marketing mail (an unsubscribe header or link) that hides a block of unrelated text below the message, with nothing else suspicious; not from an established sender (0.6.27: Gmail verified it and its domain is a year old or more, as real newsletters pad their emails too) | **Move to Spam** as spam (trigger "spam"; the user can take it back out) |
+| (0.6.55) **The AI's spam answer** (a model that has one: phish-tiny 0.26.0 on) is **90%** or more (`AI_MOVE_THRESHOLD`): a business's bulk marketing, from an outside sender Gmail couldn't confirm (DMARC), the rules clean and the phishing answer under the suspicious line | **Move to Spam** as spam, by the same rules (`MOVE_ON_RULES`, monitor mode, the brake) |
 | Same, in monitor mode, or while moving is paused (a campaign on weaker evidence, or the domain-wide brake) | Left in the Inbox, recorded as "would move" (a paused one can be moved later) |
 | An admin dismissed the campaign as a false alarm | Recorded as suspicious, not moved |
 | The user moved it into the Inbox themselves, and the service hadn't checked it | Checked and recorded, never moved (an alert if flagged) |
 | Sender inside (your domains, DMARC passing), and the rules don't flag it | Nothing: the AI doesn't read it (with "AI on inside mail" on: a score of 90% or more is recorded as suspicious, not moved by the AI alone; with "AI alone moves inside mail" on: moved, as from outside) |
 | A rules score of 3 or more, or an AI score of **65%** or more (`AI_SUSPICIOUS_THRESHOLD`), below what moves it | Recorded as suspicious, not moved |
 | (0.6.40) The same rules score of 3 or more from an outside sender Gmail confirmed (DMARC), with the AI under the suspicious line | Nothing: the rules alone are too weak to ask about (newsletters and notices trip them). Staff mail, a platform's notification (a share) and a link check's verdict still count |
-| (0.6.52) **Promotional**: Gmail put it in its Promotions category, or the sender signed a one-click unsubscribe (bulk senders must add one to marketing mail); from an outside sender Gmail verified (DMARC), and nothing else found | Never moved for that: listed in **Review → Promotional** for an admin to answer once per company (Spam, or Keep); in enforce mode labeled `SPRUCE/Promotional` |
+| (0.6.52) **Promotional**: Gmail put it in its Promotions category, or the sender signed a one-click unsubscribe (bulk senders must add one to marketing mail), or (0.6.55) the AI's spam answer is 90% or more; from an outside sender Gmail verified (DMARC), and nothing else found | Never moved for that: listed in **Review → Promotional** for an admin to answer once per company (Spam, or Keep); in enforce mode labeled `SPRUCE/Promotional` |
 | Allowlisted sender, DMARC passing | Nothing |
 
 It also looks things up (`src/intel/`; `docs/PRIVACY.md` says exactly what is sent where):
@@ -214,6 +215,17 @@ can also release the emails it got meanwhile) or removes it.
 
 **Spam or phishing, at a glance** (0.6.27): Review, Mail and an email's page label each email **Spam** (purple) or
 **Phishing** (red), from what the service took it for, so a padded newsletter moved as spam isn't mistaken for phishing.
+
+**The AI's spam answer** (0.6.55): from phish-tiny 0.26.0 on, the model gives two answers: how likely an email is
+phishing (the AI score, as before) and how likely it is **spam**, a business's bulk marketing, wanted or not (sales,
+coupons, card offers, product newsletters, fundraising appeals; not a school's or a club's own newsletter, and not
+receipts or account notices). An email can't show whether its reader signed up, so the spam answer never moves mail from
+a sender Gmail confirmed: that company's marketing is listed in **Review → Promotional** (below), where an admin's
+**Spam** answer moves its later mail. From a sender Gmail couldn't confirm, with nothing else suspicious, 90% or more
+(`AI_MOVE_THRESHOLD`) moves it as spam, like padded list mail: `MOVE_ON_RULES`, monitor mode and the brake apply, and the
+user can take it back out. Mail from inside is never moved as spam. An email's page shows it under the AI score
+("Spam: 97%", with what the rules do with it), the Messages list beside the AI score, Review among the signs. A model
+without a spam answer gives none, and nothing changes.
 
 **Promotional mail** (0.6.52): marketing and subscribed mail is told by what Gmail and the sender say, with no list of
 platforms for anyone to keep: Gmail put it in its Promotions category (the Gmail API's `CATEGORY_PROMOTIONS`), or the

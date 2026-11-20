@@ -259,7 +259,9 @@ async function analyze(facts, ctx = {}) {
     } else {
         try {
             const r = await E.model.analyze(aiFacts);
-            ai = { probability: r.probability, reasons: r.reasons.map(x => ({ sentence: x.sentence, facts: !!x.facts })), model: `${r.model} ${r.version}` };
+            // (0.6.55) spam: P(spam), a business's bulk marketing (wanted or not) that isn't phishing; null from a model
+            // without a spam answer. The policy's spam rules read it (policy.js aiSpamOf).
+            ai = { probability: r.probability, spam: typeof r.spam === 'number' ? r.spam : null, reasons: r.reasons.map(x => ({ sentence: x.sentence, facts: !!x.facts })), model: `${r.model} ${r.version}` };
         } catch (e) {
             ai = { probability: null, error: String(e && e.message || e), model: `${E.modelInfo.name} ${E.modelInfo.version}` };
         }

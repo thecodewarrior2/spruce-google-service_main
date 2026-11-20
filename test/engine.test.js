@@ -189,6 +189,15 @@ test('the native engine (0.5.0): the same answers as an independent computation 
     const batched = new Model({ file: E.model.file, manifest: E.model.meta, tokenizer: E.model.tok, modelInputParts: E.model.parts });
     const all = await batched.margins_(ref.cases.slice(0, 64).map(c => c.text));
     all.forEach((m, i) => assert.ok(Math.abs(m - one[i]) < 1e-4, `case ${i}: ${m} vs ${one[i]}`));
+    // (0.6.55) A model with a spam answer: its margins (spamMargin) agree too.
+    if (ref.cases.some(c => typeof c.spamMargin === 'number')) {
+        assert.ok(fresh.hasSpam, 'the reference has spam answers, so the model must have one (model.json spam)');
+        const spam = [];
+        await new Model({ file: E.model.file, manifest: E.model.meta, tokenizer: E.model.tok, modelInputParts: E.model.parts }).margins_(ref.cases.map(c => c.text), spam);
+        let worstSpam = 0;
+        ref.cases.forEach((c, i) => { worstSpam = Math.max(worstSpam, Math.abs(spam[i] - c.spamMargin)); });
+        assert.ok(worstSpam < 1e-4, `largest spam difference ${worstSpam}`);
+    }
 });
 
 // Input format 2 (phish-tiny 0.16.0): the model's facts carry what the sender checks found (a format-1

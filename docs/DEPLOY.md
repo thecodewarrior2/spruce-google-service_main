@@ -356,7 +356,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `MODERATOR_GROUP` | none (install.sh: `spruce-moderators@` the first of `ORG_DOMAINS`) | 0.6.1: a group whose members may review emails on the dashboard, never Settings or Health (needs `DIRECTORY_ADMIN`); `off` for none |
 | `AI_MOVE_THRESHOLD` | `0.9` | AI score that moves (outside senders); from `AI_SUSPICIOUS_THRESHOLD` to `1` |
 | `AI_SUSPICIOUS_THRESHOLD` | `0.65` | AI score from which an email not moved is recorded as suspicious (for review); from `0.5` to `AI_MOVE_THRESHOLD` |
-| `MOVE_ON_RULES` | `true` | the extension's "flagged" verdict moves; so does spam (0.6.19: padded list mail with nothing else suspicious) |
+| `MOVE_ON_RULES` | `true` | the extension's "flagged" verdict moves; so does spam (0.6.19: padded list mail with nothing else suspicious; 0.6.55: the AI's spam answer at `AI_MOVE_THRESHOLD` or more for a sender Gmail couldn't confirm) |
 | `AI_SCANS_INSIDE` | `false` | the AI model also reads mail from inside the organization (your domains, DMARC passing); off, the rule checks alone read it (links, headers, the rest). Also on the dashboard: Settings → Policy, "AI on inside mail" |
 | `AI_MOVES_INSIDE` | `false` | let the AI score alone move mail from inside the organization (only mail from your domains with DMARC passing counts as inside); it needs the AI to read inside mail, so it turns `AI_SCANS_INSIDE` on too. Also on the dashboard: Settings → Policy, "AI alone moves inside mail" (turning it on needs a ticked agreement) |
 | `ALLOW_DOMAINS`, `ALLOW_ADDRESSES` | none | never moved, when Gmail's DMARC check passed for the sender's domain (also on the dashboard: Settings → Sender lists). Your own domains can't be allowlisted |
