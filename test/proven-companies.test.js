@@ -84,3 +84,35 @@ test('confirmed company domains: added with where it was checked, refused when w
     assert.equal((await svc.removeConfirmedDomain('shop-madeup.example', ADMIN)).confirmed.length, 0);
     E.learnCompanyDomains([], true);
 });
+
+// 0.6.56: two domains of the same company no brand table knows (public records prove them the same owner: ownership.js
+// sameOwner): a link between them and a Reply-To to the other aren't counted, nor given to the AI as "elsewhere".
+test('the same company\'s two domains, whichever company: a link between them and a Reply-To to the other aren\'t counted', async () => {
+    const raw = (link, extra = []) => Buffer.from(['From: "Madeup Home Delivery" <rx@information.madeuphealth.example>', 'To: pat.fakewell@maple-schools.example', 'Subject: Your order status', 'Message-ID: <m2@madeuphealth.example>',
+        ...extra, 'Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=information.madeuphealth.example', 'Content-Type: text/html; charset=utf-8', '',
+        `<p>Your order has an update.</p><p><a href="https://data.information.madeuphealth.example/status">${link}</a></p>`].join('\r\n'));
+    const asked = [];
+    const intelWith = (same) => ({
+        threats: { enabled: { safeBrowsing: false }, checkUrls: async () => new Map(), checkHosts: async (hosts) => new Map(hosts.map(h => [h, { verdict: 'clean', by: 'Cloudflare Security' }])) },
+        feeds: { urlHit: async () => null, addressHit: async () => null, domainHit: async () => null }, rdap: { ageDays: async () => 4000 },
+        ownership: { of: async () => ({ state: 'unknown', how: '' }), ofCompany: async () => ({ state: 'unknown', how: '' }),
+            sameOwner: async (a, b) => { asked.push([a, b].sort().join(' ')); return same ? { state: 'owned', how: 'both registered to Madeup Health Group through corporate registrars' } : { state: 'unknown', how: '' }; } } });
+    const judge = async (same, link = 'https://madeuphealthrx.example', extra = []) => {
+        const f = await readMessage(raw(link, extra));
+        return analyze(f, { mailbox: 'pat.fakewell@maple-schools.example', orgDomains: ['maple-schools.example'], intel: intelWith(same), keepAiFacts: true });
+    };
+    const proven = await judge(true);
+    assert.ok(proven.signals.some(s => s.kind === 'same-owner-link'), JSON.stringify(proven.signals));
+    assert.ok(!proven.links.some(l => l.severity), 'not counted');
+    assert.ok(!proven.aiFacts.links.some(l => l.finding), 'and not given to the AI as a warning');
+    const unproven = await judge(false);
+    assert.ok(unproven.links.some(l => /link text shows madeuphealthrx\.example/.test(l.reason)), 'unproven: judged as before');
+    assert.ok(unproven.aiFacts.links.some(l => /link text shows/.test(l.finding)));
+    // A Reply-To on the same company's other domain: not "replies go elsewhere" for the AI.
+    const reply = await judge(true, 'Order status', ['Reply-To: <care@madeuphealthfinancial.example>']);
+    assert.deepEqual(reply.aiFacts.replyTo, [], JSON.stringify(reply.aiFacts.replyTo));
+    assert.ok(reply.signals.some(s => s.kind === 'same-owner-reply-to'));
+    const replyOther = await judge(false, 'Order status', ['Reply-To: <care@madeuphealthfinancial.example>']);
+    assert.deepEqual(replyOther.aiFacts.replyTo, ['madeuphealthfinancial.example']);
+    assert.ok(asked.includes('madeuphealth.example madeuphealthrx.example'), asked.join());
+});

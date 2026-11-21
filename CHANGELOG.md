@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.56: answers remembered, the same company's domains, forged message IDs, faster mailbox watching
+
+- **Not phishing is remembered:** an admin's (or moderator's) Not phishing on an email answers every identical copy, to
+  anyone, for 90 days: the copies waiting in Review at once, and later ones as they arrive (recorded as Not phishing,
+  "answered automatically", never moved or labeled, not listed for review). Identical means the same fingerprint: a
+  one-way hash of the exact sender address, the subject and the whole text (numbers and the reader's name aside), every
+  link (the whole link on a document, file-share or form site, so another document never matches; elsewhere without the
+  mailing service's per-copy tracking codes) and each attachment's own hash. Only the hash is kept, never the email. It
+  applies only when Gmail confirms the sender (DMARC), never when something outside the email says otherwise (a link on a
+  phishing list, a failing sender check…), never to Spam senders. Settings → Sender lists → **Remembered answers** lists
+  them (sender, subject, who answered, copies since, until) and an admin removes one; Undo of the answer forgets it.
+- **A dismissed campaign's later copies** are answered too (they were still listed as suspicious for each person).
+- **The same company's two domains:** a link whose text shows one of a company's domains and goes to another of its own
+  (optumrx-style text on an optum-style tracker), or a Reply-To on the company's other domain (a bank's financial
+  domain), was counted as a disguise and told to the AI, because only brands in the built-in table were compared. Now
+  public records decide for any company (both registered to the same organization through corporate registrars, the very
+  same name servers, or DMARC reports one authorizes for the other; nothing a forger can write), from a sender Gmail
+  confirmed: not counted, and not given to the AI. A brand's name the rules already accept as its issuer writing about
+  its own product ("PayPal Credit" from the issuing bank, every link to the bank's own domain) isn't told to the AI as an
+  imitation either.
+- **Forged message IDs:** a Message-ID claiming Gmail, Outlook, Yahoo or iCloud on mail that shows no sign of having come
+  through it (no signature, sending header or delivery record of the provider's) counts 2 ("a copied ID"). A Message-ID
+  on another domain than the sender's (mailing services) isn't counted. The AI's input doesn't change.
+- **Mailbox watching for large districts:** the daily run now saves the mailboxes it didn't get to, so the hourly runs
+  continue them without reading the whole directory and every mailbox's record again (which used most of each hourly
+  run), 25 at a time instead of 10: about 1,500 to 2,000 mailboxes an hour instead of a few hundred. Suspended and
+  archived accounts were already left out, and groups are watched through their members (a group has no mailbox).
+- How email is judged changes (the Message-ID check, the same-company domains, remembered answers): checks level 47, so
+  recent delivered mail is checked again after the update.
+
 ## 0.6.55: the AI's spam answer, shown and used by the spam rules
 
 - **Spam is a business's bulk marketing, wanted or not** (the maintainer's definition): sales, coupons, card offers,

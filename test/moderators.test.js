@@ -92,6 +92,9 @@ test('a false alarm in Spam goes back to the Inbox (Review, Messages, ticked tog
     assert.deepEqual(calls[0].slice(2), [['INBOX', `L_${cfg.releasedLabel}`], ['SPAM', `L_${cfg.movedLabel}`]]);
     const kept = await service.mark(inInbox.key, true, 'mod@maple-schools.example');
     assert.equal(kept.released, false); assert.equal(kept.record.state, 'inbox');
-    const bulk = await service.bulk(inSpam.slice(1, 3).map(r => r.key), 'false-alarm', 'mod@maple-schools.example');
+    // (0.6.56) Copies identical to the first were answered with it (a remembered answer): two other emails, each of its own campaign.
+    const others = [];
+    for (const r of inSpam.slice(1)) if (r.campaign !== inSpam[0].campaign && r.campaign !== inInbox.campaign && !others.some(o => o.campaign === r.campaign) && !(await store.getRecord(r.key)).markedBy) others.push(r);
+    const bulk = await service.bulk(others.slice(0, 2).map(r => r.key), 'false-alarm', 'mod@maple-schools.example');
     assert.equal(bulk.done, 2); assert.equal(bulk.released, 2);
 });

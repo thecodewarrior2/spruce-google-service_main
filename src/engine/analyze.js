@@ -242,6 +242,23 @@ async function analyze(facts, ctx = {}) {
         layout: facts.layout || [],
         mailChecks: headerSigns.map(s => s.kind).filter(Boolean)
     };
+    // (0.6.56) A Reply-To domain public records prove the sender's own company's (ownership.js sameOwner:
+    // synchronyfinancial.com for synchronybank.com), from a sender Gmail confirmed: not "replies go elsewhere" for the AI;
+    // one note. And a brand's name the rules accepted as that company writing about its own product
+    // (establishedSenderInContext: "PayPal Credit" from the bank that issues it) isn't given to the AI as an imitation.
+    if (verified && aiFacts.replyTo.length && ctx.intel && ctx.intel.ownership && ctx.intel.ownership.sameOwner) {
+        const senderDom = String(facts.senderAddress || '').toLowerCase().split('@')[1] || '';
+        const keep = [];
+        for (const d of aiFacts.replyTo.slice(0, 3)) {
+            let timer;
+            const late = new Promise(r => { timer = setTimeout(() => r(null), OWNERSHIP_WAIT_MS); });
+            const p = await Promise.race([ctx.intel.ownership.sameOwner(senderDom, d), late]).catch(() => null).finally(() => clearTimeout(timer));
+            if (p && p.state === 'owned') signals.push({ weight: 0, kind: 'same-owner-reply-to', text: `Replies go to ${d}, which belongs to the same company as the sender's domain, as public records prove (${p.how}). Not counted.` });
+            else keep.push(d);
+        }
+        aiFacts.replyTo = keep.concat(aiFacts.replyTo.slice(3));
+    }
+    if (aiFacts.identity && signals.some(s => s && s.kind === 'brand-name-likely' && s.weight === 0 && /counts as that company writing about a product it runs/.test(String(s.text || '')))) aiFacts.identity = null;
     // The model was trained on English only: on an email clearly in another language its score means little,
     // so it gives none, and says why (the rule checks above don't depend on the language).
     const language = detectLanguage(`${facts.subject}\n${facts.visibleText}`);

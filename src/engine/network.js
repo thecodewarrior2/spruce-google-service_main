@@ -230,6 +230,39 @@ async function networkChecks(E, intel, facts, judged, ctx) {
         j.reason = `${j.reason}: both ${brand}'s, as public records prove (${proof.how}); not counted`;
         j.sameCompany = brand;
     }
+    // (0.6.56) A link whose text shows one domain and which goes to another, where one of the two is the sender's own domain
+    // (Gmail confirmed the sender, DMARC), no brand table knows the company, and public records prove both domains the
+    // same company's, whichever company it is (ownership.js sameOwner: optumrx.com text on an optum.com link, both
+    // registered to their parent through a corporate registrar). Not a disguise: not counted; one note. Not for a site
+    // where anyone can put a page, and not when the destination isn't clean at Cloudflare.
+    const sameOwner = [];
+    const ownerCandidates = fromVerified && intel.ownership && intel.ownership.sameOwner ? web.filter(j => (j.severity === 'danger' || j.severity === 'caution') && !j.network && !j.mailer && !j.ownBrand && !j.brandToBrand && !j.sameCompany) : [];
+    for (const j of ownerCandidates) {
+        const host = mismatchHost(j.reason);
+        const text = ((/^link text shows (\S+)/.exec(j.reason) || [])[1] || '').toLowerCase();
+        const destReg = host && E.registrableDomain(host), textReg = text && E.registrableDomain(text);
+        if (!destReg || !textReg || destReg === textReg || (destReg !== senderReg && textReg !== senderReg)) continue;
+        let hosted = false;
+        try { hosted = !!E.cloudStoragePage(j.finalUrl || j.url) || isShareLink(j.finalUrl || j.url); } catch (e) { hosted = true; }
+        const cf = hostResults.get(host);
+        if (hosted || !cf || cf.verdict !== 'clean') continue;
+        const key = `same|${[destReg, textReg].sort().join('|')}`;
+        if (!proofs.has(key)) {
+            let timer;
+            const late = new Promise(r => { timer = setTimeout(() => r(null), OWN_LINK_WAIT_MS); });
+            proofs.set(key, Promise.race([intel.ownership.sameOwner(textReg, destReg), late]).catch(() => null).finally(() => clearTimeout(timer)));
+        }
+        const proof = await proofs.get(key);
+        if (!proof || proof.state !== 'owned') continue;
+        sameOwner.push({ text, dest: destReg, how: proof.how });
+        j.severity = null;
+        j.reason = `${j.reason}: both the same company's, as public records prove (${proof.how}); not counted`;
+        j.sameOwner = true;
+    }
+    if (sameOwner.length) {
+        const c = sameOwner[0], n = sameOwner.length;
+        signals.push({ weight: 0, kind: 'same-owner-link', text: `${n === 1 ? `A link shows ${c.text} but goes` : `${n} links show one site but go`} to ${c.dest}: both belong to the same company, as public records prove (${c.how}). Not counted.` });
+    }
     if (sameCompany.length) {
         const c = sameCompany[0], n = sameCompany.length;
         signals.push({ weight: 0, kind: 'same-company-link', text: `${n === 1 ? `A link shows ${c.text} but goes` : `${n} links show one site but go`} to ${c.dest}: both are ${c.brand}'s, as public records prove (${c.how}). Not counted.` });

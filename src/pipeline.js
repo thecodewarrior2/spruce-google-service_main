@@ -28,6 +28,7 @@ const { checksLevel: currentChecksLevel } = require('./checks-level');
 const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOKALIKE_NEW_DAYS } = require('./lookalike');
 const sims = require('./simulations');
 const { promotionalSigns, aiMarketingSign } = require('./promotional');
+const remember = require('./remember');
 
 const DAY = 24 * 60 * 60 * 1000;
 // (0.6.44) The longest one email of a bulk answer may take (its Gmail calls each give up after 20 s and are tried 3 times).
@@ -78,7 +79,13 @@ const STAT_FLUSH_MS = 5000;
 // project's 1,200,000), within RENEW_BUDGET_MS so the run ends before the worker's 120-second timeout,
 // new mailboxes and the watches renewed longest ago first. Those left are continued by the hourly job
 // (syncFeeds, 0.5.53). One renewed less than RENEW_FRESH_MS ago waits; WATCH_MS is how long a watch lasts.
-const RENEW_PARALLEL = 10, RENEW_BUDGET_MS = 95 * 1000, RENEW_FRESH_MS = 12 * 60 * 60 * 1000, WATCH_MS = 7 * 24 * 60 * 60 * 1000;
+// (0.6.56) 25 at a time (was 10): 2,500 quota units a second at most, a sixth of the project's per-minute allowance.
+const RENEW_PARALLEL = 25, RENEW_BUDGET_MS = 95 * 1000, RENEW_FRESH_MS = 12 * 60 * 60 * 1000, WATCH_MS = 7 * 24 * 60 * 60 * 1000;
+// (0.6.56) The mailboxes a run didn't get to are saved (state watchQueue), so the hourly runs continue them without reading
+// the directory and every mailbox's record again (a district of 12,000: about 25 directory pages and 12,000 records,
+// which used most of the hourly run's 45 seconds). Up to WATCH_QUEUE_MAX addresses (a state document holds 1 MiB); a
+// larger remainder, or a queue older than a day or for another scope, is read from the directory again.
+const WATCH_QUEUE_MAX = 15000, WATCH_QUEUE_MS = 24 * 60 * 60 * 1000;
 // A day in UTC, kept for callers outside the service. The daily counters' key is the day in the
 // organization's time zone (this.dayOf, 0.5.27).
 const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -818,6 +825,8 @@ class Service {
         // (0.6.55) In Gmail's Promotions tab: never moved on the AI's spam answer alone (policy.js aiSpamOf).
         result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
         await this.applySpamMemory(user, facts, result);
+        // (0.6.56) The email's fingerprint (src/remember.js), for remembered Not phishing answers: a hash, never the email.
+        result.fingerprint = remember.fingerprintOf(facts, user);
         // (0.6.30) From a domain an allow list holds but the 30-day check suspended: tagged, so an admin finds (and can
         // release) the emails it got while waiting for review (Settings → Sender lists).
         result.allowSuspended = await this.allowSuspendedFor((facts.senderAddress.split('@')[1] || '').toLowerCase());
@@ -845,6 +854,10 @@ class Service {
         const senderDomain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
         const campaign = campaignOf(senderDomain, facts.subject, user);
         const campaignLabel = this.cfg.storeSubjects ? campaign.label : senderDomain;
+        // (0.6.56) An identical email an admin answered Not phishing, or a copy of a campaign an admin dismissed: answered
+        // the same way (recorded, never moved, no Suspicious label, not listed for review).
+        const auto = !alreadyMoved && ['move', 'would-move', 'flag'].includes(decision.action) ? await this.autoAnswerOf(result, verified, decision, campaign.key).catch((e) => { this.log.error('remembered answer:', e); return null; }) : null;
+        if (auto) decision = { action: 'flag', trigger: decision.trigger, why: `${decision.why}; ${auto.kind === 'remembered' ? `${auto.by} answered an identical email Not phishing` : `${auto.by} dismissed this campaign as a false alarm`}, so it is answered the same way and left alone`, autoAnswer: auto };
         // The brake was already on (decide): held for the admin's resume.
         let held = decision.braked ? 'brake' : null;
         if (decision.action === 'move' && !alreadyMoved) ({ decision, held } = await this.brakes(decision, result, campaign.key, campaignLabel, now));
@@ -865,13 +878,13 @@ class Service {
         }
         // Suspicious, not moved: a label its reader sees, when the setting is on (0.5.33; off by default).
         let labeled = false;
-        if (decision.action === 'flag' && this.cfg.suspiciousLabel) {
+        if (decision.action === 'flag' && this.cfg.suspiciousLabel && !decision.autoAnswer) {
             try { await this.gmail.modify(user, msg.id, [await this.gmail.labelId(user, this.cfg.suspiciousLabelName)], []); labeled = true; }
             catch (e) { this.log.error(`suspicious label ${user} ${msg.id}:`, e); }
         }
         const rec = this.recordOf(user, msg, facts, result, decision, { now, campaign, campaignLabel, senderDomain, held, state, userPlaced, labeled });
         await this.store.saveRecord(rec);
-        await this.count(day, decision.action === 'move' ? 'moved' : decision.action === 'would-move' ? 'wouldMove' : decision.action === 'promo' ? 'promotional' : 'flagged');
+        await this.count(day, decision.autoAnswer ? 'autoAnswered' : decision.action === 'move' ? 'moved' : decision.action === 'would-move' ? 'wouldMove' : decision.action === 'promo' ? 'promotional' : 'flagged');
         if (decision.action === 'move' && !this.alerted.has(campaign.key)) {
             // (counted until the campaign's alert is sent; after that this instance writes nothing more)
             if (await this.store.campaignMoved(campaign.key, this.cfg.campaignAlertAfter, now, () => this.alerted.add(campaign.key))) {
@@ -921,7 +934,11 @@ class Service {
             // From inside the organization (your domains, DMARC passing), as the policy judged it (Model health).
             inside: !!result.inside,
             state, releasedBy: null, releasedAt: null, falseAlarm: null, markedBy: null,
-            suspiciousLabel: labeled || undefined
+            suspiciousLabel: labeled || undefined,
+            // (0.6.56) The fingerprint (a hash: src/remember.js) and whether Gmail confirmed the sender, for remembered answers;
+            // an email answered by a remembered answer or a dismissed campaign carries that answer.
+            ...(result.fingerprint ? { fingerprint: result.fingerprint } : {}), verified: !!result.verified,
+            ...(decision.autoAnswer ? { falseAlarm: true, markedBy: decision.autoAnswer.by, autoAnswered: { kind: decision.autoAnswer.kind, at: now } } : {})
         };
     }
 
@@ -1236,6 +1253,83 @@ class Service {
         if (!brandSign || signs.some(x => x !== brandSign && !['outside-org', 'first-time'].includes(x.kind))) return null;
         const brand = brandSign.brand || (BRAND_RE.exec(String(brandSign.text || '')) || [])[1];
         return brand ? { brand, domain: reg, key: `${String(brand).toLowerCase()}|${reg}` } : null;
+    }
+    // (0.6.56) Remembered Not phishing answers (src/remember.js), state rememberedSafe: fingerprint → { sender, label, by,
+    // at, last, hits, key }. Read at most once a minute; answers older than remember.KEEP_MS are dropped.
+    async rememberedMap() {
+        if (this._remembered && this.now() - this._remembered.at < 60000) return this._remembered.all;
+        const all = (await this.store.getState('rememberedSafe')) || {};
+        const now = this.now();
+        for (const [k, v] of Object.entries(all)) if (!v || now - (v.at || 0) > remember.KEEP_MS) delete all[k];
+        this._remembered = { at: now, all };
+        return all;
+    }
+    // An admin's Not phishing on an email with a fingerprint, from a sender Gmail confirmed: remembered (its sender, the
+    // campaign's label and who answered; never the email), and the identical copies waiting for review answered too.
+    // { added, answered } or null.
+    async rememberAnswer(rec, by) {
+        if (!rec || !rec.fingerprint || !rec.verified || rec.inside) return null;
+        const all = Object.assign({}, (await this.store.getState('rememberedSafe')) || {});
+        const had = all[rec.fingerprint];
+        all[rec.fingerprint] = Object.assign({ sender: String((rec.sender && rec.sender.address) || '').slice(0, 320), label: String(rec.subject || String(rec.campaignLabel || '').replace(/^[^:]*:\s*/, '') || '').slice(0, 160), by, at: this.now(), last: this.now(), hits: 0, key: rec.key }, had ? { last: this.now() } : {});
+        const keys = Object.keys(all).sort((x, y) => (all[y].last || 0) - (all[x].last || 0));
+        for (const k of keys.slice(remember.MAX_REMEMBERED)) delete all[k];
+        await this.store.setState('rememberedSafe', all);
+        this._remembered = null;
+        if (had) return { added: false, answered: 0 };
+        // The identical copies waiting for review (nobody answered them yet), in the last 35 days: an identical email has the
+        // same sender domain and subject, so the same campaign (one indexed query, not every record).
+        const list = rec.campaign ? await this.store.listCampaignRecords(rec.campaign, this.now() - 35 * DAY) : [];
+        const waits = (r) => r && r.key !== rec.key && r.fingerprint === rec.fingerprint && !r.markedBy && ['move', 'would-move', 'flag'].includes(r.action);
+        let answered = 0;
+        await pool(list.filter(waits).slice(0, 2000), 10, async (r) => {
+            const m = await this.mark(r.key, true, by, { quiet: true, noRemember: true }).catch(() => null);
+            if (m && m.record) answered++;
+        });
+        if (!had) await this.store.addEvent({ kind: 'mark', text: `${by} answered an email from ${all[rec.fingerprint].sender} Not phishing: identical copies to anyone are answered the same way for 90 days (Settings → Sender lists → Remembered answers)${answered ? `; ${answered} waiting cop${answered === 1 ? 'y' : 'ies'} answered now` : ''}.` });
+        return { added: !had, answered };
+    }
+    async forgetAnswer(fp, by, { quiet = false } = {}) {
+        const all = Object.assign({}, (await this.store.getState('rememberedSafe')) || {});
+        const e = all[fp];
+        if (!e) return { error: 'That answer isn\'t remembered.', status: 404 };
+        delete all[fp];
+        await this.store.setState('rememberedSafe', all);
+        this._remembered = null;
+        if (!quiet) await this.store.addEvent({ kind: 'settings', text: `${by} removed a remembered Not phishing answer (an email from ${e.sender}, answered by ${e.by}): its later copies are judged as usual again.` });
+        return { ok: true, list: await this.rememberedList() };
+    }
+    // Settings → Sender lists → Remembered answers, most recently seen first (the fingerprint's first 12 digits as its id).
+    async rememberedList() {
+        const all = await this.rememberedMap();
+        return Object.entries(all).map(([fp, v]) => ({ id: fp, sender: v.sender, label: v.label, by: v.by, at: v.at, last: v.last, hits: v.hits || 0, until: (v.at || 0) + remember.KEEP_MS }))
+            .sort((a, b) => (b.last || 0) - (a.last || 0));
+    }
+    // Whether an email the checks would record is answered already: an identical email an admin answered Not phishing
+    // (Gmail confirmed the sender; not for spam), or a campaign an admin dismissed as a false alarm. Never when something
+    // outside the email says otherwise (strong evidence: a link on a phishing list, a sender on a list or blocked, Gmail's
+    // DMARC check failing…) or a link is dangerous. { kind, by } or null.
+    async autoAnswerOf(result, verified, decision, campaignKey) {
+        if (!result || result.strong || decision.trigger === 'spam' || (result.links || []).some(l => l.severity === 'danger')) return null;
+        if (verified && result.fingerprint) {
+            const e = (await this.rememberedMap())[result.fingerprint];
+            if (e) {
+                // Seen again: counted (written at most every 10 minutes per answer, so a campaign's copies cost few writes).
+                this._rememberHits = this._rememberHits || new Map();
+                const pend = (this._rememberHits.get(result.fingerprint) || { n: 0, at: 0 });
+                pend.n++;
+                if (this.now() - pend.at > 10 * 60 * 1000) {
+                    const all = Object.assign({}, (await this.store.getState('rememberedSafe')) || {});
+                    if (all[result.fingerprint]) { all[result.fingerprint] = Object.assign({}, all[result.fingerprint], { hits: (all[result.fingerprint].hits || 0) + pend.n, last: this.now() }); await this.store.setState('rememberedSafe', all); this._remembered = null; }
+                    pend.n = 0; pend.at = this.now();
+                }
+                this._rememberHits.set(result.fingerprint, pend);
+                return { kind: 'remembered', by: e.by };
+            }
+        }
+        const cs = await this.store.getCampaign(campaignKey);
+        if (cs && cs.decision === 'released') return { kind: 'campaign', by: cs.decidedBy || 'an admin' };
+        return null;
     }
     async learnBrandSender(rec, by) {
         const b = this.brandSenderOf(rec);
@@ -1573,7 +1667,7 @@ class Service {
     // mode); 'not-in-inbox' (already in Spam, or moved back by an admin, whose decision stands); or null.
     // (0.6.26) spam: confirmed, as spam rather than phishing (falseAlarm false, spam true): Review's "Spam", and the
     // retraining export's class.
-    async mark(key, falseAlarm, by, { move = false, quiet = false, spam = false, addSender = false } = {}) {
+    async mark(key, falseAlarm, by, { move = false, quiet = false, spam = false, addSender = false, noRemember = false } = {}) {
         const rec = await this.store.getRecord(key);
         if (!rec) return { error: 'not found' };
         // (0.6.39) What it was before, for Undo (one step back: the answer, and the move it made).
@@ -1581,6 +1675,8 @@ class Service {
         let out = await this.store.updateRecord(key, Object.assign({ falseAlarm: !!falseAlarm, markedBy: by, spam: !falseAlarm && !!spam, undo: Object.assign({ at: this.now(), by }, prev) }, rec.unclear ? { unclear: false } : {}));
         if (falseAlarm && rec.falseAlarm !== true) await this.store.incStat(this.dayOf(this.now()), 'falseAlarms');
         const learned = falseAlarm ? await this.learnBrandSender(rec, by).catch(e => { this.log.error('brand sender:', e); return null; }) : null;
+        // (0.6.56) Remembered: identical copies to anyone are answered the same way (autoAnswerOf), and those waiting now too.
+        const remembered = falseAlarm && !noRemember ? await this.rememberAnswer(rec, by).catch(e => { this.log.error('remember:', e); return null; }) : null;
         // (0.6.35) A Spam answer with "Also send future mail from this sender straight to Spam": a verified outside sender only.
         let spamSenderAdded = null;
         if (!falseAlarm && spam && addSender && rec.auth && rec.auth.dmarc === 'pass' && !rec.inside && rec.sender && rec.sender.address) {
@@ -1588,8 +1684,8 @@ class Service {
             if (r && r.ok) spamSenderAdded = r.key;
         }
         // (0.6.39) Undo takes back what this answer added to a list too.
-        if ((spamSenderAdded && !(await this.spamSenderWas(spamSenderAdded, rec))) || (learned && learned.added))
-            out = await this.store.updateRecord(key, { undo: Object.assign({}, out.undo, spamSenderAdded ? { spamSender: spamSenderAdded } : {}, learned && learned.added ? { brandSender: learned.key } : {}) });
+        if ((spamSenderAdded && !(await this.spamSenderWas(spamSenderAdded, rec))) || (learned && learned.added) || (remembered && remembered.added))
+            out = await this.store.updateRecord(key, { undo: Object.assign({}, out.undo, spamSenderAdded ? { spamSender: spamSenderAdded } : {}, learned && learned.added ? { brandSender: learned.key } : {}, remembered && remembered.added ? { remembered: rec.fingerprint } : {}) });
         // A false alarm loses the Suspicious label it was given (0.5.33).
         if (falseAlarm && rec.suspiciousLabel) {
             try { await this.gmail.modify(rec.user, rec.messageId, [], [await this.gmail.labelId(rec.user, this.cfg.suspiciousLabelName)]); out = await this.store.updateRecord(key, { suspiciousLabel: false }); }
@@ -1634,6 +1730,7 @@ class Service {
             }
         } catch (e) { this.log.error(`undo ${key}:`, e); return { error: 'Gmail didn\'t take the email back: try again.', status: 502 }; }
         if (u.spamSender) await this.removeSpamSender(u.spamSender, by).catch(() => {});
+        if (u.remembered) await this.forgetAnswer(u.remembered, by, { quiet: true }).catch(() => {});
         if (u.brandSender) {
             const all = Object.assign({}, (await this.store.getState('brandSenders')) || {});
             if (all[u.brandSender]) { delete all[u.brandSender]; await this.store.setState('brandSenders', all); this._brandSenders = null; }
@@ -1667,10 +1764,16 @@ class Service {
     // again now"): watch every mailbox of the pilot, or of the whole domain (Settings → Mailboxes), again (a
     // watch lasts 7 days) and stop watching those no longer in it. Within budgetMs; what is left is recorded
     // (state/watchLeft) and the hourly job continues it. Switches the service on again after stopAll.
-    async renewWatches({ budgetMs = RENEW_BUDGET_MS, parallel = RENEW_PARALLEL } = {}) {
+    async renewWatches({ budgetMs = RENEW_BUDGET_MS, parallel = RENEW_PARALLEL, fromQueue = false } = {}) {
         const started = Date.now();
         if (await this.store.getState('stopped')) await this.store.setState('stopped', null);   // (0.6.7) switched on again
         await this.refreshPolicy();
+        // (0.6.56) The hourly job continues from the saved queue, without the directory.
+        if (fromQueue) {
+            const q = await this.store.getState('watchQueue');
+            const scope = this.cfg.watchScope === 'domain' ? 'domain' : 'pilot';
+            if (q && q.scope === scope && this.now() - (q.at || 0) < WATCH_QUEUE_MS && Array.isArray(q.users)) return this.continueWatches(q, { started, budgetMs, parallel });
+        }
         const users = new Set(this.cfg.pilotUsers);
         const groups = [];
         const whole = this.cfg.watchScope === 'domain';
@@ -1699,6 +1802,7 @@ class Service {
         // New members and the watches renewed longest ago first; one renewed in the last RENEW_FRESH_MS waits.
         const todo = [...users].filter(u => expiry(u) < now + WATCH_MS - RENEW_FRESH_MS).sort((a, b) => expiry(a) - expiry(b));
         const out = new Map();   // user → new expiration
+        const failedUsers = new Set();
         let failed = 0;
         const over = () => Date.now() - started > budgetMs;
         await pool(todo, parallel, async (user) => {
@@ -1709,7 +1813,7 @@ class Service {
                 await this.store.putUser(user, Object.assign({ watched: true, watchExpiration: exp, stoppedAt: null, stopPending: false }, k && k.historyId ? {} : { historyId: String(w.historyId) }));
                 out.set(user, exp || now + WATCH_MS);
             } catch (e) {
-                failed++;
+                failed++; failedUsers.add(user);
                 await this.store.addEvent({ kind: 'error', user, text: `Couldn't watch ${user}'s mailbox: ${String(e.message).slice(0, 200)}` });
             }
         }, over);
@@ -1728,6 +1832,12 @@ class Service {
         const ok = [...users].filter(u => (out.get(u) || expiry(u)) > now).length;
         const left = todo.length - out.size - failed;
         await this.store.setState('watchedCount', ok);
+        // (0.6.56) What is left, for the hourly runs: the mailboxes not tried yet (a failure waits for the next daily run,
+        // which records it), new ones marked, and the watches still to stop.
+        const rest = todo.filter(u => !out.has(u) && !failedUsers.has(u));
+        const stopRest = gone.slice(stopped).map(u => u.email);
+        const fits = rest.length + stopRest.length <= WATCH_QUEUE_MAX;
+        await this.store.setState('watchQueue', rest.length || stopRest.length ? (fits ? { at: now, scope: whole ? 'domain' : 'pilot', users: rest, fresh: rest.filter(u => !expiry(u)), stop: stopRest } : null) : null);
         // (0.5.53) Mailboxes still to watch, and watches still to stop: the hourly job continues them (syncFeeds).
         await this.store.setState('watchLeft', { left: left + Math.max(0, gone.length - stopped), at: now, scope: whole ? 'domain' : 'pilot' });
         // What was found, for Activity (and the log, without addresses): so a count that looks
@@ -1738,6 +1848,43 @@ class Service {
         return { watched: ok, renewed: out.size, left, failed };
     }
 
+    // (0.6.56) The hourly continuation from the saved queue (renewWatches fromQueue): the mailboxes left by the last run are
+    // watched and the watches left to stop are stopped, RENEW_PARALLEL at a time within budgetMs, with no directory read;
+    // the watched count goes up by the new mailboxes watched; what is still left is saved again.
+    async continueWatches(q, { started, budgetMs, parallel }) {
+        const now = this.now();
+        const over = () => Date.now() - started > budgetMs;
+        const fresh = new Set(q.fresh || []);
+        const done = new Set(), failedSet = new Set();
+        let added = 0;
+        await pool(q.users, parallel, async (user) => {
+            try {
+                const w = await this.gmail.watch(user, this.cfg.pubsubTopic);
+                await this.store.putUser(user, Object.assign({ watched: true, watchExpiration: Number(w.expiration) || null, stoppedAt: null, stopPending: false }, fresh.has(user) ? { historyId: String(w.historyId) } : {}));
+                done.add(user);
+                if (fresh.has(user)) added++;
+            } catch (e) {
+                failedSet.add(user);
+                await this.store.addEvent({ kind: 'error', user, text: `Couldn't watch ${user}'s mailbox: ${String(e.message).slice(0, 200)}` });
+            }
+        }, over);
+        const stoppedSet = new Set();
+        await pool(q.stop || [], parallel, async (email) => {
+            try { await this.gmail.stop(email); } catch (e) { /* already stopped */ }
+            await this.store.putUser(email, { watched: false, watchExpiration: null });
+            stoppedSet.add(email);
+        }, over);
+        const users = q.users.filter(u => !done.has(u) && !failedSet.has(u)), stop = (q.stop || []).filter(e => !stoppedSet.has(e));
+        await this.store.setState('watchQueue', users.length || stop.length ? { at: q.at, scope: q.scope, users, fresh: users.filter(u => fresh.has(u)), stop } : null);
+        const watched = (Number(await this.store.getState('watchedCount')) || 0) + added - stoppedSet.size;
+        await this.store.setState('watchedCount', Math.max(0, watched));
+        const left = users.length + stop.length;
+        await this.store.setState('watchLeft', { left, at: now, scope: q.scope });
+        const text = `Continued watching mailboxes: ${done.size} watched now (${added} new)${stoppedSet.size ? `, ${stoppedSet.size} stopped` : ''}${failedSet.size ? `, ${failedSet.size} failed (see the errors; the daily run tries them again)` : ''}; ${left ? `${left} more within the next hours (each hourly run continues)` : 'none left'}. Watching ${Math.max(0, watched)} mailboxes.`;
+        await this.store.addEvent({ kind: 'watch', text });
+        if (this.log.info) this.log.info(`renew-watches (continued): ${text}`);
+        return { watched: Math.max(0, watched), renewed: done.size, left, failed: failedSet.size };
+    }
     // (0.5.53) Settings → Mailboxes: how many mailboxes each choice watches, read from the directory now (at most
     // every 10 minutes): { domain: count | null, domainError, pilot: count | null, pilotError, watched, scope }.
     // The whole domain's count needs the Users → Read privilege and the admin.directory.user.readonly scope.
@@ -1862,7 +2009,7 @@ class Service {
             const wl = await this.store.getState('watchLeft'), off = await this.store.getState('stopped');
             const budget = Math.min(45 * 1000, 95 * 1000 - (Date.now() - started));
             if (off) { if (off.left && budget >= 15 * 1000) out.stopping = await this.finishStopping({ budgetMs: budget }); }   // (0.6.7) switched off: never renewed here
-            else if (wl && wl.left > 0 && budget >= 15 * 1000) out.watches = await this.renewWatches({ budgetMs: budget });
+            else if (wl && wl.left > 0 && budget >= 15 * 1000) out.watches = await this.renewWatches({ budgetMs: budget, fromQueue: true });
         } catch (e) { out.watches = { error: String(e.message || e).slice(0, 200) }; this.log.error('watches, continued:', e); }
         // (0.6.30) The allow lists' 30-day reputation check (src/allowwatch.js): the domains due.
         try {

@@ -59,3 +59,8 @@ walmartbusinesssupport@trevipay.app
 card@cards.tdbank.com
 # (0.6.44, kept for history) A made-up offers mailbox at Capital One's shopping service's own domain (a company's role address, no person's): in test/training-miss-and-lures.test.js in 0.6.44 only (commit 30c6ff8), which every push to main still checks.
 offers@capitaloneshopping.com
+# (0.6.56) Made-up Message-IDs at mail providers' and a mailing service's own domains (a message's ID, no person's mailbox), in test/message-id.test.js.
+123456.789.1700000000@mail.yahoo.com
+0A1B2C3D-0000@icloud.com
+abc@SA1PR12MB0001.namprd12.prod.outlook.com
+0100018c.abc@email.amazonses.com

@@ -261,7 +261,10 @@ test('dashboard: Review\'s suspicious queue (not moved, still in the Inbox, unre
         const after = await get('/api/review?days=90&queue=suspicious');
         assert.equal(after.total, sus.total - 1); assert.equal(after.counts.moved, moved.total);
         await post('/api/mark', { key: sus.keys[1], falseAlarm: true });
-        assert.equal((await get('/api/review?days=90&queue=suspicious')).total, sus.total - 2);
+        // (0.6.56) Not phishing also answers the identical copies waiting (a remembered answer): they leave the queue too.
+        const fp = (await store.getRecord(sus.keys[1])).fingerprint;
+        const twins = sus.keys.slice(2).filter(k => store.records.get(k) && store.records.get(k).fingerprint === fp && fp);
+        assert.equal((await get('/api/review?days=90&queue=suspicious')).total, sus.total - 2 - twins.length);
     } finally { await close(); }
 });
 

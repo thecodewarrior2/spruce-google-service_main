@@ -144,7 +144,9 @@ the worker's 120-second request time. In order:
 6. **The look-alike watch:** the next 80 look-alike names, up to 12 seconds (a pass a day).
 7. **Updates:** an update from the dashboard that failed or stalled, an approved version that needs a manual
    install; each alerted once.
-8. **Watches:** a renewal the daily job didn't finish (a whole domain) is continued. After `deploy/stop.sh`
+8. **Watches:** a renewal the daily job didn't finish (a whole domain) is continued (0.6.56: from the list the daily run
+   saved, state `watchQueue`, up to 15,000 addresses and a day old, without reading the directory or every mailbox's record
+   again; 25 watch requests at a time). After `deploy/stop.sh`
    (0.6.7), Gmail is told to stop notifying for the mailboxes still left instead, and no watch is renewed
    while stopped.
 9. **Cleanup** of what Firestore's TTL doesn't delete, with the time left (at most 30 seconds).
@@ -217,6 +219,22 @@ list mail rule (`trigger: 'spam'`, `MOVE_ON_RULES`, monitor mode, the brake). A 
 `promotional.js aiMarketingSign` adds it to `promotionalOf`'s signs (Review → Promotional). Spam, by the model's
 definition (TinyPhishLLM's changelog): a business's bulk marketing, wanted or not.
 
+## Remembered answers
+
+(0.6.56, `src/remember.js`.) Each recorded email carries `fingerprint`: 32 hex digits of a SHA-256 over the From address,
+the subject and the whole visible text (lower case; the reader's mailbox name, the names the To line gives them,
+"Re:"/"Fwd:" and numbers taken out), every link (on a document, file-share, form or link-shortener site the whole link
+less `utm_` parameters; elsewhere host and path with long or random parts taken out, the query left out) and each
+attachment's own SHA-256; and `verified` (Gmail's DMARC result for the From address). An admin's or moderator's Not
+phishing (`mark`) on a verified, outside email remembers it (`rememberAnswer`, state `rememberedSafe`: fingerprint →
+{ sender, label, by, at, last, hits, key }, 90 days, at most 3,000) and answers the identical copies of its campaign still
+waiting for review. In `judge`, `autoAnswerOf` answers an email the checks would record (move, would-move, flag) when its
+fingerprint is remembered and Gmail confirmed the sender, or its campaign was dismissed (`releaseCampaign`), and nothing
+strong (`result.strong`), no dangerous link and no Spam senders entry is involved: recorded as `flag` with
+`falseAlarm: true`, `markedBy` the one who answered and `autoAnswered: { kind: 'remembered' | 'campaign' }`; never moved,
+no Suspicious label, counted as `autoAnswered`. Undo of the answer forgets it. `GET /api/remembered` (moderators too) and
+`POST /api/remembered` (admins: forget) back Settings → Sender lists → Remembered answers.
+
 ## Promotional mail
 
 (0.6.52, `src/promotional.js`.) `promotionalSigns(facts, labelIds)`: Gmail's `CATEGORY_PROMOTIONS` label on the message, or
@@ -232,6 +250,18 @@ enforce mode it gets `PROMOTIONAL_LABEL_NAME`. Review's `promotional` queue (`GE
 on the company's waiting emails (Undo: `/api/undo`); `keep` adds the company to `promoKept` and marks those records
 `promoKept` (Undo: `undo: 'keep'`, `removePromoKept`). `aggregate.js` leaves `promo` records out of the summary counts, the
 trend, campaigns, users and model health.
+
+## The same company's two domains
+
+(0.6.56.) `ownership.js sameOwner(a, b)` proves two registrable domains the same company's, whichever company it is:
+one's DMARC reports go to the other and the other publishes the RFC 7489 authorization (not a wildcard); every one of
+one's name servers is under the other; both use the very same name servers (`sameOperatorNs` exact); both are registered
+through corporate registrars to the very same, unredacted organization; or both report to the same account mailbox and
+use corporate registrars. Kept in the shared cache like the brand answers. `network.js` drops a link-text mismatch
+(`same-owner-link`, weight 0) when the sender is verified, one of the two domains is the sender's, the destination is clean
+at Cloudflare and no share or storage site, and the two are proven; `analyze.js` leaves a Reply-To domain proven the
+sender's company's out of the AI's input (`same-owner-reply-to`, weight 0), and gives the AI no identity line when
+`establishedSenderInContext` accepted a brand's name as its issuer writing about its own product.
 
 ## Proven company domains
 

@@ -99,7 +99,12 @@ It also keeps, shared by every instance:
 - **registry dates of domains:** 30 days; an unknown one, a day;
 - **Safe Browsing's answers** (0.6.54): a one-way hash of each link address looked up (never the address) and Google's
   verdict, a listed link a day, a clean one 30 minutes, so an update or another instance doesn't ask again;
-- **brand-ownership answers** (whose a domain is, 0.5.64): 30 days; an unknown one, a day.
+- **brand-ownership answers** (whose a domain is, 0.5.64): 30 days; an unknown one, a day. (0.6.56) Also whether two
+  domains belong to the same company (a link's text and its destination, a sender and its Reply-To), the same way.
+- **remembered answers** (0.6.56): each recorded email's **fingerprint**, a one-way hash (SHA-256) of its sender, subject,
+  text, links and attachments, never the email itself; and, for an email an admin answered Not phishing, that hash with its
+  sender's address, its campaign's label (the subject line, when subjects are stored) and who answered, for 90 days
+  (Settings → Sender lists → Remembered answers).
 
 And:
 - **an update from the dashboard:** who asked for which version and when, and how it went
@@ -188,7 +193,7 @@ can be turned off):
 | **Cloudflare's public resolver** (`cloudflare-dns.com`), for Health → DMARC & reputation (0.6.1) | your own domains' names (`ORG_DOMAINS`, their `_dmarc.` names and, for a subdomain without a record, its parents'), when an admin opens the page (kept 10 minutes) | Cloudflare's resolver privacy commitments | always (only when the page is opened) |
 | **Cloudflare Security DNS, Google Safe Browsing, Spamhaus**, for Health → DMARC & reputation (0.6.1) | your own domains' names (Safe Browsing: their home page, `https://<domain>/`), when an admin opens the page (kept 10 minutes); Safe Browsing and Spamhaus only when they are on | each service's terms, as for the email checks | `CLOUDFLARE_THREATS`, Settings → Safe Browsing, Settings → Spamhaus |
 | **Domain registries** (RDAP, found through IANA's list) | domain names: up to 3 unfamiliar link domains per email and the sender's domain, each at most once a month for the whole district | public registration records | `SITE_AGE` |
-| **Brand ownership** (0.5.64: Cloudflare's public resolver and the domain's registry and registrar, RDAP; 0.6.47: WHOIS on port 43, IANA's and the domain's registry's and registrar's servers, only when RDAP leaves the registrant blank) | only when a sender's name claims a brand (PayPal, Microsoft…) other than by its main domain, (0.6.17) a link goes to the sender's own company-named domain behind another site's text, or (0.6.46) a link's text and destination are a brand's main domain and another (0.6.48: or two others, in mail from that brand): the domain names only (their DMARC records and name servers, the domain's registration record), each pair at most once every 60 days for the whole district (no proof: once a week; a lookup that failed: every 6 hours) | public DNS and registration records | always on |
+| **Brand ownership** (0.5.64: Cloudflare's public resolver and the domain's registry and registrar, RDAP; 0.6.47: WHOIS on port 43, IANA's and the domain's registry's and registrar's servers, only when RDAP leaves the registrant blank) | only when a sender's name claims a brand (PayPal, Microsoft…) other than by its main domain, (0.6.17) a link goes to the sender's own company-named domain behind another site's text, or (0.6.46) a link's text and destination are a brand's main domain and another (0.6.48: or two others, in mail from that brand), (0.6.56) a link's text and destination are two domains, one of them the verified sender's, or a verified sender's Reply-To is on another domain: the domain names only (their DMARC records and name servers, the domain's registration record), each pair at most once every 60 days for the whole district (no proof: once a week; a lookup that failed: every 6 hours) | public DNS and registration records | always on |
 
 **Not sent:**
 - links to the organization's own domains;

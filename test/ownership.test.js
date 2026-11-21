@@ -232,3 +232,33 @@ test('0.6.46: how long answers are kept; an old proof is refreshed in the backgr
     assert.ok(calls > before, 'refreshed in the background');
     assert.equal((await store.getCached('own', 'old-proof.example|PayPal')).state, 'owned', 'a refresh that finds nothing doesn\'t replace a proof');
 });
+
+test('(0.6.56) the same company\'s two domains, whichever company: proof a forger can\'t write; nothing less', async () => {
+    const corp = (registrant) => ({ registrar: 'CSC Corporate Domains, Inc.', registrant, created: YEARS(15) });
+    // Both registered to the same organization through corporate registrars (a parent company's two brands).
+    let { own } = make({ rdap: { 'optumrx.example': corp('Madeup Health Group Incorporated'), 'optum.example': corp('Madeup Health Group Incorporated') } });
+    const p = await own.sameOwner('optumrx.example', 'data.information.optum.example');
+    assert.equal(p.state, 'owned');
+    assert.match(p.how, /both registered to Madeup Health Group Incorporated through corporate registrars/);
+    // A different organization, or an ordinary registrar, or a redacted registrant: no proof.
+    ({ own } = make({ rdap: { 'optumrx.example': corp('Madeup Health Group Incorporated'), 'optum-help.example': corp('Somebody Else LLC') } }));
+    assert.equal((await own.sameOwner('optumrx.example', 'optum-help.example')).state, 'unknown');
+    ({ own } = make({ rdap: { 'a-shop.example': { registrar: 'Cheap Names Inc.', registrant: 'Madeup Health Group Incorporated' }, 'b-shop.example': { registrar: 'Cheap Names Inc.', registrant: 'Madeup Health Group Incorporated' } } }));
+    assert.equal((await own.sameOwner('a-shop.example', 'b-shop.example')).state, 'unknown', 'anyone can type an organization at an ordinary registrar');
+    ({ own } = make({ rdap: { 'x1.example': corp('REDACTED FOR PRIVACY'), 'x2.example': corp('REDACTED FOR PRIVACY') } }));
+    assert.equal((await own.sameOwner('x1.example', 'x2.example')).state, 'unknown', 'redacted');
+    // DMARC reports pointed at another's domain prove nothing unless that domain authorizes them.
+    const pointed = { '_dmarc.forger.example|TXT': ['v=DMARC1; p=none; rua=mailto:d@optum.example'] };
+    ({ own } = make(pointed));
+    assert.equal((await own.sameOwner('forger.example', 'optum.example')).state, 'unknown', 'anyone can write another\'s domain in their own record');
+    ({ own } = make(Object.assign({ 'bankmail.example._report._dmarc.bank.example|TXT': ['v=DMARC1'], '_dmarc.bankmail.example|TXT': ['v=DMARC1; p=reject; rua=mailto:r@bank.example'] })));
+    assert.match((await own.sameOwner('bankmail.example', 'bank.example')).how, /bankmail\.example sends its DMARC reports to bank\.example, which authorizes them/);
+    // Name servers: all of one's under the other's domain, or the very same set; not some of them, not a shared provider.
+    ({ own } = make({ 'brandtwo.example|NS': ['ns1.brandone.example', 'ns2.brandone.example'] }));
+    assert.equal((await own.sameOwner('brandtwo.example', 'brandone.example')).state, 'owned');
+    ({ own } = make({ 'forger.example|NS': ['ns1.brandone.example', 'ns1.forger-dns.example'] }));
+    assert.equal((await own.sameOwner('forger.example', 'brandone.example')).state, 'unknown', 'only some of them');
+    // The same domain, a personal mail provider: trivially, and never.
+    assert.equal((await own.sameOwner('mail.brandone.example', 'brandone.example')).how, 'the same domain');
+    assert.equal((await own.sameOwner('gmail.com', 'brandone.example')).state, 'unknown');
+});

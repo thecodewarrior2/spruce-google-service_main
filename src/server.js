@@ -142,7 +142,7 @@ const reviewGroups = A.reviewGroups;
 // to decide (Show the email); and confirming, dismissing or searching for a whole campaign. Never Health, Settings,
 // Look-alikes, the CSV export, the brake, or moving back an email nobody marked a false alarm.
 const MODERATOR_ROUTES = new Set(['GET /api/session', 'GET /api/overview', 'GET /api/pending', 'GET /api/review', 'GET /api/message', 'GET /api/messages',
-    'GET /api/campaigns', 'GET /api/campaign', 'GET /api/users', 'GET /api/rechecked', 'GET /api/help',
+    'GET /api/campaigns', 'GET /api/campaign', 'GET /api/users', 'GET /api/rechecked', 'GET /api/help', 'GET /api/remembered',
     'POST /api/mark', 'POST /api/unclear', 'POST /api/undo', 'POST /api/campaign/answer', 'POST /api/rescan', 'POST /api/check', 'POST /api/bulk',
     'POST /api/campaign/confirm', 'POST /api/campaign/release', 'POST /api/campaign/find', 'POST /api/message/context']);
 const MODERATOR_BULK = ['false-alarm', 'phishing', 'spam', 'unclear'];
@@ -762,6 +762,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             return out;
         },
         'GET /api/promotional-kept': async () => ({ list: await service.promoKeptList() }),
+        // (0.6.56) Remembered Not phishing answers: the list (moderators see it), and an admin removes one.
+        'GET /api/remembered': async () => ({ list: await service.rememberedList() }),
+        'POST /api/remembered': async (q, body, admin) => service.forgetAnswer(String(body.id || ''), admin.email).then(r => { cache.stale(); return r; }),
         'POST /api/promotional-kept': async (q, body, admin) => service.removePromoKept(String(body.company || ''), admin.email).then(r => { cache.stale(); return r; }),
         'POST /api/spam-rescued': async (q, body, admin) => service.setSpamKeep(String(body.sender || ''), body.keep === true, admin.email),
         // (0.6.29) Brand senders the reviewers confirmed (a false alarm on a brand's name from another verified domain).

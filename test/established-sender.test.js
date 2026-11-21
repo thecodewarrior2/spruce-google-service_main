@@ -29,6 +29,11 @@ test('a card issuer\'s mail under the brand\'s name, from its own established do
     assert.equal(s.weight, 0, JSON.stringify(r.signals));
     assert.match(s.text, new RegExp(`every link goes back to ${BANK.replace('.', '\\.')}, so it counts as that company writing about a product it runs, not an imitation\\.$`));
     assert.equal(r.status, 'clean', JSON.stringify(r.signals));
+    // (0.6.56) Nor given to the AI as a brand's name on another company's domain.
+    const withFacts = await analyze(await mail({}), { mailbox: USER, orgDomains: [ORG], colleagues: null, firstTime: true, intel: intelOf(), keepAiFacts: true });
+    assert.equal(withFacts.aiFacts.identity, null, JSON.stringify(withFacts.aiFacts.identity));
+    const failing = await analyze(await mail({ dmarc: 'fail' }), { mailbox: USER, orgDomains: [ORG], colleagues: null, firstTime: true, intel: intelOf(), keepAiFacts: true });
+    assert.ok(failing.aiFacts.identity, 'still given when the rules count it');
 });
 
 test('still counted: sender check failing, a link elsewhere, a new domain, or no corporate record', async () => {

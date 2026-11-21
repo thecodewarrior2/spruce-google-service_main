@@ -294,7 +294,66 @@ function createOwnership({ http, store, engine: E, rdapServer, whois = null, lea
         if (mem) return mem;
         return answer(key, reg, brand);
     }
-    return { of, ofCompany };
+    // (0.6.56) Whether two domains belong to the same company, whichever company it is (optumrx.com and optum.com, both
+    // registered to their parent; synchronybank.com and synchronyfinancial.com): proof that a forger can't fake, from
+    // the same public records: one's DMARC record sends its reports to the other AND the other publishes the RFC 7489
+    // authorization for them (anyone can write another's domain into their own record; only its owner can authorize it,
+    // and a wildcard that authorizes anyone doesn't count); every one of one's name servers is under the other's domain,
+    // or both use the very same name servers (not a provider's shared ones nor a per-customer pool's); both are
+    // registered through a corporate brand-protection registrar to the very same organization (not redacted); or both
+    // send their DMARC reports to the very same account mailbox at a report service and are registered through a
+    // corporate registrar. { state: 'owned' | 'unknown', how }; kept like the others (proof 60 days, none 7 days).
+    async function lookupSame(a, b) {
+        const proof = [];
+        let failures = 0;
+        const settle = async (f) => { try { return await f(); } catch (e) { failures++; return null; } };
+        const [tagsA, tagsB] = await Promise.all([settle(() => dmarcTags(a)), settle(() => dmarcTags(b))]);
+        if (reportDomains(tagsA, E.registrableDomain).has(b) && await settle(() => authorized(a, b))) proof.push(`${a} sends its DMARC reports to ${b}, which authorizes them`);
+        else if (reportDomains(tagsB, E.registrableDomain).has(a) && await settle(() => authorized(b, a))) proof.push(`${b} sends its DMARC reports to ${a}, which authorizes them`);
+        const generic = (box) => { const l = String(box).split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, ''); return l.length >= 8 && /[a-z]/.test(l) && /\d/.test(l); };
+        const boxB = reportMailboxes(tagsB);
+        const sameBox = [...reportMailboxes(tagsA)].find(x => boxB.has(x) && generic(x));
+        if (!proof.length) {
+            const [nsA, nsB] = await Promise.all([settle(() => nameServers(a)), settle(() => nameServers(b))]);
+            const allUnder = (ns, d) => ns.length > 0 && ns.every(h => h === d || h.endsWith(`.${d}`));
+            const under = allUnder(nsA || [], b) ? nsA[0] : allUnder(nsB || [], a) ? nsB[0] : '';
+            if (under) proof.push(`its name servers are all under the other's domain (${under})`);
+            else if ((nsA || []).length && (nsB || []).length) {
+                const same = sameOperatorNs(nsA, nsB);
+                if (same && same.kind === 'exact') proof.push(`both use the very same name servers (${same.host})`);
+            }
+        }
+        if (!proof.length) {
+            const [ia, ib] = await Promise.all([settle(() => registration(a)), settle(() => registration(b))]);
+            const corp = (i) => !!(i && i.registrar && CORPORATE_REGISTRARS.test(i.registrar));
+            const org = (i) => (i && i.registrant && !REDACTED.test(i.registrant) ? E.foldName(i.registrant).replace(/[^a-z0-9& ]+/g, ' ').replace(/\s+/g, ' ').trim() : '');
+            if (corp(ia) && corp(ib) && org(ia) && org(ia) === org(ib)) proof.push(`both registered to ${ia.registrant} through corporate registrars (${ia.registrar}${ib.registrar !== ia.registrar ? `, ${ib.registrar}` : ''})`);
+            else if (corp(ia) && corp(ib) && sameBox) proof.push(`both send their DMARC reports to the same account mailbox (${sameBox}) and are registered through corporate registrars`);
+        }
+        return Object.assign({ state: proof.length ? 'owned' : 'unknown', how: proof.join('; ') }, !proof.length && failures ? { failed: true } : {});
+    }
+    async function sameOwner(x, y) {
+        const a = E.registrableDomain(String(x || '').toLowerCase()), b = E.registrableDomain(String(y || '').toLowerCase());
+        if (!a || !b) return { state: 'unknown', how: '' };
+        if (a === b) return { state: 'owned', how: 'the same domain' };
+        if (!E.SENDER_DOMAIN_RE.test(a) || !E.SENDER_DOMAIN_RE.test(b) || E.isPersonalMailDomain(a) || E.isPersonalMailDomain(b)) return { state: 'unknown', how: '' };
+        const [p, q] = [a, b].sort();
+        const key = `${p}|same:${q}`;
+        const mem = memo.get(key);
+        if (mem) return mem;
+        const stored = await store.getCached('own', key).catch(() => null);
+        if (stored && stored.state) { const { at, ...v } = stored; memo.set(key, v, MEMO_MS); return v; }
+        if (!flights.has(key)) {
+            flights.set(key, (async () => {
+                const v = await lookupSame(p, q).catch(() => ({ state: 'unknown', how: '', failed: true }));
+                await store.setCached('own', key, Object.assign({ at: now() }, v), keepFor(v)).catch(() => {});
+                memo.set(key, v, Math.min(MEMO_MS, keepFor(v)));
+                return v;
+            })().finally(() => flights.delete(key)));
+        }
+        return flights.get(key);
+    }
+    return { of, ofCompany, sameOwner };
 }
 
 module.exports = { createOwnership, sameOperatorNs, registrantNamesBrand, reportMailboxes, accountMailbox, ownNameServer, CORPORATE_REGISTRARS };

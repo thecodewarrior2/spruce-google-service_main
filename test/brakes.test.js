@@ -107,7 +107,10 @@ test('releasing a campaign as a false alarm: every moved copy back in the Inbox,
     assert.ok((await store.listRecords({})).every(r => r.state === 'released' && r.falseAlarm === true));
     await deliver(svc, gmail, list.slice(3), raw);
     const last = await store.getRecord(`${list[3]}|m1`);
-    assert.equal(last.action, 'flag'); assert.match(last.why, /an admin dismissed this campaign as a false alarm/);
+    assert.equal(last.action, 'flag');
+    // (0.6.56) An identical copy: answered Not phishing like the dismissed copies (a remembered answer), not listed for review.
+    assert.match(last.why, /answered an identical email Not phishing, so it is answered the same way and left alone/);
+    assert.deepEqual([last.falseAlarm, last.autoAnswered && last.autoAnswered.kind], [true, 'remembered']);
     assert.equal(gmail.modified.filter(m => m.add.includes('SPAM')).length, 3, 'never moved again');
     assert.ok((await store.listEvents()).some(e => e.kind === 'campaign' && /dismissed "/.test(e.text)));
 });

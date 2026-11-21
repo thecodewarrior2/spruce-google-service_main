@@ -421,7 +421,7 @@ test('watches: pilot unit users are watched, those who leave are stopped; old re
     assert.deepEqual((await store.listRecords({})).map(r => r.key), ['new']);
 });
 
-test('watches at scale: 10 at a time within the time limit, the oldest first, the rest at the next run; one renewed recently waits', async () => {
+test('watches at scale: 25 at a time (0.6.56; 10 before) within the time limit, the oldest first, the rest at the next run; one renewed recently waits', async () => {
     const { store, gmail, svc } = await setup({ PILOT_USERS: '', PILOT_GROUP: 'spruce-pilot@maple-schools.example', DIRECTORY_ADMIN: 'admin@maple-schools.example' });
     const staff = Array.from({ length: 60 }, (_, i) => `staff${String(i).padStart(2, '0')}@maple-schools.example`);
     gmail.groups['spruce-pilot@maple-schools.example'] = staff;
@@ -430,9 +430,9 @@ test('watches at scale: 10 at a time within the time limit, the oldest first, th
     await store.putUser('staff59@maple-schools.example', { watchExpiration: Date.now() + 7 * DAY - 3600e3 });
     const watch = gmail.watch;
     let running = 0, most = 0;
-    gmail.watch = async (u) => { running++; most = Math.max(most, running); await new Promise(r => setTimeout(r, 25)); running--; return watch(u); };
+    gmail.watch = async (u) => { running++; most = Math.max(most, running); await new Promise(r => setTimeout(r, 40)); running--; return watch(u); };
     const r = await svc.renewWatches({ budgetMs: 60 });
-    assert.equal(most, 10, '10 at a time');
+    assert.equal(most, 25, '25 at a time');
     assert.ok(r.renewed >= 10 && r.renewed < 59, JSON.stringify(r));
     assert.equal(r.left, 59 - r.renewed); assert.equal(r.watched, 60, 'the others are still watched (their watches last 7 days)');
     const first = gmail.watched.slice();
@@ -659,15 +659,23 @@ test('0.5.53: who is checked: the pilot by default; the whole domain watches eve
     assert.match((await store.listEvents()).find(e => e.kind === 'settings').text, /switched the service to the whole domain on the dashboard \(confirmed with the project ID and their own address, and agreed\): every active mailbox of maple-schools\.example/);
     // A short run: some now, the rest left for the hourly job.
     const watch = gmail.watch;
-    gmail.watch = async (u) => { await new Promise(r => setTimeout(r, 20)); return watch(u); };
+    gmail.watch = async (u) => { await new Promise(r => setTimeout(r, 40)); return watch(u); };
     const r = await svc.renewWatches({ budgetMs: 30 });
     assert.ok(r.renewed > 0 && r.left > 0, JSON.stringify(r));
     assert.equal((await store.getState('watchLeft')).left, r.left);
     assert.match(store.events.filter(e => e.kind === 'watch').pop().text, /The whole domain \(Settings → Mailboxes\): 32 active mailboxes of maple-schools\.example in the directory\./);
     gmail.watch = watch;
+    assert.equal((await store.getState('watchQueue')).users.length, r.left, '(0.6.56) the rest saved for the hourly job');
+    let directoryReads = 0;
+    const domainUsers = gmail.domainUsers;
+    gmail.domainUsers = async (...a) => { directoryReads++; return domainUsers.apply(gmail, a); };
     await store.setState('feedsAttemptedAt', Date.now());
     const out = await svc.syncFeeds();
     assert.equal(out.watches && out.watches.left, 0, 'the hourly job continued them');
+    assert.equal(directoryReads, 0, '(0.6.56) from the saved queue, without reading the directory');
+    gmail.domainUsers = domainUsers;
+    assert.equal(await store.getState('watchQueue'), null, 'nothing left to save');
+    assert.match(store.events.filter(e => e.kind === 'watch').pop().text, /^Continued watching mailboxes: \d+ watched now \(\d+ new\); none left\. Watching 32 mailboxes\.$/);
     assert.equal(await store.getState('watchedCount'), 32);
     assert.equal((await store.getState('watchLeft')).left, 0);
     // Nothing left: the hourly job doesn't read the directory again.

@@ -1391,6 +1391,22 @@ function headerAnomalies(raw, accountAddress, receiver = {}) {
     // Unfilled template placeholders such as "(_IE6rxc5)" or "[RANDOM1]".
     const placeholder = headers.map(([, v]) => v).join('\n').match(/\(_[A-Za-z0-9]{4,12}\)|\[RANDOM\d*\]|__Random_/g);
     if (placeholder && placeholder.length >= 3) out.push({ weight: 2, kind: 'placeholders', text: 'Its headers contain unfilled placeholders from a bulk-mailing tool.' });
+    // (service 0.6.56) A Message-ID in the name of a big mail provider (<…@mail.gmail.com>, <…prod.outlook.com>, <…@yahoo.com>,
+    // <…@icloud.com>) on mail that shows no sign of having been sent through it: no signature of the provider's (DKIM d=),
+    // none of the headers its sending servers add, no delivery record from its servers. Scam tools copy such IDs to look
+    // like ordinary mail. (The receiver's own records don't count: Gmail writes "by mx.google.com" on every email it
+    // receives.) A Message-ID merely on another domain than the sender's is normal (mailing services) and isn't counted.
+    const mid = String(get('message-id')[0] || '').trim().toLowerCase();
+    const fromClause = (v) => String(v).replace(/\s+/g, ' ').trim().split(/\sby\s/i)[0];
+    const sentVia = (fromRe, headerRe, dkimRe) => get('received').some(v => /^from\s/i.test(String(v).trim()) && fromRe.test(fromClause(v)))
+        || [...names].some(h => headerRe.test(h)) || get('dkim-signature').some(v => dkimRe.test(String(v).replace(/\s+/g, '')));
+    const MID_PROVIDERS = [
+        { name: 'Gmail', id: /@(mail\.)?gmail\.com>?$/, seen: () => sentVia(/(google\.com|gmail\.com|googlemail\.com)\b/i, /^x-(gm-message-state|google-smtp-source|gm-gg|google-dkim-signature)$/, /(^|;)d=(gmail\.com|google\.com|googlemail\.com)(;|$)/i) },
+        { name: 'Outlook', id: /@[a-z0-9.-]*(\.outlook\.com|hotmail\.com|live\.com)>?$/, seen: () => sentVia(/(outlook\.com|hotmail\.com|live\.com|microsoft\.com)\b/i, /^x-(ms-exchange-|microsoft-antispam|ms-has-attach|ms-publictraffictype)/, /(^|;)d=([a-z0-9-]+\.onmicrosoft\.com|outlook\.com|hotmail\.com|live\.com)(;|$)/i) },
+        { name: 'Yahoo', id: /@[a-z0-9.-]*yahoo\.com>?$/, seen: () => sentVia(/(yahoo\.com|yahoodns\.net|aol\.com)\b/i, /^x-(ymail-|yahoo-|sonic-mf|aol-)/, /(^|;)d=(yahoo\.com|aol\.com|yahoo\.[a-z.]+)(;|$)/i) },
+        { name: 'iCloud', id: /@(icloud\.com|me\.com|mac\.com)>?$/, seen: () => sentVia(/(icloud\.com|apple\.com|me\.com)\b/i, /^x-(apple-|icloud-)/, /(^|;)d=(icloud\.com|me\.com|mac\.com)(;|$)/i) }];
+    const midClaim = mid && MID_PROVIDERS.find(p => p.id.test(mid));
+    if (midClaim && !midClaim.seen()) out.push({ weight: 2, kind: 'forged-message-id', text: `Its message ID claims it was written in ${midClaim.name}, but nothing else in its headers shows it came through ${midClaim.name}: a copied ID, to look like ordinary mail.` });
     // Headers that must appear once.
     const dup = ['from', 'subject', 'date', 'message-id', 'mime-version'].filter(n => get(n).length > 1);
     if (new Set(get('content-length').map(v => v.trim())).size > 1) dup.push('content-length');   // two different sizes
