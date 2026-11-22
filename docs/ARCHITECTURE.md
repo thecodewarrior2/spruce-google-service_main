@@ -146,7 +146,9 @@ the worker's 120-second request time. In order:
    install; each alerted once.
 8. **Watches:** a renewal the daily job didn't finish (a whole domain) is continued (0.6.56: from the list the daily run
    saved, state `watchQueue`, up to 15,000 addresses and a day old, without reading the directory or every mailbox's record
-   again; 25 watch requests at a time). After `deploy/stop.sh`
+   again; 25 watch requests at a time). A mailbox another watch of the same Google Cloud project holds (Gmail allows one
+   per project; 400 "Only one user push notification client allowed per developer") is stopped and watched again once,
+   recorded as a `watch-takeover` event (0.6.57). After `deploy/stop.sh`
    (0.6.7), Gmail is told to stop notifying for the mailboxes still left instead, and no watch is renewed
    while stopped.
 9. **Cleanup** of what Firestore's TTL doesn't delete, with the time left (at most 30 seconds).

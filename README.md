@@ -495,7 +495,9 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     `PILOT_USERS`) or the whole domain (0.5.53: every active mailbox of `ORG_DOMAINS`, from the directory).
     Switching shows how many mailboxes each would watch, and needs a ticked box, the project ID and the
     signed-in admin's own address, either way; the directory is read again at once, and a large domain is
-    watched (or, back to the pilot, the others stopped) over the next hours, each hourly run continuing. The
+    watched (or, back to the pilot, the others stopped) over the next hours, each hourly run continuing. A mailbox
+    another watch of the same Google Cloud project holds (an older installation, a second copy) is taken over: its watch
+    stopped and started again for this service, noted in Activity (0.6.57). The
     whole domain needs the **Users → Read** privilege and the `admin.directory.user.readonly` scope
     (docs/INSTALL.md, "The whole domain"). Below, the watched mailboxes, 100 a page by address with a search,
     each with the last time Gmail notified the service about it, and **Read the directory again now**, which

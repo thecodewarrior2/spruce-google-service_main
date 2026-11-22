@@ -751,3 +751,34 @@ test('a Gmail call left hanging is given up after its time limit, tried again, t
     const once = new GmailClient({ tokenFor: async () => 'tok' }, { timeoutMs: 50, fetch: (url, init) => (++n === 1 ? hang(url, init) : Promise.resolve({ ok: true, status: 200, json: async () => ({ id: 'm1' }) })) });
     assert.deepEqual(await once.modify('pat.madeup@maple-schools.example', 'm1', ['INBOX'], []), { id: 'm1' }, 'the second try answers');
 });
+
+test('a mailbox another watch of this Google Cloud project holds: stopped and watched again, once, and said in Activity (0.6.57)', async () => {
+    const { svc, store, gmail } = await setup();
+    const watch = gmail.watch;
+    let held = true;
+    gmail.watch = async (u) => {
+        if (held) throw new GoogleApiError(400, 'Only one user push notification client allowed per developer (call /stop then try again)', 'watch');
+        return watch(u);
+    };
+    const stop = gmail.stop;
+    gmail.stop = async (u) => { held = false; return stop(u); };
+    const r = await svc.renewWatches();
+    assert.deepEqual([r.renewed, r.failed], [1, 0]);
+    assert.deepEqual(gmail.stopped, [USER], 'its own project\'s watch on that mailbox stopped first');
+    assert.equal((await store.getUser(USER)).watched, true);
+    assert.ok(store.events.some(e => e.kind === 'watch-takeover' && e.user === USER && /another watch from this Google Cloud project held it/.test(e.text)));
+    assert.match(store.events.filter(e => e.kind === 'watch').pop().text, /Took over 1 mailbox another watch from this Google Cloud project held \(see Activity\)\.$/);
+    // Any other refusal is an error as before, and nothing is stopped.
+    gmail.stopped.length = 0;
+    gmail.watch = async () => { throw new GoogleApiError(400, 'Mail service not enabled', 'watch'); };
+    await store.putUser(USER, { watchExpiration: Date.now() });
+    const r2 = await svc.renewWatches();
+    assert.equal(r2.failed, 1);
+    assert.deepEqual(gmail.stopped, []);
+    // Held still after the stop (another installation took it straight back): one try only, then an error.
+    gmail.watch = async () => { throw new GoogleApiError(400, 'Only one user push notification client allowed per developer (call /stop then try again)', 'watch'); };
+    gmail.stop = async () => {};
+    const r3 = await svc.renewWatches();
+    assert.equal(r3.failed, 1);
+    assert.match(store.events.filter(e => e.kind === 'error').pop().text, /Only one user push notification client allowed/);
+});

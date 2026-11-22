@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.57: a mailbox another watch of the same project holds is taken over
+
+- **"Only one user push notification client allowed per developer":** Gmail allows one watch per mailbox for each Google
+  Cloud project, so a mailbox still watched by an older installation (another Pub/Sub topic), a second copy of the service
+  or another tool in the same project couldn't be watched, and failed the same way every day. Now the service does what
+  Gmail's message says: it stops that watch (the project's own, on that one mailbox) and watches the mailbox again, once.
+  Each take-over is recorded in Activity ("Took over watching …'s mailbox", shown with the mailbox-watching events) and
+  counted in the renewal's summary; if it happens again every day, two installations are watching the same mailboxes.
+  Any other refusal is an error as before. docs/INSTALL.md (Troubleshooting) and docs/ARCHITECTURE.md say so.
+- Nothing judges email differently (the checks level stays 47); no installation change (installLevel stays the same).
+
 ## 0.6.56: answers remembered, the same company's domains, forged message IDs, faster mailbox watching
 
 - **Not phishing is remembered:** an admin's (or moderator's) Not phishing on an email answers every identical copy, to

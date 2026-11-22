@@ -641,6 +641,11 @@ Details).
 - **Recent activity: "Couldn't watch …'s mailbox".**
   - That account may have no Gmail (no license, or Gmail turned off for it).
   - Or the delegation entry lacks `gmail.modify`.
+  - Or (it says "Only one user push notification client allowed per developer") another watch from the same Google
+    Cloud project held the mailbox: an older installation with another topic, a second copy of the service, or another
+    tool in the project. Since 0.6.57 the service stops that watch and watches the mailbox again by itself ("Took over
+    watching …'s mailbox" in Activity); if that appears again every day, two installations are taking the same
+    mailboxes from each other: remove the other one (its `deploy/stop.sh`, or delete it).
 - **"Identity-Aware Proxy could not be set up from here" (step 8/9).** The dashboard stays closed to
   everyone until you finish it in the console:
   1. Open **Cloud Run → spruce-admin → Security** and tick **Identity-Aware Proxy (IAP)**. Only on

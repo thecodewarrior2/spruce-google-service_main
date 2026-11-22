@@ -1803,11 +1803,12 @@ class Service {
         const todo = [...users].filter(u => expiry(u) < now + WATCH_MS - RENEW_FRESH_MS).sort((a, b) => expiry(a) - expiry(b));
         const out = new Map();   // user → new expiration
         const failedUsers = new Set();
-        let failed = 0;
+        let failed = 0, tookOver = 0;
         const over = () => Date.now() - started > budgetMs;
         await pool(todo, parallel, async (user) => {
             try {
-                const w = await this.gmail.watch(user, this.cfg.pubsubTopic);
+                const w = await this.watchMailbox(user);
+                if (w.tookOver) tookOver++;
                 const k = known.get(user);
                 const exp = Number(w.expiration) || null;
                 await this.store.putUser(user, Object.assign({ watched: true, watchExpiration: exp, stoppedAt: null, stopPending: false }, k && k.historyId ? {} : { historyId: String(w.historyId) }));
@@ -1842,10 +1843,26 @@ class Service {
         await this.store.setState('watchLeft', { left: left + Math.max(0, gone.length - stopped), at: now, scope: whole ? 'domain' : 'pilot' });
         // What was found, for Activity (and the log, without addresses): so a count that looks
         // wrong says why.
-        const text = watchSummary({ ok, failed, stopped, groups, extra: this.cfg.pilotUsers.length, ou: whole ? '' : this.cfg.pilotOu, orgDomains: this.cfg.orgDomains, renewed: out.size, left, domain: domainCount });
+        const text = watchSummary({ ok, failed, stopped, groups, extra: this.cfg.pilotUsers.length, ou: whole ? '' : this.cfg.pilotOu, orgDomains: this.cfg.orgDomains, renewed: out.size, left, domain: domainCount })
+            + (tookOver ? ` Took over ${tookOver} mailbox${tookOver === 1 ? '' : 'es'} another watch from this Google Cloud project held (see Activity).` : '');
         await this.store.addEvent({ kind: 'watch', text });
         if (this.log.info) this.log.info(`renew-watches: ${text}`);
         return { watched: ok, renewed: out.size, left, failed };
+    }
+
+    // (0.6.57) Watching one mailbox. Gmail allows one push watch per mailbox for each Google Cloud project; when the mailbox
+    // already has one from this project that points elsewhere (an older installation's topic, a second copy of the service,
+    // another tool in the same project), it answers 400 "Only one user push notification client allowed per developer (call
+    // /stop then try again)". As it says: stop that watch (this project's own, on this one mailbox) and watch again, once.
+    // The take-over is recorded, so two installations taking the same mailboxes from each other every day show in Activity.
+    async watchMailbox(user) {
+        try { return await this.gmail.watch(user, this.cfg.pubsubTopic); } catch (e) {
+            if (!/only one user push notification client allowed/i.test(String(e && e.message))) throw e;
+            try { await this.gmail.stop(user); } catch (x) { /* nothing to stop: the watch below says */ }
+            const w = await this.gmail.watch(user, this.cfg.pubsubTopic);
+            await this.store.addEvent({ kind: 'watch-takeover', user, text: `Took over watching ${user}'s mailbox: another watch from this Google Cloud project held it (an older installation, a second copy of the service or another tool in the same project), so it was stopped and started again for this service. If this happens again every day, two installations are watching the same mailboxes: remove the other one.` });
+            return Object.assign({}, w, { tookOver: true });
+        }
     }
 
     // (0.6.56) The hourly continuation from the saved queue (renewWatches fromQueue): the mailboxes left by the last run are
@@ -1856,10 +1873,11 @@ class Service {
         const over = () => Date.now() - started > budgetMs;
         const fresh = new Set(q.fresh || []);
         const done = new Set(), failedSet = new Set();
-        let added = 0;
+        let added = 0, tookOver = 0;
         await pool(q.users, parallel, async (user) => {
             try {
-                const w = await this.gmail.watch(user, this.cfg.pubsubTopic);
+                const w = await this.watchMailbox(user);
+                if (w.tookOver) tookOver++;
                 await this.store.putUser(user, Object.assign({ watched: true, watchExpiration: Number(w.expiration) || null, stoppedAt: null, stopPending: false }, fresh.has(user) ? { historyId: String(w.historyId) } : {}));
                 done.add(user);
                 if (fresh.has(user)) added++;
@@ -1880,7 +1898,7 @@ class Service {
         await this.store.setState('watchedCount', Math.max(0, watched));
         const left = users.length + stop.length;
         await this.store.setState('watchLeft', { left, at: now, scope: q.scope });
-        const text = `Continued watching mailboxes: ${done.size} watched now (${added} new)${stoppedSet.size ? `, ${stoppedSet.size} stopped` : ''}${failedSet.size ? `, ${failedSet.size} failed (see the errors; the daily run tries them again)` : ''}; ${left ? `${left} more within the next hours (each hourly run continues)` : 'none left'}. Watching ${Math.max(0, watched)} mailboxes.`;
+        const text = `Continued watching mailboxes: ${done.size} watched now (${added} new)${stoppedSet.size ? `, ${stoppedSet.size} stopped` : ''}${failedSet.size ? `, ${failedSet.size} failed (see the errors; the daily run tries them again)` : ''}${tookOver ? `, ${tookOver} taken over from another watch of this Google Cloud project (see Activity)` : ''}; ${left ? `${left} more within the next hours (each hourly run continues)` : 'none left'}. Watching ${Math.max(0, watched)} mailboxes.`;
         await this.store.addEvent({ kind: 'watch', text });
         if (this.log.info) this.log.info(`renew-watches (continued): ${text}`);
         return { watched: Math.max(0, watched), renewed: done.size, left, failed: failedSet.size };

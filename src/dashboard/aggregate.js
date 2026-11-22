@@ -337,7 +337,7 @@
     // alert, not something an admin did.
     const ADMIN_KINDS = ['release', 'resume', 'campaign', 'watch-asked', 'mark', 'check', 'settings', 'digest', 'training', 'clear', 'update'];
     const ACTIVITY = { alert: (e) => !!e.alert && !isAdminAction(e), admin: (e) => isAdminAction(e) || (ADMIN_KINDS.includes(e.kind) && !e.alert),
-        error: (e) => e.kind === 'error' || e.kind === 'gap', watch: (e) => ['watch', 'watch-asked', 'mode'].includes(e.kind) };
+        error: (e) => e.kind === 'error' || e.kind === 'gap', watch: (e) => ['watch', 'watch-asked', 'watch-takeover', 'mode'].includes(e.kind) };
     function activity(events, kind) { return ACTIVITY[kind] ? events.filter(ACTIVITY[kind]) : events; }
 
     // The review queue's items: the copies of one campaign (the same email to many people) are one item, decided
