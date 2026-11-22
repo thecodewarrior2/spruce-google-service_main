@@ -162,8 +162,9 @@ Mail is still checked; one source of evidence is missing until it comes back.
   to their Spam folder and to Google, as always; they just don't reach Review → Reported until it works again (the
   reports wait in the Alert Center, and the next good run reads the last 30 days of them it missed).
 - **Usually:** the scope `https://www.googleapis.com/auth/apps.alerts` isn't on the service's domain-wide delegation
-  entry, the Alert Center API isn't turned on in the project (install.sh 0.6.60 or later turns it on), or the admin typed
-  on Settings → User reports can't see the Alert Center. The alert says which, and what to do.
+  entry, the Alert Center API isn't turned on in the project (install.sh 0.6.60 or later turns it on), or the directory
+  admin (`DIRECTORY_ADMIN`) has no Alert Center privilege (tick Security → Alert Center → View access on its SPRUCE group
+  reader role). The alert says which, and what to do.
 - **What to do:** Settings → User reports → Test says what Google answered. docs/INSTALL.md, "User reports".
   Emailed at most once a day.
 

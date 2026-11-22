@@ -129,9 +129,12 @@ No new button for anyone; nothing is moved by a report or its answer.
    https://www.googleapis.com/auth/apps.alerts
    ```
 
-3. On the dashboard, **Settings → User reports**: type an admin account that can see the Alert Center (a super admin
-   can; the service only reads with it), **Test**, then **Turn on** with the project ID. The first run also reads the
-   last day's reports.
+3. Give the directory admin (step 2, `DIRECTORY_ADMIN`: the service reads the alerts as that account, and changes
+   nothing there) the Alert Center privilege: Admin console → Account → Admin roles → **SPRUCE group reader** →
+   Privileges → Admin console privileges → **Security → Alert Center** → tick **View access** → Save. Without it,
+   Test says the account isn't allowed to read the Alert Center.
+4. On the dashboard, **Settings → User reports**: **Test**, then **Turn on** with the project ID. The first run also
+   reads the last day's reports.
 
 ### Spamhaus and abuse.ch (optional, off by default)
 

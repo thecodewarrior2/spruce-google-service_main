@@ -212,7 +212,7 @@ how many senders it learned; Stop now ends it early, and the senders learned sta
 Never mail from inside, a Trusted sender or a platform's notification.
 
 **User reports** (0.6.60; Settings → User reports, off by default): when someone clicks Gmail's own **Report phishing**,
-the email goes to **Review → Reported** within the hour (read from Google's Alert Center as an admin; one more scope,
+the email goes to **Review → Reported** within the hour (read from Google's Alert Center as the directory admin, `DIRECTORY_ADMIN`, whose role needs the Alert Center privilege; one more scope,
 `apps.alerts`, and install.sh 0.6.60 or later, which turns on the Alert Center API). Each reported email of a watched
 mailbox is listed there whatever the checks made of it, even from a Trusted sender (an account can be taken over); an
 email the checks had let through is read and checked again and recorded. Phishing or Spam confirms the report and

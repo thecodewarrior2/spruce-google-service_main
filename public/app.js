@@ -3493,13 +3493,14 @@
     async function userReportsPage() {
         const d = await api('/api/user-reports');
         const ur = d.userReports || {}, hl = d.health, t = d.test;
-        const admin = h('input', { type: 'email', autocomplete: 'off', spellcheck: 'false', value: ur.admin || d.directoryAdmin || '', placeholder: 'admin@your-district.org', 'aria-label': 'Admin account' });
+        // (0.6.62) Always DIRECTORY_ADMIN (deploy/settings.env): the account the service already acts as.
+        const reader = d.directoryAdmin || '';
         const testOut = h('div', { class: 'small', role: 'status' });
         const testBtn = h('button', { class: 'btn', type: 'button' }, 'Test');
         testBtn.addEventListener('click', async () => {
             testBtn.disabled = true; testOut.textContent = 'Reading the last 7 days of "User reported phishing" alerts…';
             try {
-                const o = await api('/api/user-reports/test', { method: 'POST', body: { admin: admin.value } });
+                const o = await api('/api/user-reports/test', { method: 'POST', body: {} });
                 if (!o.ok && o.why) { testOut.textContent = ''; testOut.append(h('b', { class: 'bad-text', text: `${o.why} ` }), h('span', { text: o.fix || '' })); return; }
                 testOut.textContent = !o.ok ? `Google refused: ${o.error}` : o.alerts ? `Working: ${num(o.alerts)} "User reported phishing" alert${o.alerts === 1 ? '' : 's'} in the last 7 days, naming ${num(o.emails)} email${o.emails === 1 ? '' : 's'}.` : 'Working: Google answered, with no "User reported phishing" alerts in the last 7 days.';
             } catch (e) { testOut.textContent = `Couldn't test: ${e.message}`; }
@@ -3508,7 +3509,7 @@
         const f = (hl && hl.found) || {};
         const status = !ur.on ? 'Off' : hl && !hl.ok ? `On, but the Alert Center couldn't be read (${when(hl.at)}): ${hl.error}` : hl ? `On: last read ${when(hl.at)}: ${num(hl.alerts)} new alert${hl.alerts === 1 ? '' : 's'}, ${num((f.added || 0) + (f.marked || 0))} email${(f.added || 0) + (f.marked || 0) === 1 ? '' : 's'} put in Review → Reported${f.notWatched ? ` (${num(f.notWatched)} in mailboxes the service doesn't check)` : ''}${f.notFound ? ` (${num(f.notFound)} no longer in the mailbox)` : ''}.` : 'On: read at the next hourly run.';
         const sw = ur.on ? confirmForm('Turn off', '/api/user-reports', () => ({ on: false }), () => 'User reports is off: the Alert Center is no longer read.')
-            : confirmForm('Turn on', '/api/user-reports', () => ({ on: true, admin: admin.value }), () => 'User reports is on: reports are read every hour (the last day\'s too) into Review → Reported.', h('div', { class: 'small muted', text: 'The admin account above is the one whose rights read the Alert Center. Nothing is moved or changed there.' }));
+            : confirmForm('Turn on', '/api/user-reports', () => ({ on: true }), () => 'User reports is on: reports are read every hour (the last day\'s too) into Review → Reported.', h('div', { class: 'small muted', text: `The Alert Center is read as ${reader || 'DIRECTORY_ADMIN'} (DIRECTORY_ADMIN in deploy/settings.env). Nothing is moved or changed there.` }));
         const urState = !ur.on ? 'off' : hl && !hl.ok ? 'bad' : 'on';
         return [serviceTitle('User reports', urState, SERVICE_WORDS[urState]),
             h('p', { class: 'sub', text: 'When someone clicks Gmail\'s own "Report phishing" on an email, it goes to Review → Reported, so an admin sees what people report. Off by default.' }),
@@ -3521,11 +3522,10 @@
                 h('div', { class: 'small muted', text: 'The Alert Center can take a few minutes to raise an alert, and the service reads it at the next hourly run. Only the reported emails\' Message-IDs and recipients are read from the alerts.' })),
             h('section', { class: 'card spaced' }, h('h2', { text: 'Status' }), h('dl', { class: 'kv' },
                 kvRow('User reports', status),
-                kvRow('Read as', ur.admin || 'not set'),
+                kvRow('Read as', reader ? `${reader} (DIRECTORY_ADMIN in deploy/settings.env, the account the service acts as for the directory)` : 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env'),
                 t ? kvRow('Last test', t.ok ? `${when(t.at)} by ${t.by}: ${num(t.alerts)} alerts in 7 days, ${num(t.emails)} emails.` : `${when(t.at)} by ${t.by}: refused (${t.error}).`) : null,
                 ur.by ? kvRow('Changed', `${ur.on ? 'Turned on' : 'Turned off'} by ${ur.by}, ${when(ur.at)}.`) : null),
                 h('div', { class: 'policy-form sb-form' },
-                    h('label', { class: 'project' }, h('span', { text: 'Admin account (Alert Center access)' }), admin),
                     h('div', { class: 'actions' }, testBtn), testOut,
                     d.demoProjectId ? h('div', { class: 'small muted', text: `Demo mode: the project ID is ${d.demoProjectId}; nothing is read from Google.` }) : null),
                 h('div', { class: 'actions' }, sw)),
@@ -3533,7 +3533,7 @@
                 h('ol', { class: 'steps' },
                     h('li', {}, h('b', { text: 'The Alert Center API turned on in the service\'s project: ' }), 'deploy/install.sh does it (version 0.6.60 or later). Settings → Update can\'t, so run install.sh once from Cloud Shell.'),
                     h('li', {}, h('b', { text: 'One more scope on the service\'s domain-wide delegation: ' }), h('code', { text: 'https://www.googleapis.com/auth/apps.alerts' }), '. Admin console → Security → Access and data control → API controls → Manage Domain Wide Delegation → the service\'s client ID → Edit: add it to the line, then Authorize.'),
-                    h('li', {}, h('b', { text: 'An admin account that can see the Alert Center ' }), '(a super admin can), typed above: the service reads the alerts with its rights, and changes nothing there.'),
+                    h('li', {}, h('b', { text: 'The Alert Center privilege on the directory admin\'s role: ' }), `Admin console → Account → Admin roles → SPRUCE group reader (the role ${reader || 'DIRECTORY_ADMIN'} has) → Privileges → Admin console privileges → Security → Alert Center → tick View access → Save. The service reads the alerts with it, and changes nothing there.`),
                     h('li', {}, 'Test, then Turn on (with the project ID). Changes are noted in Health → Activity → What admins did.')))];
     }
 

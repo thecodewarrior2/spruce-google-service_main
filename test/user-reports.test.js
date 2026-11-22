@@ -11,13 +11,13 @@ const { readMessage } = require('../src/engine/mime');
 
 const ORG = 'maple-schools.example';
 const [PAT, SAM, LEE] = ['pat.fakewell', 'sam.testwood', 'lee.notreal'].map(u => `${u}@${ORG}`);
-const ADMIN = `it.madeup@${ORG}`;
+const ADMIN = `it.madeup@${ORG}`, DIR = `spruce-directory@${ORG}`;
 const raw = (to, mid) => Buffer.from([
     'From: "Payroll Desk" <payroll@paystub-madeup.example>', `To: ${to}`, 'Subject: Your pay statement is ready', `Message-ID: <${mid}>`,
     'Authentication-Results: mx.google.com; spf=pass smtp.mailfrom=paystub-madeup.example; dmarc=pass header.from=paystub-madeup.example',
     'Content-Type: text/plain', '', 'Your November pay statement is ready. Sign in to view it.'].join('\r\n'));
 
-function make({ alerts = [], fail = null } = {}) {
+function make({ alerts = [], fail = null, dir = DIR } = {}) {
     const mails = new Map();   // `${user}|${rfcId}` → { id, labelIds }
     const calls = { alerts: [], search: [] };
     const gmail = {
@@ -26,21 +26,26 @@ function make({ alerts = [], fail = null } = {}) {
         search: async (user, q, opts) => { calls.search.push({ user, q, opts }); const m = mails.get(`${user}|${q.replace(/^rfc822msgid:/, '')}`); return { ids: m ? [m.id] : [], next: null }; },
         raw: async (user, id) => { const m = [...mails.values()].find(x => x.id === id && x.user === user); return { id, threadId: `t-${id}`, labelIds: m.labelIds, internalDate: Date.now(), raw: raw(user, m.rfc) }; }
     };
-    const svc = new Service({ cfg: loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: [PAT, SAM].join(','), MODE: 'enforce' }), store: new MemoryStore(), gmail, log: { error() {}, warn() {} } });
+    const svc = new Service({ cfg: loadConfig(Object.assign({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: [PAT, SAM].join(','), MODE: 'enforce' }, dir ? { DIRECTORY_ADMIN: dir } : {})), store: new MemoryStore(), gmail, log: { error() {}, warn() {} } });
     svc.mails = mails; svc.calls = calls;
     return svc;
 }
 const alert = (id, at, messages) => ({ alertId: id, createTime: new Date(at).toISOString(), type: 'User reported phishing', source: 'Gmail phishing', data: { messages } });
 
-test('off by default; turned on only with an admin of the organization; the change is noted', async () => {
+test('off by default; read as DIRECTORY_ADMIN (settings.env), never an address typed on the page; the change is noted', async () => {
     const svc = make();
     assert.equal((await svc.userReports()).on, false);
     assert.equal(await svc.followUserReports(), null, 'nothing read while off');
     assert.equal(svc.calls.alerts.length, 0);
-    assert.equal((await svc.setUserReports(true, 'someone@elsewhere.example', ADMIN)).status, 400);
-    const on = await svc.setUserReports(true, ADMIN, ADMIN);
-    assert.equal(on.userReports.on, true);
-    assert.ok(svc.store.events.some(e => /turned on User reports/.test(e.text)));
+    const on = await svc.setUserReports(true, ADMIN);
+    assert.deepEqual([on.userReports.on, on.userReports.admin], [true, DIR]);
+    assert.ok(svc.store.events.some(e => /turned on User reports \(Gmail's Report phishing reports read from the Alert Center as spruce-directory@maple-schools\.example, DIRECTORY_ADMIN/.test(e.text)));
+    await svc.testUserReports(ADMIN);
+    assert.equal(svc.calls.alerts[0].admin, DIR, 'Test reads as the directory admin too');
+    // Without DIRECTORY_ADMIN: refused, said plainly.
+    const none = make({ dir: '' });
+    assert.match((await none.setUserReports(true, ADMIN)).error, /DIRECTORY_ADMIN isn't set/);
+    assert.match((await none.testUserReports(ADMIN)).error, /DIRECTORY_ADMIN isn't set/);
 });
 
 test('a reported email goes to Review → Reported: an existing record is marked, one the checks let through is read and recorded; others are skipped', async () => {
@@ -52,12 +57,12 @@ test('a reported email goes to Review → Reported: an existing record is marked
     svc.mails.set(`${SAM}|r2@paystub-madeup.example`, { id: 'g2', user: SAM, rfc: 'r2@paystub-madeup.example', labelIds: ['SPAM'] });
     // PAT's copy was recorded on arrival (suspicious); SAM's was let through.
     await svc.store.saveRecord({ key: `${PAT}|g1`, user: PAT, messageId: 'g1', processedAt: now - 7200e3, receivedAt: now - 7200e3, action: 'flag', state: 'inbox', falseAlarm: null, sender: { address: 'payroll@paystub-madeup.example', domain: 'paystub-madeup.example' }, signals: [] });
-    await svc.setUserReports(true, ADMIN, ADMIN);
+    await svc.setUserReports(true, ADMIN);
     const out = await svc.followUserReports();
     assert.deepEqual(out.found, { added: 1, marked: 1, notWatched: 2, notFound: 1, already: 0 });
     assert.ok(svc.calls.search.every(c => c.opts.includeSpamTrash), 'Spam is searched too (a reported email is there)');
     assert.match(svc.calls.alerts[0].opts.filter, /^type="User reported phishing" AND createTime >= "\d{4}-/);
-    assert.equal(svc.calls.alerts[0].admin, ADMIN);
+    assert.equal(svc.calls.alerts[0].admin, DIR, 'read as DIRECTORY_ADMIN');
     const marked = await svc.store.getRecord(`${PAT}|g1`);
     assert.equal(marked.userReported.alertId, 'a1');
     const added = await svc.store.getRecord(`${SAM}|g2`);
@@ -75,8 +80,8 @@ test('a reported email goes to Review → Reported: an existing record is marked
 
 test('Google refusing: said plainly with the fix (the scope, the API, the admin), recorded, and an alert once a day', async () => {
     const svc = make({ fail: 'token for it.madeup@maple-schools.example: unauthorized_client' });
-    await svc.setUserReports(true, ADMIN, ADMIN);
-    const t = await svc.testUserReports(ADMIN, ADMIN);
+    await svc.setUserReports(true, ADMIN);
+    const t = await svc.testUserReports(ADMIN);
     assert.equal(t.ok, false);
     assert.match(t.why, /scope apps\.alerts isn't on its domain-wide delegation entry/);
     assert.match(t.fix, /https:\/\/www\.googleapis\.com\/auth\/apps\.alerts/);
@@ -84,13 +89,13 @@ test('Google refusing: said plainly with the fix (the scope, the API, the admin)
     assert.match(out.error, /apps\.alerts/);
     assert.equal((await svc.store.getState('userReportsHealth')).ok, false);
     const off = make({ fail: 'HTTP 403: Alert Center API has not been used in project 123 before or it is disabled. SERVICE_DISABLED' });
-    assert.match((await off.testUserReports(ADMIN, ADMIN)).why, /Alert Center API isn't turned on/);
+    assert.match((await off.testUserReports(ADMIN)).why, /Alert Center API isn't turned on/);
 });
 
 test('the dashboard: Review → Reported lists the reports nobody answered, even from a Trusted sender; the count reaches the tab title', async () => {
     const http = require('http');
     const { createApp } = require('../src/server');
-    const cfg = loadConfig({ DEMO: '1', MODE: 'monitor', ORG_DOMAINS: ORG, ALLOW_DOMAINS: 'paystub-madeup.example' });
+    const cfg = loadConfig({ DEMO: '1', MODE: 'monitor', ORG_DOMAINS: ORG, ALLOW_DOMAINS: 'paystub-madeup.example', DIRECTORY_ADMIN: DIR });
     const store = new MemoryStore();
     const svc = new Service({ cfg, store, gmail: { labelId: async () => 'L', modify: async () => ({}) }, log: { error() {}, warn() {} } });
     const now = Date.now();
@@ -111,8 +116,15 @@ test('the dashboard: Review → Reported lists the reports nobody answered, even
         const p = await get('/api/pending?days=7');
         assert.equal(p.reported, 1);
         assert.equal(p.reportedOn, false);
-        await svc.setUserReports(true, ADMIN, ADMIN);
+        await svc.setUserReports(true, ADMIN);
         assert.equal((await get('/api/review?queue=moved&days=7')).reportedOn, true, 'turned on: the tab is shown');
         assert.ok(p.total >= 1);
     } finally { await new Promise(r => srv.close(r)); }
+});
+
+test('0.6.62: Google refusing the directory admin: the fix names the Alert Center privilege on its role', async () => {
+    const svc = make({ fail: 'HTTP 403: The caller does not have permission' });
+    const t = await svc.testUserReports(ADMIN);
+    assert.match(t.why, /spruce-directory@maple-schools\.example \(DIRECTORY_ADMIN\) isn't allowed to read the Alert Center/);
+    assert.match(t.fix, /SPRUCE group reader\) → Privileges → Admin console privileges → Security → Alert Center → tick View access/);
 });

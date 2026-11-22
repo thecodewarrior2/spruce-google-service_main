@@ -179,8 +179,8 @@ function alertsProblem(e, admin) {
         why: 'The Alert Center API isn\'t turned on in the service\'s Google Cloud project.',
         fix: 'Run deploy/install.sh again (Settings → Update can\'t: it turns on alertcenter.googleapis.com), or in Cloud Shell: gcloud services enable alertcenter.googleapis.com. Test again in a few minutes.' };
     if (/HTTP 40[13]\b|permission|not authorized/i.test(msg)) return {
-        why: `${admin} isn't allowed to read the Alert Center.`,
-        fix: `Type a super admin's address, or give the role ${admin} has the Alert Center privilege (Admin console → Account → Admin roles → its role → Privileges → Security → Alert Center: view access). Test again in a few minutes.` };
+        why: `${admin} (DIRECTORY_ADMIN) isn't allowed to read the Alert Center: its admin role doesn't have the Alert Center privilege.`,
+        fix: `Admin console → Account → Admin roles → the role ${admin} has (SPRUCE group reader) → Privileges → Admin console privileges → Security → Alert Center → tick View access → Save. Test again in a few minutes (role changes take a little while).` };
     return { why: `Google answered: ${msg.replace(/\s+/g, ' ').slice(0, 200)}`, fix: 'docs/INSTALL.md, "User reports".' };
 }
 
@@ -2519,23 +2519,23 @@ class Service {
         if (!this._userReportsOn || this.now() - this._userReportsOn.at > 60000) this._userReportsOn = { at: this.now(), on: !!(await this.userReports()).on };
         return this._userReportsOn.on;
     }
-    async setUserReports(on, admin, by) {
+    // (0.6.62) Read as DIRECTORY_ADMIN (deploy/settings.env), the account the service already acts as for the directory.
+    readerOfAlerts() { return String(this.cfg.directoryAdmin || '').trim().toLowerCase(); }
+    async setUserReports(on, by) {
         const was = await this.userReports();
-        const a = String(admin || was.admin || '').trim().toLowerCase();
-        if (on && !/^[^\s@]+@[^\s@]+$/.test(a)) return { error: 'Type the address of the admin whose rights read the Alert Center.', status: 400 };
-        if (on && !this.cfg.orgDomains.includes(a.split('@')[1])) return { error: `${a} isn't in your organization's domains (${this.cfg.orgDomains.join(', ')}).`, status: 400 };
+        const a = this.readerOfAlerts();
+        if (on && !a) return { error: 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env: User reports reads the Alert Center as that account.', status: 400 };
         const now = this.now();
         // Turned on: reports from the last day are read too; turned on again later, from where it stopped.
-        const v = Object.assign({}, was, { on: !!on, admin: on ? a : was.admin || '', by, at: now, cursor: was.cursor || (on ? now - DAY : null) });
+        const v = Object.assign({}, was, { on: !!on, admin: a, by, at: now, cursor: was.cursor || (on ? now - DAY : null) });
         await this.store.setState('userReports', v);
         this._userReportsOn = null;
-        await this.adminNotice('settings', `${by} turned ${on ? `on User reports (Gmail's Report phishing reports read from the Alert Center as ${a}; they go to Review → Reported)` : 'off User reports'}.`);
+        await this.adminNotice('settings', `${by} turned ${on ? `on User reports (Gmail's Report phishing reports read from the Alert Center as ${a}, DIRECTORY_ADMIN; they go to Review → Reported)` : 'off User reports'}.`);
         return { userReports: v };
     }
-    async testUserReports(admin, by) {
-        const st = await this.userReports();
-        const a = String(admin || st.admin || '').trim().toLowerCase();
-        if (!/^[^\s@]+@[^\s@]+$/.test(a)) return { error: 'Type the admin\'s address first.', status: 400 };
+    async testUserReports(by) {
+        const a = this.readerOfAlerts();
+        if (!a) return { error: 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env: User reports reads the Alert Center as that account.', status: 400 };
         const now = this.now();
         let alerts;
         try { alerts = await this.gmail.alerts(a, { filter: `type="${USER_REPORT_TYPE}" AND createTime >= "${new Date(now - 7 * DAY).toISOString()}"`, max: 100 }); }
@@ -2551,12 +2551,13 @@ class Service {
     // The hourly run: the alerts since the last one read, oldest first, within budgetMs.
     async followUserReports({ budgetMs = 15000, max = 200 } = {}) {
         const st = await this.userReports();
-        if (!st.on || !st.admin) return null;
+        const reader = this.readerOfAlerts();
+        if (!st.on || !reader) return null;
         const started = Date.now(), now = this.now();
         const since = Math.max(Number(st.cursor) || now - DAY, now - 30 * DAY);
         let alerts, failed = null;
-        try { alerts = await this.gmail.alerts(st.admin, { filter: `type="${USER_REPORT_TYPE}" AND createTime >= "${new Date(since).toISOString()}"`, max }); }
-        catch (e) { const p = alertsProblem(e, st.admin); failed = `${p.why} ${p.fix}`; alerts = []; }
+        try { alerts = await this.gmail.alerts(reader, { filter: `type="${USER_REPORT_TYPE}" AND createTime >= "${new Date(since).toISOString()}"`, max }); }
+        catch (e) { const p = alertsProblem(e, reader); failed = `${p.why} ${p.fix}`; alerts = []; }
         const seen = new Set(st.seen || []);
         let cursor = since, done = 0, emails = 0;
         const found = { added: 0, marked: 0, notWatched: 0, notFound: 0, already: 0 };
@@ -2570,14 +2571,14 @@ class Service {
                     emails++;
                     if (found[r] !== undefined) found[r]++;
                 }
-            } catch (e) { const p = alertsProblem(e, st.admin); failed = `${p.why} ${p.fix}`; break; }
+            } catch (e) { const p = alertsProblem(e, reader); failed = `${p.why} ${p.fix}`; break; }
             seen.add(al.alertId); done++;
             cursor = Math.max(cursor, at);
         }
         const fresh = await this.userReports();
         await this.store.setState('userReports', Object.assign({}, fresh, { cursor, seen: [...seen].slice(-1000) }));
         await this.store.setState('userReportsHealth', { at: now, ok: !failed, error: failed, alerts: done, emails, found });
-        if (failed) await this.alertDaily('user-reports', `Gmail's Report phishing reports couldn't be read from the Alert Center (Settings → User reports, as ${st.admin}): ${failed}`);
+        if (failed) await this.alertDaily('user-reports', `Gmail's Report phishing reports couldn't be read from the Alert Center (Settings → User reports, as ${reader}, DIRECTORY_ADMIN): ${failed}`);
         const waiting = found.added + found.marked;
         if (waiting) await this.store.addEvent({ kind: 'user-report', text: `${waiting} email${waiting === 1 ? '' : 's'} reported as phishing by ${waiting === 1 ? 'its reader' : 'their readers'} in Gmail ${waiting === 1 ? 'is' : 'are'} waiting in Review → Reported.` });
         return { alerts: done, emails, found, error: failed };

@@ -621,11 +621,11 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const on = body.on === true;
             const bad = await projectCheck(admin, body, `User reports (turn ${on ? 'on' : 'off'})`);
             if (bad) return bad;
-            return service.setUserReports(on, body.admin, admin.email);
+            return service.setUserReports(on, admin.email);
         },
         'POST /api/user-reports/test': async (q, body, admin) => {
             if (!once(`user-reports-test|${admin.email}`, 10 * 1000)) return { error: 'Tested less than 10 seconds ago.', status: 429 };
-            return service.testUserReports(body.admin, admin.email);
+            return service.testUserReports(admin.email);
         },
         // Threats → Campaigns, Mail → Users and Mail → Messages (the newest 500 shown; the filters as the CSV's).
         'GET /api/campaigns': async (q) => { const { records } = await load(q); return { campaigns: A.campaigns(records, Date.now(), nDays(q)) }; },
