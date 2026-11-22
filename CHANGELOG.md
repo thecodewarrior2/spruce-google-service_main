@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.58: phish-tiny 0.26.0, with a spam answer
+
+- **The AI model is phish-tiny 0.26.0** (TinyPhishLLM `8798d1f`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.25.0),
+  the same input format 3 (the sync checked all 95 reference cases). It is the first model with **a spam answer of its
+  own** (the service has read it since 0.6.55: README.md, "The AI's spam answer"), so a business's bulk marketing is no
+  longer scored as phishing. Trained from 0.25.0, three runs averaged, also on published research collections of spam
+  (never published) and a district's de-identified examples (never published).
+- **What changes**, against 0.25.0 at the 65% line (held-out sets, never trained on; TinyPhishLLM's changelog): a
+  district's held-out phishing or spam missed 94 of 188 → 27; its held-out genuine mail called phishing 9 of 54 → 10
+  (and 4 called spam); research collections' spam called phishing 2,809 of 3,759 → 587, their genuine mail called
+  phishing 106 of 4,072 → 24 (105 called spam); published phishing missed 14 of 954 → 18; published genuine called
+  phishing or spam 6 of 834 → 8; every hand-written and regression case right.
+- **On this project's made-up test emails:** the padded sale 100% phishing → 0.1% phishing, 95% spam; the credit-card
+  offer 100% → 3% phishing, 97% spam; the IPTV offer from free mail 100% → 1% phishing, 99% spam; the store and bookshop
+  newsletters stay low on phishing and are now 98% spam (they stay Promotional, never moved on the spam answer alone in
+  Gmail's Promotions tab). The fake notices, payroll lures and the gift-card survey stay at 99% to 100%.
+- **Known weakness:** a first-time vendor asking to "update our bank details" for an invoice (the demo's "Quote for the
+  reading program", DMARC passing) is 13% (0.25.0: 92%), so the AI no longer flags it; the rules alone score it 3.5
+  (caution), below the line that records it. Spoofed and look-alike senders asking the same are still caught by the
+  sender checks. The demo no longer shows it in Review.
+- The checks level is raised to 48: after this update the service checks recent delivered mail again with the new model.
+  No installation change (installLevel stays the same).
+
 ## 0.6.57: a mailbox another watch of the same project holds is taken over
 
 - **"Only one user push notification client allowed per developer":** Gmail allows one watch per mailbox for each Google
