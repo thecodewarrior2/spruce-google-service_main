@@ -78,7 +78,7 @@
     const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     // (0.6.39) One wording for what happened to an email, and where it is, on every page.
     const ACTION = { move: ['Moved to the Spam folder', 'moved'], 'would-move': ['Would be moved', 'would'], flag: ['Suspicious (not moved)', 'flag'], promo: ['Promotional (not moved)', 'promo'] };
-    const STATE = { moved: ['In the Spam folder', 'moved'], released: ['Moved back to the Inbox', 'released'], inbox: ['In the Inbox', 'inbox'] };
+    const STATE = { moved: ['In the Spam folder', 'moved'], released: ['Moved back to the Inbox', 'released'], inbox: ['In the Inbox', 'inbox'], reported: ['Out of the Inbox: its reader reported it (Gmail)', 'moved'] };
     const stateOf = (m) => (m.state === 'released' && m.releasedByUser ? ['Moved back by its reader', 'released'] : STATE[m.state] || [m.state, '']);
     const pill = ([label, cls]) => h('span', { class: `pill ${cls}`, text: label });
     // (0.6.39) What happened to an email; a move made while the service was in enforce mode says so, so it doesn't seem
@@ -1030,6 +1030,7 @@
             (!isSpam || moves) && canSender ? spamSenderBox(m.spamKey ? `${m.spamKey}'s` : 'its sender\'s') : null,
             rescanButton(m, 'btn'));
         const verdictText = pasted ? 'Checked from a pasted copy: nothing was stored, moved or counted.'
+            : m.userReported && !m.markedBy ? `Its reader reported it as phishing with Gmail's Report phishing${m.userReported.at ? `, ${when(m.userReported.at)}` : ''}. No admin has answered it yet: answer it below (Review → Reported lists it).`
             : m.falseAlarm === true && m.releasedByUser && !m.markedBy ? 'Its reader moved it back to the Inbox, so it counts as safe for now. No admin has looked at it yet: answer it below.'
             : m.falseAlarm === true && m.autoAnswered ? (m.autoAnswered.kind === 'campaign' ? `Marked safe automatically: ${m.markedBy || 'an admin'} dismissed its campaign as a false alarm.` : `Marked safe automatically: ${m.markedBy || 'an admin'} marked an identical email safe (Settings → Sender lists → Remembered answers).`)
             : m.falseAlarm === true ? `Marked safe by ${m.markedBy || 'an admin'}.` : m.falseAlarm === false ? (m.spam ? `Answered Spam by ${m.markedBy || 'an admin'}.` : m.spam === false ? `Answered Phishing by ${m.markedBy || 'an admin'}.` : `Answered Phishing or spam by ${m.markedBy || 'an admin'} (before Spam was its own answer).`)
@@ -2016,9 +2017,11 @@
         moved: { label: 'Moved, or would be moved', short: 'Moved', what: 'moved, or would-be-moved, emails', order: 'oldest first' },
         suspicious: { label: 'Suspicious (not moved)', short: 'Suspicious', what: 'suspicious emails (not moved)', order: 'newest first' },
         // (0.6.52) Admins only: its answers change Spam senders and Promotional senders kept.
-        promotional: { label: 'Promotional (never moved; one answer per company)', short: 'Promotional', what: 'promotional emails', order: 'most emails first', admin: true }
+        promotional: { label: 'Promotional (never moved; one answer per company)', short: 'Promotional', what: 'promotional emails', order: 'most emails first', admin: true },
+        // (0.6.60) Settings → User reports: what readers reported with Gmail's own "Report phishing".
+        reported: { label: 'Reported by their readers (Gmail\'s Report phishing)', short: 'Reported', what: 'emails their readers reported as phishing', order: 'newest report first' }
     };
-    const queueOf = (params) => (['suspicious', 'promotional'].includes(params.get('queue')) ? params.get('queue') : 'moved');
+    const queueOf = (params) => (['suspicious', 'promotional', 'reported'].includes(params.get('queue')) ? params.get('queue') : 'moved');
     const shownQueues = () => Object.entries(QUEUES).filter(([, x]) => !x.admin || !isModerator());
     // (0.6.39) The four answers, worded the same everywhere (Review, Mail, an email's page, a campaign's box). When the
     // click moves mail (enforce mode), the button says where to.
@@ -2226,6 +2229,7 @@
             h('div', { class: 'review-tools' },
                 reviewTabs(queue, left),
                 h('span', { class: 'keys-hint' }, h('kbd', { text: 'P' }), ' phishing ', h('kbd', { text: 'S' }), ' spam ', h('kbd', { text: 'F' }), ' mark safe ', h('kbd', { text: 'I' }), ' not sure ', h('kbd', { text: 'N' }), ' skip ', h('kbd', { text: 'R' }), ' check again', ' (the open email)')),
+            queue === 'reported' ? h('p', { class: 'sub', text: 'Reported: someone clicked Gmail\'s own "Report phishing" on it (Settings → User reports). Gmail already moved it out of their Inbox, so no answer here moves it: Phishing or Spam confirms the report (and trains the AI); Mark safe records a false report and leaves the email where its reader put it (tell them if they need it back). The why says what the checks had made of it.' }) : null,
             queue === 'suspicious' ? h('p', { class: 'sub', text: 'Suspicious: the checks found signs (a rules score of 3 or more; from a sender Gmail confirmed, only when the AI agrees) or the AI scored it at least the suspicious line, but not enough to move it, so it is still in the Inbox. Marking them is the best way to see what the move rules miss, and what retraining needs (Health → Model health).' }) : null];
         if (!st.groups.length) {
             return [...head, h('div', { class: 'alert good', role: 'status' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '✓' }),
@@ -3482,6 +3486,55 @@
                     h('li', {}, 'Test, then Turn on (with the project ID). Changes are noted in Health → Activity → What admins did.')))];
     }
 
+    // (0.6.60) Settings → User reports (off by default): Gmail's own "Report phishing" reports, read from Google's Alert
+    // Center as an admin, go to Review → Reported.
+    async function userReportsPage() {
+        const d = await api('/api/user-reports');
+        const ur = d.userReports || {}, hl = d.health, t = d.test;
+        const admin = h('input', { type: 'email', autocomplete: 'off', spellcheck: 'false', value: ur.admin || d.directoryAdmin || '', placeholder: 'admin@your-district.org', 'aria-label': 'Admin account' });
+        const testOut = h('div', { class: 'small', role: 'status' });
+        const testBtn = h('button', { class: 'btn', type: 'button' }, 'Test');
+        testBtn.addEventListener('click', async () => {
+            testBtn.disabled = true; testOut.textContent = 'Reading the last 7 days of "User reported phishing" alerts…';
+            try {
+                const o = await api('/api/user-reports/test', { method: 'POST', body: { admin: admin.value } });
+                if (!o.ok && o.why) { testOut.textContent = ''; testOut.append(h('b', { class: 'bad-text', text: `${o.why} ` }), h('span', { text: o.fix || '' })); return; }
+                testOut.textContent = !o.ok ? `Google refused: ${o.error}` : o.alerts ? `Working: ${num(o.alerts)} "User reported phishing" alert${o.alerts === 1 ? '' : 's'} in the last 7 days, naming ${num(o.emails)} email${o.emails === 1 ? '' : 's'}.` : 'Working: Google answered, with no "User reported phishing" alerts in the last 7 days.';
+            } catch (e) { testOut.textContent = `Couldn't test: ${e.message}`; }
+            finally { testBtn.disabled = false; }
+        });
+        const f = (hl && hl.found) || {};
+        const status = !ur.on ? 'Off' : hl && !hl.ok ? `On, but the Alert Center couldn't be read (${when(hl.at)}): ${hl.error}` : hl ? `On: last read ${when(hl.at)}: ${num(hl.alerts)} new alert${hl.alerts === 1 ? '' : 's'}, ${num((f.added || 0) + (f.marked || 0))} email${(f.added || 0) + (f.marked || 0) === 1 ? '' : 's'} put in Review → Reported${f.notWatched ? ` (${num(f.notWatched)} in mailboxes the service doesn't check)` : ''}${f.notFound ? ` (${num(f.notFound)} no longer in the mailbox)` : ''}.` : 'On: read at the next hourly run.';
+        const sw = ur.on ? confirmForm('Turn off', '/api/user-reports', () => ({ on: false }), () => 'User reports is off: the Alert Center is no longer read.')
+            : confirmForm('Turn on', '/api/user-reports', () => ({ on: true, admin: admin.value }), () => 'User reports is on: reports are read every hour (the last day\'s too) into Review → Reported.', h('div', { class: 'small muted', text: 'The admin account above is the one whose rights read the Alert Center. Nothing is moved or changed there.' }));
+        const urState = !ur.on ? 'off' : hl && !hl.ok ? 'bad' : 'on';
+        return [serviceTitle('User reports', urState, SERVICE_WORDS[urState]),
+            h('p', { class: 'sub', text: 'When someone clicks Gmail\'s own "Report phishing" on an email, it goes to Review → Reported, so an admin sees what people report. Off by default.' }),
+            (ur.on && hl && !hl.ok) ? h('div', { class: 'alert critical', role: 'alert' }, alertIcon('Alert'), h('div', { class: 'grow' }, h('b', { text: 'User reports is on, but the Alert Center can\'t be read. ' }), hl.error)) : null,
+            h('section', { class: 'card optional-note' }, h('h2', { text: 'How it works' }),
+                h('ul', { class: 'benefits' },
+                    h('li', {}, h('b', { text: 'No new button. ' }), 'People use the "Report phishing" Gmail already has (the ⋮ menu of an open email). Gmail moves the email to their Spam folder and tells Google, as always.'),
+                    h('li', {}, h('b', { text: 'Every report, reviewed. ' }), 'Google raises a "User reported phishing" alert in its Alert Center. Every hour the service reads the new ones and puts each reported email of a mailbox it checks in Review → Reported, with what the checks made of it (an email the checks had let through is read and checked again, and recorded).'),
+                    h('li', {}, h('b', { text: 'Your answer counts as usual. ' }), 'Phishing or Spam confirms it and trains the AI; Mark safe records a false report. Nothing is moved by a report or its answer: Gmail already moved it.')),
+                h('div', { class: 'small muted', text: 'The Alert Center can take a few minutes to raise an alert, and the service reads it at the next hourly run. Only the reported emails\' Message-IDs and recipients are read from the alerts.' })),
+            h('section', { class: 'card spaced' }, h('h2', { text: 'Status' }), h('dl', { class: 'kv' },
+                kvRow('User reports', status),
+                kvRow('Read as', ur.admin || 'not set'),
+                t ? kvRow('Last test', t.ok ? `${when(t.at)} by ${t.by}: ${num(t.alerts)} alerts in 7 days, ${num(t.emails)} emails.` : `${when(t.at)} by ${t.by}: refused (${t.error}).`) : null,
+                ur.by ? kvRow('Changed', `${ur.on ? 'Turned on' : 'Turned off'} by ${ur.by}, ${when(ur.at)}.`) : null),
+                h('div', { class: 'policy-form sb-form' },
+                    h('label', { class: 'project' }, h('span', { text: 'Admin account (Alert Center access)' }), admin),
+                    h('div', { class: 'actions' }, testBtn), testOut,
+                    d.demoProjectId ? h('div', { class: 'small muted', text: `Demo mode: the project ID is ${d.demoProjectId}; nothing is read from Google.` }) : null),
+                h('div', { class: 'actions' }, sw)),
+            h('section', { class: 'card spaced' }, h('h2', { text: 'What it needs' }),
+                h('ol', { class: 'steps' },
+                    h('li', {}, h('b', { text: 'The Alert Center API turned on in the service\'s project: ' }), 'deploy/install.sh does it (version 0.6.60 or later). Settings → Update can\'t, so run install.sh once from Cloud Shell.'),
+                    h('li', {}, h('b', { text: 'One more scope on the service\'s domain-wide delegation: ' }), h('code', { text: 'https://www.googleapis.com/auth/apps.alerts' }), '. Admin console → Security → Access and data control → API controls → Manage Domain Wide Delegation → the service\'s client ID → Edit: add it to the line, then Authorize.'),
+                    h('li', {}, h('b', { text: 'An admin account that can see the Alert Center ' }), '(a super admin can), typed above: the service reads the alerts with its rights, and changes nothing there.'),
+                    h('li', {}, 'Test, then Turn on (with the project ID). Changes are noted in Health → Activity → What admins did.')))];
+    }
+
     // --- Help (0.5.46) -------------------------------------------------------------------------------------
     // The installed version's own docs (the server reads them from the image: /api/help), and About & credits.
     async function helpDocPage(id) {
@@ -3534,7 +3587,7 @@
 
     // --- Routing ---------------------------------------------------------------------------------
     const PERIOD_PAGES = new Set(['overview', 'review', 'campaigns', 'users', 'messages', 'rechecked', 'health', 'readiness', 'status', 'trainingexport']);
-    const ROUTES = { dmarc: dmarcPage, trainingexport: trainingPage, overview, review, campaigns, users, messages, message, check, rechecked, lookalikes, health, readiness, activity, status, settings, allowlist, mailboxes, summary, retraining, safebrowsing: safeBrowsingPage, spamhaus: spamhausPage, abusech: abusechPage, clicks: clicksPage, phishtraining: phishTrainingPage, update: updatePage, about,
+    const ROUTES = { dmarc: dmarcPage, trainingexport: trainingPage, overview, review, campaigns, users, messages, message, check, rechecked, lookalikes, health, readiness, activity, status, settings, allowlist, mailboxes, summary, retraining, safebrowsing: safeBrowsingPage, spamhaus: spamhausPage, abusech: abusechPage, clicks: clicksPage, userreports: userReportsPage, phishtraining: phishTrainingPage, update: updatePage, about,
         // Help (0.5.46)
         help: () => helpDocPage('howitworks'), helpdashboard: () => helpDocPage('dashboard'), helpalerts: () => helpDocPage('alerts'), helpprivacy: () => helpDocPage('privacy'),
         helpworkspace: () => helpDocPage('workspace'), helpinstall: () => helpDocPage('install'), helpsettings: () => helpDocPage('settings'), helpcosts: () => helpDocPage('costs'),
@@ -3549,7 +3602,7 @@
         health: { label: 'Health', groups: [[null, [['status', 'Service status'], ['readiness', 'Ready for enforce mode?'], ['health', 'Model health'], ['dmarc', 'DMARC & reputation'], ['trainingexport', 'Retraining examples'], ['activity', 'Activity']]]] },
         settings: { label: 'Settings', groups: [['Protection', [['settings', 'Policy'], ['allowlist', 'Sender lists']]],
             ['Threat feeds', [['safebrowsing', 'Safe Browsing'], ['spamhaus', 'Spamhaus'], ['abusech', 'abuse.ch']]],
-            ['Organization', [['mailboxes', 'Mailboxes'], ['summary', 'Weekly summary'], ['clicks', 'Link clicks'], ['phishtraining', 'Phishing training']]],
+            ['Organization', [['mailboxes', 'Mailboxes'], ['summary', 'Weekly summary'], ['clicks', 'Link clicks'], ['userreports', 'User reports'], ['phishtraining', 'Phishing training']]],
             ['System', [['retraining', 'Retraining'], ['update', 'Update'], ['about', 'About']]]] },
         help: { label: 'Help', groups: [[null, [['help', 'How it works'], ['helpdashboard', 'The dashboard'], ['helpalerts', 'Alerts'], ['helpprivacy', 'Your privacy'], ['helpworkspace', 'Google Workspace settings'],
             ['helpinstall', 'Install & troubleshooting'], ['helpsettings', 'Settings reference'], ['helpcosts', 'Costs'], ['helparchitecture', 'Architecture deep dive'], ['credits', 'About & credits']]]] }

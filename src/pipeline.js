@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { readMessage } = require('./engine/mime');
 const { analyze, aiReading, senderVerified, sameOrgDomain, platformNotification, shareSource } = require('./engine/analyze');
 const { MASS_SHARE } = require('./engine/notifications');
-const { decide, isAllowed, STRICT_KINDS } = require('./policy');
+const { decide, isAllowed, suspiciousWhy, STRICT_KINDS } = require('./policy');
 const { GoogleApiError } = require('./gmail/client');
 const { compareHistoryIds, movesForward } = require('./store/history');
 const { buildDigest, mime, isSummary, localParts } = require('./digest');
@@ -169,6 +169,21 @@ function reportsProblem(e, admin) {
     return { why: `Google answered: ${msg.replace(/\s+/g, ' ').slice(0, 200)}`, fix: 'docs/INSTALL.md, "Link clicks".' };
 }
 
+// (0.6.60) What Google refusing its Alert Center means, and what to do (Settings → User reports): { why, fix }.
+function alertsProblem(e, admin) {
+    const msg = String((e && e.message) || e || '');
+    if (/token for .*(unauthorized_client|access_denied|invalid_grant)|domain-wide delegation set up/i.test(msg)) return {
+        why: 'Google didn\'t give the service access to its Alert Center: the scope apps.alerts isn\'t on its domain-wide delegation entry (or the account doesn\'t exist).',
+        fix: 'Admin console → Security → Access and data control → API controls → Manage Domain Wide Delegation → the service\'s client ID → Edit: add https://www.googleapis.com/auth/apps.alerts to the line, then Authorize. Test again in a few minutes.' };
+    if (/SERVICE_DISABLED|has not been used in project|is disabled/i.test(msg)) return {
+        why: 'The Alert Center API isn\'t turned on in the service\'s Google Cloud project.',
+        fix: 'Run deploy/install.sh again (Settings → Update can\'t: it turns on alertcenter.googleapis.com), or in Cloud Shell: gcloud services enable alertcenter.googleapis.com. Test again in a few minutes.' };
+    if (/HTTP 40[13]\b|permission|not authorized/i.test(msg)) return {
+        why: `${admin} isn't allowed to read the Alert Center.`,
+        fix: `Type a super admin's address, or give the role ${admin} has the Alert Center privilege (Admin console → Account → Admin roles → its role → Privileges → Security → Alert Center: view access). Test again in a few minutes.` };
+    return { why: `Google answered: ${msg.replace(/\s+/g, ' ').slice(0, 200)}`, fix: 'docs/INSTALL.md, "User reports".' };
+}
+
 // The new entries of the lists' downloads, taken out of feeds.sync's answer (they don't go into the
 // hourly job's response or the dashboard's): [{ name, kind, entries }].
 function takeAdded(out) {
@@ -214,6 +229,8 @@ const STRICT_WORDS = { 'dmarc-fail': 'DMARC failing', 'dmarc-missing': 'no DMARC
 const MAX_ALLOWED = 500;
 // (0.6.59) Spam learning: the longest run, and how sure the AI's spam answer must be (outside promotional mail).
 const SPAM_LEARN_MAX_DAYS = 30, SPAM_LEARN_SURE = 0.99;
+// (0.6.60) The Alert Center's alert type for Gmail's "Report phishing" (source "Gmail phishing", data MailPhishing).
+const USER_REPORT_TYPE = 'User reported phishing';
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 // A list as kept: lower case, no repeats, sorted (from a list, or text with one entry per line or
 // separated by commas or semicolons: an entry with a space in it is reported whole).
@@ -2093,6 +2110,11 @@ class Service {
             const budget = Math.min(15 * 1000, 90 * 1000 - (Date.now() - started));
             if (budget > 0) { const c = await this.followClicks({ budgetMs: budget }); if (c) out.clicks = c; }
         } catch (e) { this.log.error('link clicks:', e); }
+        // (0.6.60) Gmail's "Report phishing" reports (Settings → User reports): into Review → Reported.
+        try {
+            const budget = Math.min(15 * 1000, 92 * 1000 - (Date.now() - started));
+            if (budget > 0) { const u = await this.followUserReports({ budgetMs: budget }); if (u) out.userReports = u; }
+        } catch (e) { this.log.error('user reports:', e); }
         // The look-alike watch (0.5.36): the next candidates.
         try {
             const budget = Math.min(12 * 1000, 95 * 1000 - (Date.now() - started));
@@ -2481,6 +2503,114 @@ class Service {
         const t = { at: now, by, admin: a, ok: true, events: evs.length, named };
         await this.store.setState('clickLogsTest', t);
         return t;
+    }
+
+    // --- User reports (0.6.60; Settings → User reports; off by default) -----------------------------------------------
+    // When someone clicks Gmail's own "Report phishing", Google moves the email to their Spam folder and raises a "User
+    // reported phishing" alert in its Alert Center, naming each email's recipient and Message-ID. Turned on (with the admin
+    // whose rights read the Alert Center), each hourly run reads the new alerts and puts every reported email of a watched
+    // mailbox in Review → Reported: its record (or, for an email the checks had let through, a new one: the email read and
+    // checked again) gets userReported. Nothing is moved by a report (Gmail already moved it), and an admin's answer is
+    // recorded as usual (Mark safe leaves it where its reader put it). State userReports: { on, admin, by, at, cursor (the
+    // last alert's time), seen (the last alerts read) }; userReportsHealth, userReportsTest.
+    async userReports() { return Object.assign({ on: false, admin: '' }, await this.store.getState('userReports')); }
+    async setUserReports(on, admin, by) {
+        const was = await this.userReports();
+        const a = String(admin || was.admin || '').trim().toLowerCase();
+        if (on && !/^[^\s@]+@[^\s@]+$/.test(a)) return { error: 'Type the address of the admin whose rights read the Alert Center.', status: 400 };
+        if (on && !this.cfg.orgDomains.includes(a.split('@')[1])) return { error: `${a} isn't in your organization's domains (${this.cfg.orgDomains.join(', ')}).`, status: 400 };
+        const now = this.now();
+        // Turned on: reports from the last day are read too; turned on again later, from where it stopped.
+        const v = Object.assign({}, was, { on: !!on, admin: on ? a : was.admin || '', by, at: now, cursor: was.cursor || (on ? now - DAY : null) });
+        await this.store.setState('userReports', v);
+        await this.adminNotice('settings', `${by} turned ${on ? `on User reports (Gmail's Report phishing reports read from the Alert Center as ${a}; they go to Review → Reported)` : 'off User reports'}.`);
+        return { userReports: v };
+    }
+    async testUserReports(admin, by) {
+        const st = await this.userReports();
+        const a = String(admin || st.admin || '').trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+$/.test(a)) return { error: 'Type the admin\'s address first.', status: 400 };
+        const now = this.now();
+        let alerts;
+        try { alerts = await this.gmail.alerts(a, { filter: `type="${USER_REPORT_TYPE}" AND createTime >= "${new Date(now - 7 * DAY).toISOString()}"`, max: 100 }); }
+        catch (e) {
+            const p = alertsProblem(e, a), error = `${p.why} ${p.fix}`;
+            await this.store.setState('userReportsTest', { at: now, by, admin: a, ok: false, error, why: p.why, fix: p.fix });
+            return { ok: false, error, why: p.why, fix: p.fix };
+        }
+        const t = { at: now, by, admin: a, ok: true, alerts: alerts.length, emails: alerts.reduce((n, x) => n + (((x.data || {}).messages || []).length), 0) };
+        await this.store.setState('userReportsTest', t);
+        return t;
+    }
+    // The hourly run: the alerts since the last one read, oldest first, within budgetMs.
+    async followUserReports({ budgetMs = 15000, max = 200 } = {}) {
+        const st = await this.userReports();
+        if (!st.on || !st.admin) return null;
+        const started = Date.now(), now = this.now();
+        const since = Math.max(Number(st.cursor) || now - DAY, now - 30 * DAY);
+        let alerts, failed = null;
+        try { alerts = await this.gmail.alerts(st.admin, { filter: `type="${USER_REPORT_TYPE}" AND createTime >= "${new Date(since).toISOString()}"`, max }); }
+        catch (e) { const p = alertsProblem(e, st.admin); failed = `${p.why} ${p.fix}`; alerts = []; }
+        const seen = new Set(st.seen || []);
+        let cursor = since, done = 0, emails = 0;
+        const found = { added: 0, marked: 0, notWatched: 0, notFound: 0, already: 0 };
+        for (const al of alerts) {
+            if (Date.now() - started > budgetMs) break;
+            const at = Date.parse(al.createTime) || now;
+            if (al.deleted || seen.has(al.alertId)) { cursor = Math.max(cursor, at); continue; }
+            try {
+                for (const m of ((al.data && al.data.messages) || []).slice(0, 50)) {
+                    const r = await this.reportedEmail(String(m.recipient || '').toLowerCase(), String(m.messageId || ''), { at, alertId: al.alertId });
+                    emails++;
+                    if (found[r] !== undefined) found[r]++;
+                }
+            } catch (e) { const p = alertsProblem(e, st.admin); failed = `${p.why} ${p.fix}`; break; }
+            seen.add(al.alertId); done++;
+            cursor = Math.max(cursor, at);
+        }
+        const fresh = await this.userReports();
+        await this.store.setState('userReports', Object.assign({}, fresh, { cursor, seen: [...seen].slice(-1000) }));
+        await this.store.setState('userReportsHealth', { at: now, ok: !failed, error: failed, alerts: done, emails, found });
+        if (failed) await this.alertDaily('user-reports', `Gmail's Report phishing reports couldn't be read from the Alert Center (Settings → User reports, as ${st.admin}): ${failed}`);
+        const waiting = found.added + found.marked;
+        if (waiting) await this.store.addEvent({ kind: 'user-report', text: `${waiting} email${waiting === 1 ? '' : 's'} reported as phishing by ${waiting === 1 ? 'its reader' : 'their readers'} in Gmail ${waiting === 1 ? 'is' : 'are'} waiting in Review → Reported.` });
+        return { alerts: done, emails, found, error: failed };
+    }
+    // One reported email: found in its reader's mailbox by its Message-ID (Spam and Trash included), its record marked
+    // userReported (or recorded now). 'added', 'marked', 'already', 'notWatched' or 'notFound'.
+    async reportedEmail(user, rfcId, report) {
+        const mid = String(rfcId || '').trim().replace(/^<|>$/g, '');
+        if (!user || !mid || !this.cfg.orgDomains.includes(user.split('@')[1] || '')) return 'notWatched';
+        const u = await this.store.getUser(user);
+        if (!u || !u.watched) return 'notWatched';   // only the mailboxes the service checks
+        const ids = (await this.gmail.search(user, `rfc822msgid:${mid}`, { max: 5, includeSpamTrash: true })).ids || [];
+        if (!ids.length) return 'notFound';
+        const id = ids[0], key = recordKey(user, id), now = this.now();
+        const userReported = { at: report.at || now, alertId: report.alertId || null };
+        const before = await this.store.getRecord(key);
+        if (before) {
+            if (before.userReported) return 'already';
+            await this.store.updateRecord(key, { userReported });
+            return 'marked';
+        }
+        // Let through on arrival (nothing was recorded): read and checked again, and recorded for review.
+        const msg = await this.gmail.raw(user, id);
+        if (!msg || !msg.raw || !msg.raw.length) return 'notFound';
+        const labels = msg.labelIds || [];
+        const where = labels.includes('INBOX') ? 'inbox' : labels.includes('SPAM') ? 'spam' : labels.includes('TRASH') ? 'trash' : 'archived';
+        const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
+        const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
+        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel,
+            colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet() });
+        const senderDomain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
+        const campaign = campaignOf(senderDomain, facts.subject, user);
+        const campaignLabel = this.cfg.storeSubjects ? campaign.label : senderDomain;
+        const decision = { action: 'flag', trigger: null, why: `its reader reported it as phishing in Gmail (Report phishing); ${result.status === 'clean' && !(result.ai && result.ai.probability >= (this.cfg.aiSuspicious || 0.65)) ? 'the checks had found nothing' : `the checks: ${suspiciousWhy(result, this.cfg)}`}` };
+        const rec = this.recordOf(user, msg, facts, result, decision, { now, campaign, campaignLabel, senderDomain, held: null, state: where === 'inbox' ? 'inbox' : 'reported', labeled: false });
+        rec.userReported = userReported;
+        rec.arrival = { at: rec.receivedAt, action: 'none' };
+        await this.store.saveRecord(rec);
+        return 'added';
     }
 
     // --- The look-alike watch (0.5.36) ------------------------------------------------------------------

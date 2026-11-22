@@ -88,6 +88,12 @@ own log events (Admin SDK Reports API, as the admin typed there) of its recipien
 arrived: opened (first time) and link clicked. Only the events naming that email are used; its record keeps
 whether and when it was first opened and a link clicked, nothing else from the logs.
 
+With **Settings → User reports** on (off by default; 0.6.60), the service reads Google's Alert Center (as the admin
+typed there) for "User reported phishing" alerts: of each reported email, only its recipient and Message-ID are used,
+to find it in that person's mailbox (watched mailboxes only). Its record is marked "reported by its reader" with the
+time; an email the checks had let through is read and checked again, as a re-check would, and recorded like any
+flagged email (no body kept). Nothing in the Alert Center is changed.
+
 It also keeps, shared by every instance:
 - **phishing-training rules** (0.5.44, Settings → Phishing training): each rule's name, header and the vendor's
   sending addresses; its secret value only as a one-way hash (never shown again); the training link domains; who
@@ -246,7 +252,7 @@ deployment keeps it as narrow as Google allows:
 - no key file exists (IAM signs for the service account, and only the Cloud Run identity may ask);
 - two scopes are required (`gmail.modify` and `admin.directory.group.member.readonly`); each optional feature
   adds one read-only scope: `admin.directory.user.readonly` for the colleague-name check and the whole domain,
-  `admin.reports.audit.readonly` for Link clicks (docs/INSTALL.md);
+  `admin.reports.audit.readonly` for Link clicks and `apps.alerts` for User reports (docs/INSTALL.md);
 - only the pilot group's (or unit's) mailboxes are watched, or, when an admin switches Settings → Mailboxes to
   the whole domain (0.5.53), every active mailbox of `ORG_DOMAINS`.
 

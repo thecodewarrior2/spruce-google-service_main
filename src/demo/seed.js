@@ -199,6 +199,9 @@ async function buildDemo({ now = Date.now(), cfg }) {
     // listed its site, and the re-check moved every copy still in an Inbox. Some had been opened, one link
     // clicked (Gmail's logs, Settings → Link clicks on); one copy its reader had archived.
     await seedRechecked({ store, staff, intel, raws, cfg, now, r });
+    // (0.6.60) Reported by their readers with Gmail's Report phishing (Settings → User reports): the pay-statement lure the
+    // AI scored low (made by seedRechecked), reported by two of the people who got it; waiting in Review → Reported.
+    for (const x of (await store.listRecords({ sinceMs: 0 })).filter(x => /paystub-viewer/.test(x.sender.domain) && !x.markedBy).slice(0, 2)) await store.updateRecord(x.key, { userReported: { at: x.processedAt + 40 * 60 * 1000, alertId: `demo-${x.messageId}` } });
     // The look-alike watch (0.5.36): four made-up look-alikes found, one new (the payroll lure's domain).
     const H = 3600e3, lv = require('../lookalike').variantsOf(require('../engine/spruce').load(), [ORG]);
     await store.setState('lookalikeWatch', { cursor: 240, candidates: lv.length, passes: 9, baselineDone: true, passStartedAt: now - 3 * H, lastPassAt: now - 27 * H, found: {

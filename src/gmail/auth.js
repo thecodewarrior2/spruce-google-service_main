@@ -11,7 +11,9 @@ const SCOPES = {
     directory: 'https://www.googleapis.com/auth/admin.directory.user.readonly',
     groupMembers: 'https://www.googleapis.com/auth/admin.directory.group.member.readonly',
     // Gmail's logs (Admin SDK Reports API), only when Settings → Link clicks is turned on (0.5.35).
-    reports: 'https://www.googleapis.com/auth/admin.reports.audit.readonly'
+    reports: 'https://www.googleapis.com/auth/admin.reports.audit.readonly',
+    // Google's Alert Center, only when Settings → User reports is turned on (0.6.60): Gmail's "Report phishing" reports.
+    alerts: 'https://www.googleapis.com/auth/apps.alerts'
 };
 
 class DelegatedAuth {

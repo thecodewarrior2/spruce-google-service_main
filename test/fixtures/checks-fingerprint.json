@@ -1,5 +1,5 @@
 {
   "checksLevel": 49,
   "fingerprint": "091312e85b244a61540b096658e7a3067ba14e074b0266091a0f970d29c0ec9b",
-  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
+  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.60: Gmail's Report phishing reports read from the Alert Center into Review → Reported; no verdict changes"
 }

@@ -113,6 +113,26 @@ email and whether it had been opened.
 Logs can take a few hours to show a click: each re-checked email is looked at again every 3 hours, 4 times.
 A click found is an alert (docs/ALERTS.md, "A link was clicked").
 
+### User reports (optional, off by default)
+
+When someone clicks Gmail's own **Report phishing** on an email, Gmail moves it to their Spam folder and Google's Alert
+Center raises a "User reported phishing" alert. Turned on (0.6.60), the service reads those alerts every hour and puts
+each reported email of a mailbox it checks in **Review → Reported**, so an admin sees and answers what people report.
+No new button for anyone; nothing is moved by a report or its answer.
+
+1. The Alert Center API must be on in the service's project: `deploy/install.sh` (0.6.60 or later) turns it on.
+   Settings → Update can't: run install.sh once from Cloud Shell (the update says so: its installation level is higher).
+2. Add this scope to the service's domain-wide delegation line (**Security → API controls → Manage Domain Wide
+   Delegation**, edit the service's entry):
+
+   ```
+   https://www.googleapis.com/auth/apps.alerts
+   ```
+
+3. On the dashboard, **Settings → User reports**: type an admin account that can see the Alert Center (a super admin
+   can; the service only reads with it), **Test**, then **Turn on** with the project ID. The first run also reads the
+   last day's reports.
+
 ### Spamhaus and abuse.ch (optional, off by default)
 
 Two more free services can add to the checks once the service runs; neither is needed (0.5.37). Each is

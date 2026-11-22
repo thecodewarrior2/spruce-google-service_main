@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.60: Gmail's own "Report phishing" reaches Review (Settings → User reports)
+
+- **User reports** (Settings → User reports), **off by default**: when someone clicks Gmail's own **Report phishing**,
+  Gmail moves the email to their Spam folder and Google's Alert Center raises a "User reported phishing" alert. Turned
+  on (with an admin account that can see the Alert Center, Test, and the project ID), every hourly run reads the new
+  alerts and puts each reported email of a watched mailbox in the new **Review → Reported** tab: its record is marked
+  "reported by its reader", or, for an email the checks had let through, the email is read, checked again and recorded.
+  Listed there whatever the checks made of it, even from a Trusted sender; the count joins the browser tab's title.
+  Phishing or Spam confirms the report and trains the AI; Mark safe records a false report. Nothing is moved by a report
+  or its answer: Gmail already moved it. An email's page says when its reader reported it.
+- Only each reported email's recipient and Message-ID are read from the alerts; nothing in the Alert Center is changed.
+  Google refusing (the scope, the API, the admin's rights) is said on the page with the fix, and alerted at most once a
+  day (docs/ALERTS.md, "User reports couldn't be read").
+- **Installation:** one more scope on the service's domain-wide delegation, `https://www.googleapis.com/auth/apps.alerts`
+  (only for User reports), and `deploy/install.sh` now turns on the Alert Center API (`alertcenter.googleapis.com`), so
+  installLevel is raised to 8: Settings → Update can't install this version; run install.sh from Cloud Shell
+  (docs/INSTALL.md, "User reports").
+- Nothing judges email differently (the checks level stays 49).
+
 ## 0.6.59: Mark safe, Straight to Spam, Spam learning; greetings don't split a remembered answer
 
 - **"Not phishing" is now "Mark safe"** (not phishing or spam) on every button, answer and list ("Marked safe by …",

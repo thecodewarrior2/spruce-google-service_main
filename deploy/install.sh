@@ -105,7 +105,7 @@ step "1/9 APIs and the budget alert"
 gcloud services enable gmail.googleapis.com admin.googleapis.com pubsub.googleapis.com run.googleapis.com \
     firestore.googleapis.com iamcredentials.googleapis.com cloudscheduler.googleapis.com iap.googleapis.com \
     cloudbuild.googleapis.com artifactregistry.googleapis.com billingbudgets.googleapis.com monitoring.googleapis.com \
-    secretmanager.googleapis.com safebrowsing.googleapis.com --quiet
+    secretmanager.googleapis.com safebrowsing.googleapis.com alertcenter.googleapis.com --quiet
 
 # A budget alert: Google emails the billing account's admins as soon as this project is charged at all
 # (1% of the amount), and again at half and all of it. It warns; it doesn't stop the service.

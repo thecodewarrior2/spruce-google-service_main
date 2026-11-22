@@ -20,10 +20,10 @@
 //     Mail                     GET messages, message, users, export.csv; POST check, message/context
 //     Health                   GET status, readiness, health, dmarc, reputation, activity, activity.csv;
 //                              POST training-export
-//     Settings                 GET settings, mailboxes, scope-preview, clicks, phish-training, digest/preview,
+//     Settings                 GET settings, mailboxes, scope-preview, clicks, user-reports, phish-training, digest/preview,
 //                              update; POST policy, renew-watches (runs the Cloud Scheduler job: src/scheduler.js),
 //                              lists/recheck, keys/save, keys/remove, safe-browsing/key, safe-browsing/remove,
-//                              clicks, clicks/test, phish-training/rule, …/rule/edit, …/rule/remove,
+//                              clicks, clicks/test, user-reports, user-reports/test, phish-training/rule, …/rule/edit, …/rule/remove,
 //                              phish-training/domains, digest, digest/send, update, update/check,
 //                              training-export/allow
 //     Every page, Help         GET session, help
@@ -84,6 +84,8 @@ const MAILBOXES_KEPT_MS = 60 * 1000;
 // beyond the subject (which can be turned off: STORE_SUBJECTS); an email's own page reads the whole record.
 const brief = (r) => ({ key: r.key, user: r.user, processedAt: r.processedAt, sender: r.sender, subject: r.subject, campaign: r.campaign,
     status: r.status, score: r.score, ai: r.ai ? Math.round((r.ai.probability || 0) * 1000) / 1000 : null, aiSpam: r.ai && typeof r.ai.spam === 'number' ? Math.round(r.ai.spam * 1000) / 1000 : null, action: r.action, trigger: r.trigger, state: r.state, mode: r.mode || null, movedAt: r.movedAt || null, spam: !!r.spam, releasedByUser: !!r.releasedByUser, falseAlarm: r.falseAlarm, unclear: !!r.unclear,
+    // (0.6.60) reported by its reader with Gmail's Report phishing (Settings → User reports)
+    userReported: r.userReported ? { at: r.userReported.at || null } : undefined,
     // found after delivery (0.5.35): the Messages list marks it
     recheck: r.recheck ? { at: r.recheck.at, outcome: r.recheck.outcome, opened: !!(r.recheck.opened || (r.recheck.clicks && r.recheck.clicks.opened)), clicked: !!(r.recheck.clicks && r.recheck.clicks.clicked) } : null });
 
@@ -112,7 +114,10 @@ const POLICY_WHAT = { mode: 'the mode', aiThreshold: 'the AI move threshold', ai
 const expectedProject = (cfg) => cfg.project || (cfg.demo ? DEMO_PROJECT : '');
 
 // Recorded emails nobody has reviewed yet (the review queue): moved or "would move", not by an admin.
-const unreviewed = (r) => (r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin' && !r.markedBy;
+const unreviewed = (r) => (r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin' && !r.markedBy && !r.userReported;
+// (0.6.60) Review → Reported: emails their readers reported with Gmail's "Report phishing" (Settings → User reports) that
+// nobody answered yet, whatever the checks had made of them (they are listed only here).
+const reportedUnreviewed = (r) => !!r.userReported && !r.markedBy;
 // (0.6.39) The moved tab: unreviewed moved copies, plus the suspicious copies of the same emails (one email, one tab).
 function movedTab(records) {
     const moved = records.filter(unreviewed);
@@ -120,17 +125,18 @@ function movedTab(records) {
     return moved.concat(records.filter(r => suspiciousUnreviewed(r) && r.campaign && campaigns.has(r.campaign)));
 }
 // Review's other queue: suspicious emails (below what moves) still in the Inbox, nobody has reviewed.
-const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' && !r.markedBy && !rulesOnlyVerified(r, liveCfg || {});
+const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' && !r.markedBy && !r.userReported && !rulesOnlyVerified(r, liveCfg || {});
 // (0.6.52) Review's third queue: promotional emails (never moved; pipeline.js promotionalOf) still in the Inbox that nobody
 // answered and whose company nobody kept, one item per company (aggregate.js promoGroups).
-const promoUnreviewed = (r) => r.action === 'promo' && r.state === 'inbox' && !r.markedBy && !r.promoKept;
+const promoUnreviewed = (r) => r.action === 'promo' && r.state === 'inbox' && !r.markedBy && !r.promoKept && !r.userReported;
 // (0.6.40) The settings the suspicious queue reads (records from before 0.6.40 judged by today's rule): set at start.
 let liveCfg = null;
 // What Review lists: the recent records, without the emails of senders on a Sender list (pipeline.js senderListTest).
 async function reviewRecords(service, cache, sinceMs) {
     const records = await cache.list(sinceMs);
     const listed = await service.senderListTest().catch(() => () => null);
-    return records.filter(r => !listed(r));
+    // (0.6.60) A reader's report stays listed even from a sender on a list: a trusted sender's account can be taken over.
+    return records.filter(r => r.userReported || !listed(r));
 }
 // A review queue as items: the copies of one campaign together (in the queue's order, where its first copy
 // is), each with its keys, recipients and senders (at most 2000 of each), and what the list shows of it
@@ -608,6 +614,19 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (!once(`clicks-test|${admin.email}`, 10 * 1000)) return { error: 'Tested less than 10 seconds ago.', status: 429 };
             return service.testClickLogs(body.admin, admin.email);
         },
+        // (0.6.60) Settings → User reports (off by default): Gmail's "Report phishing" reports, read from the Alert Center.
+        'GET /api/user-reports': async () => ({ userReports: await service.userReports(), health: await store.getState('userReportsHealth'), test: await store.getState('userReportsTest'),
+            projectKnown: !!expectedProject(cfg), demoProjectId: cfg.demo ? DEMO_PROJECT : null, directoryAdmin: cfg.directoryAdmin || '' }),
+        'POST /api/user-reports': async (q, body, admin) => {
+            const on = body.on === true;
+            const bad = await projectCheck(admin, body, `User reports (turn ${on ? 'on' : 'off'})`);
+            if (bad) return bad;
+            return service.setUserReports(on, body.admin, admin.email);
+        },
+        'POST /api/user-reports/test': async (q, body, admin) => {
+            if (!once(`user-reports-test|${admin.email}`, 10 * 1000)) return { error: 'Tested less than 10 seconds ago.', status: 429 };
+            return service.testUserReports(body.admin, admin.email);
+        },
         // Threats → Campaigns, Mail → Users and Mail → Messages (the newest 500 shown; the filters as the CSV's).
         'GET /api/campaigns': async (q) => { const { records } = await load(q); return { campaigns: A.campaigns(records, Date.now(), nDays(q)) }; },
         'GET /api/users': async (q) => { const { records } = await load(q); return { users: A.users(records, Date.now(), nDays(q)) }; },
@@ -887,7 +906,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // its keys, who received it and who sent it. An email of no campaign is an item of its own.
         'GET /api/review': async (q) => {
             const records = await reviewRecords(service, cache, since(q));
-            const queue = ['suspicious', 'promotional'].includes(q.get('queue')) ? q.get('queue') : 'moved';
+            const queue = ['suspicious', 'promotional', 'reported'].includes(q.get('queue')) ? q.get('queue') : 'moved';
             // (0.6.39) One email in one tab: its copies can be judged differently (a first-time sender for one person
             // only), some "would move", some only suspicious. An email with any copy in the moved tab is only there,
             // with its suspicious copies too, so one answer covers every copy; the suspicious tab holds the rest.
@@ -896,9 +915,11 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const suspAll = records.filter(suspiciousUnreviewed);
             const suspOnly = suspAll.filter(r => !r.campaign || !movedCampaigns.has(r.campaign));
             const promo = records.filter(promoUnreviewed);
-            const counts = { moved: movedList.length + (suspAll.length - suspOnly.length), suspicious: suspOnly.length, promotional: promo.length };
+            const reported = records.filter(reportedUnreviewed);
+            const counts = { moved: movedList.length + (suspAll.length - suspOnly.length), suspicious: suspOnly.length, promotional: promo.length, reported: reported.length };
             if (queue === 'promotional') return { queue, total: promo.length, companies: A.promoGroups(promo).slice(0, 1000), mode: cfg.mode, counts };
-            const list = queue === 'suspicious' ? suspOnly.sort((a, b) => b.processedAt - a.processedAt)
+            const list = queue === 'reported' ? reported.sort((a, b) => (b.userReported.at || 0) - (a.userReported.at || 0))
+                : queue === 'suspicious' ? suspOnly.sort((a, b) => b.processedAt - a.processedAt)
                 : movedList.concat(suspAll.filter(r => r.campaign && movedCampaigns.has(r.campaign))).sort((a, b) => a.processedAt - b.processedAt);
             return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode, counts };
         },
@@ -927,8 +948,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const suspicious = records.filter(r => suspiciousUnreviewed(r) && !movedKeys.has(r.key)).length;
             const suspiciousAll = all.filter(r => suspiciousUnreviewed(r) && !movedAllKeys.has(r.key)).length;
             const olderMoved = Math.max(0, movedAll.length - inMoved.length);
-            return { brake, held, rescues, days: n, unreviewed: inMoved.length, suspicious, promotional: records.filter(promoUnreviewed).length, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
-                total: (brake ? 1 : 0) + held + rescues };
+            const reported = records.filter(reportedUnreviewed).length;
+            return { brake, held, rescues, days: n, unreviewed: inMoved.length, suspicious, promotional: records.filter(promoUnreviewed).length, reported, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
+                total: (brake ? 1 : 0) + held + rescues + reported };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).
         // (0.6.7) Shared by every open dashboard for a minute: each look asks Cloud Run, Cloud Scheduler and the lists.
@@ -1156,7 +1178,10 @@ async function main() {
             // the made-up emails themselves, for Re-scan, Show the email and the retraining export
             raw: async (u, id) => { const b = raws.get(id); if (!b) throw Object.assign(new Error('not found'), { status: 404 }); return { id, threadId: `t-${id}`, labelIds: ['INBOX'], historyId: null, internalDate: Date.now(), raw: b }; },
             // Settings → Link clicks's Test: a made-up day of an admin's Gmail log (0.5.35)
-            gmailEvents: async () => require('./demo/seed').demoLogEvents(Date.now()) };
+            gmailEvents: async () => require('./demo/seed').demoLogEvents(Date.now()),
+            // Settings → User reports's Test: one made-up "User reported phishing" alert (0.6.60)
+            alerts: async () => [{ alertId: 'demo-alert-1', createTime: new Date(Date.now() - 3 * 3600e3).toISOString(), type: 'User reported phishing', source: 'Gmail phishing',
+                data: { '@type': 'type.googleapis.com/google.apps.alertcenter.type.MailPhishing', messages: [{ recipient: `reader@${require('./demo/seed').ORG}`, messageId: 'demo-1@paystub-viewer.example' }] } }] };
         console.log('DEMO mode: made-up data, no Google access.');
     } else {
         const { DelegatedAuth } = require('./gmail/auth');

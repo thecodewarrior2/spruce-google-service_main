@@ -9,6 +9,7 @@ const CALL_TIMEOUT_MS = 20000;
 const DIRECTORY = 'https://admin.googleapis.com/admin/directory/v1/users';
 const GROUPS = 'https://admin.googleapis.com/admin/directory/v1/groups';
 const REPORTS = 'https://admin.googleapis.com/admin/reports/v1/activity/users';
+const ALERTS = 'https://alertcenter.googleapis.com/v1beta1/alerts';
 const MAX_LISTED = 4000;   // messages listed from a mailbox's history at a time (the rest, next time)
 
 class GoogleApiError extends Error {
@@ -76,8 +77,9 @@ class GmailClient {
         return r.labelIds || [];
     }
     // Message ids matching a Gmail search (q), a page at a time: { ids, next }.
-    async search(user, q, { max = 100, pageToken = null } = {}) {
-        const r = await this.call(user, 'GET', '/messages', { query: Object.assign({ q, maxResults: String(max) }, pageToken ? { pageToken } : {}) });
+    // (0.6.60) includeSpamTrash: Spam and Trash too (Gmail's search leaves them out otherwise).
+    async search(user, q, { max = 100, pageToken = null, includeSpamTrash = false } = {}) {
+        const r = await this.call(user, 'GET', '/messages', { query: Object.assign({ q, maxResults: String(max) }, pageToken ? { pageToken } : {}, includeSpamTrash ? { includeSpamTrash: 'true' } : {}) });
         return { ids: (r.messages || []).map(m => m.id), next: r.nextPageToken || null };
     }
     // From, Subject, Message-ID and labels of a message, without its body.
@@ -189,6 +191,19 @@ class GmailClient {
             const r = await this.call(admin, 'GET', `/${encodeURIComponent(mailbox)}/applications/gmail`, { scope: SCOPES.reports, base: REPORTS,
                 query: Object.assign({ eventName: 'delivery', startTime: new Date(start).toISOString(), endTime: new Date(Number(endTime)).toISOString(), maxResults: '1000' }, filters ? { filters } : {}, pageToken ? { pageToken } : {}) });
             out.push(...(r.items || []));
+            pageToken = r.nextPageToken;
+        } while (pageToken && out.length < max);
+        return out.slice(0, max);
+    }
+    // (0.6.60) Google's Alert Center alerts (acting as a Workspace admin with the apps.alerts scope; Settings → User
+    // reports): filter such as type="User reported phishing" AND createTime >= "…", oldest first. At most max.
+    async alerts(admin, { filter = '', max = 200 } = {}) {
+        const out = [];
+        let pageToken;
+        do {
+            const r = await this.call(admin, 'GET', '', { scope: SCOPES.alerts, base: ALERTS,
+                query: Object.assign({ pageSize: '100', orderBy: 'createTime asc' }, filter ? { filter } : {}, pageToken ? { pageToken } : {}) });
+            out.push(...(r.alerts || []));
             pageToken = r.nextPageToken;
         } while (pageToken && out.length < max);
         return out.slice(0, max);

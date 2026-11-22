@@ -247,7 +247,7 @@ test('dashboard: Review\'s suspicious queue (not moved, still in the Inbox, unre
         const sus = await get('/api/review?days=90&queue=suspicious');
         assert.equal(moved.queue, 'moved'); assert.equal(sus.queue, 'suspicious');
         assert.ok(sus.total > 0, 'the demo has suspicious emails');
-        assert.deepEqual(sus.counts, { moved: moved.total, suspicious: sus.total, promotional: sus.counts.promotional }); assert.deepEqual(moved.counts, sus.counts);
+        assert.deepEqual(sus.counts, { moved: moved.total, suspicious: sus.total, promotional: sus.counts.promotional, reported: sus.counts.reported }); assert.deepEqual(moved.counts, sus.counts);
         assert.ok(sus.counts.promotional > 0, '(0.6.52) the promotional queue\'s count too (the demo\'s two store newsletters)');
         assert.equal(sus.mode, 'monitor');
         const msgs = [];
