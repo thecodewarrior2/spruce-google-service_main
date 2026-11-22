@@ -301,6 +301,15 @@ async function analyze(facts, ctx = {}) {
         platformNote: relay ? true : undefined,
         confirmedBy,
         strong: verdict.status === 'flagged' && confirmedBy.length > 0,
+        // (0.6.59) For Settings → Policy → Straight to Spam (policy.js strictWhy): Gmail's DMARC result for the sender
+        // ('fail'; 'missing' when Gmail checked the email but confirmed no DMARC policy; null when it passed or Gmail's
+        // check isn't there), a forged message ID, and what lists the sender or a link is on.
+        strictSigns: {
+            dmarc: !facts.auth ? null : facts.auth.dmarc === 'fail' ? 'fail' : facts.auth.dmarc === 'pass' ? null : 'missing',
+            forgedId: signals.some(s => s.kind === 'forged-message-id'),
+            listed: [judged.some(j => j.network && j.severity === 'danger') ? 'a link is blocked or on a phishing list' : '',
+                     net.signals.some(s => s.kind === 'scam-sender-list' || s.kind === 'sender-domain-blocked' || s.kind === 'sender-domain-listed') ? 'the sender is on a list or blocked' : ''].filter(Boolean)
+        },
         // (0.6.19) Spam, not phishing: moved to Spam by the policy (trigger 'spam') when nothing else is wrong.
         spam: spam || undefined,
         ai,

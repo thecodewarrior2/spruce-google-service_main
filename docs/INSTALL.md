@@ -278,7 +278,7 @@ When it finishes, it prints the **dashboard address**.
   Removed members stop being watched.
 - **Monitor for two to three weeks.**
   - Open the *Would be moved* emails: **Review**.
-  - Use **Not phishing**, **Phishing** or **Spam** (keys **F**, **P** and **S**); **Undo** in the message after each answer takes it back.
+  - Use **Mark safe**, **Phishing** or **Spam** (keys **F**, **P** and **S**); **Undo** in the message after each answer takes it back.
   - Optional (off by default): **Settings → Policy → Suspicious label** puts the Gmail label
     `SPRUCE/Suspicious` on those emails, so their readers see them, in monitor mode too; nothing is moved by it.
   - **Threats → Re-checked** lists mail found to be phishing after it was delivered (a list added its site

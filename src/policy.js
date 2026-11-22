@@ -87,6 +87,27 @@ function aiSpamOf(result, cfg) {
     return { why: `the AI was ${Math.min(99, Math.round(q * 100))}% sure it is spam (bulk marketing; moved from ${Math.round(cfg.aiThreshold * 100)}%), Gmail couldn't confirm the sender (DMARC), and nothing else is suspicious`, ai: true };
 }
 
+// (0.6.59) Settings → Policy → Straight to Spam (cfg.strictSpam, off by default: none chosen): an email from outside the
+// organization with any chosen sign is moved to Spam without waiting for review, whatever the other checks find:
+//   'dmarc-fail'    Gmail's DMARC check failed (the From address is forged, or the sender's mail is misconfigured);
+//   'dmarc-missing' Gmail checked the email but no DMARC policy confirmed the sender (many small businesses have none);
+//   'forged-id'     the message ID claims a mail program that nothing else in the email shows (shared.js forged-message-id);
+//   'listed'        a link is blocked or on a phishing list, or the sender is on a list or blocked.
+// Never for Trusted senders Gmail confirmed (they aren't moved), nor for mail from inside (your domains, DMARC passing),
+// which only the rules move. Monitor mode, the brake and a campaign's hold apply as to any move. The why, or null.
+const STRICT_KINDS = ['dmarc-fail', 'dmarc-missing', 'forged-id', 'listed'];
+function strictWhy(result, cfg) {
+    const on = Array.isArray(cfg.strictSpam) ? cfg.strictSpam : [];
+    const s = result && result.strictSigns;
+    if (!on.length || !s || result.inside || result.status === 'trusted') return null;
+    const why = [];
+    if (on.includes('dmarc-fail') && s.dmarc === 'fail') why.push('Gmail\'s DMARC check failed');
+    if (on.includes('dmarc-missing') && s.dmarc === 'missing') why.push('no DMARC policy confirmed the sender');
+    if (on.includes('forged-id') && s.forgedId) why.push('its message ID is forged');
+    if (on.includes('listed')) why.push(...(s.listed || []));
+    return why.length ? why.join(', and ') : null;
+}
+
 // The action for an analyzed email ({ action, trigger, why, braked }); state.brake: the domain-wide brake is on.
 function decide(result, cfg, state = {}) {
     if (result.status === 'trusted') return { action: 'none', trigger: null, why: 'the sender is on Trusted senders (Settings → Sender lists)' };
@@ -104,6 +125,14 @@ function decide(result, cfg, state = {}) {
     // (0.6.55) Or the AI's spam answer for an unverified sender (aiSpamOf), by the same rules.
     const spamWhy = result.spam || aiSpamOf(result, cfg);
     const spamMove = !ruleMove && !aiMove && cfg.moveOnRules && !!spamWhy && !result.inside;
+    // (0.6.59) Straight to Spam (strictWhy): moved by the policy's own choice, counted with the rules (trigger 'rules').
+    const strict = !ruleMove && !aiMove && !spamMove ? strictWhy(result, cfg) : null;
+    if (strict) {
+        const why = noted(`straight to Spam (Settings → Policy → Straight to Spam): ${strict}`);
+        if (cfg.mode !== 'enforce') return { action: 'would-move', trigger: 'rules', strict: true, why: `${why} (monitor mode: nothing is moved)` };
+        if (state.brake) return { action: 'would-move', trigger: 'rules', strict: true, why: `${why} (not moved: the brake is on)`, braked: true };
+        return { action: 'move', trigger: 'rules', strict: true, why };
+    }
     if (!ruleMove && !aiMove && !spamMove) {
         const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : AI_SUSPICIOUS;
         const byRules = (result.status === 'caution' && !rulesOnlyVerified(result, cfg)) || result.status === 'flagged';
@@ -120,4 +149,4 @@ function decide(result, cfg, state = {}) {
     return { action: 'move', trigger, why };
 }
 
-module.exports = { decide, isAllowed, suspiciousWhy, rulesOnlyVerified, aiSpamOf, AI_SUSPICIOUS };
+module.exports = { decide, isAllowed, suspiciousWhy, rulesOnlyVerified, aiSpamOf, strictWhy, STRICT_KINDS, AI_SUSPICIOUS };

@@ -445,7 +445,7 @@
         { key: 'by:rules+ai', trig: 'rules+ai', name: 'Rules + AI', color: '--s1' },
         { key: 'by:ai', trig: 'ai', name: 'AI score only', color: '--s2' },
         { key: 'by:rules', trig: 'rules', name: 'Rules only', color: '--s3' },
-        { key: 'by:admin', trig: 'admin', name: 'Confirmed by an admin', color: '--s4' },
+        { key: 'by:admin', trig: 'admin', name: 'Copies of a campaign an admin marked Phishing', color: '--s4' },
         { key: 'by:spam', trig: 'spam', name: 'Spam (padded list mail)', color: '--s5' }
     ];
     const CHECKED_SERIES = { key: 'scanned', name: 'Emails checked', color: '--total' };
@@ -577,8 +577,8 @@
         try { ({ campaign: c } = await api(`/api/campaign?${q({ key })}`)); } catch (e) { return null; }
         const enforce = currentMode === 'enforce';
         const status = c.decision === 'confirmed' ? `Marked Phishing by ${c.decidedBy}: every copy is ${enforce ? 'moved to the Spam folder' : 'marked'}, and later copies too.`
-            : c.decision === 'released' ? `Marked Not phishing by ${c.decidedBy}: its copies went back to the Inbox, and later copies aren't moved.`
-            : c.held ? `Moving is paused: ${num(c.held)} copies were left in the Inbox, because more than ${num(c.holdAfter)} were moved on weaker evidence (only the email itself looked bad). Mark it Phishing or Not phishing.`
+            : c.decision === 'released' ? `Marked safe by ${c.decidedBy}: its copies went back to the Inbox, and later copies aren't moved.`
+            : c.held ? `Moving is paused: ${num(c.held)} copies were left in the Inbox, because more than ${num(c.holdAfter)} were moved on weaker evidence (only the email itself looked bad). Mark it Phishing or Mark safe.`
             : `${num(c.copies)} copies: ${num(c.moved)} in the Spam folder, ${num(c.recorded)} in the Inbox, ${num(c.released)} moved back.`;
         const search = h('input', { type: 'checkbox', checked: true });
         const found = (f) => (f ? `; ${num(f.found)} more found in ${num(f.searched)} of ${num(f.of)} mailboxes${f.moved ? `, ${num(f.moved)} moved` : ''}` : '');
@@ -594,10 +594,10 @@
         });
         const decide = (action) => run('Answering every copy…', async () => {
             const back = action === 'false-alarm';
-            if (!window.confirm(back ? `Mark every copy of "${c.label}" Not phishing?${enforce ? ' Copies in the Spam folder go back to the Inbox,' : ''} and later copies aren't moved.`
+            if (!window.confirm(back ? `Mark every copy of "${c.label}" safe (not phishing or spam)?${enforce ? ' Copies in the Spam folder go back to the Inbox,' : ''} and later copies aren't moved.`
                 : `Mark every copy of "${c.label}" Phishing?${enforce ? ' Every copy is moved to the Spam folder,' : ''} and later copies are treated the same${search.checked ? '. Every watched mailbox is also searched for copies not recorded' : ''}.`)) return;
             const o = await api(back ? '/api/campaign/release' : '/api/campaign/confirm', { method: 'POST', body: back ? { key } : { key, search: search.checked } });
-            toast(back ? `Marked Not phishing: every copy${o.released ? `, ${num(o.released)} moved back to the Inbox` : ''}.`
+            toast(back ? `Marked safe: every copy${o.released ? `, ${num(o.released)} moved back to the Inbox` : ''}.`
                 : `Marked Phishing: every copy${o.moved && !o.moved.monitor && o.moved.moved ? `, ${num(o.moved.moved)} moved to the Spam folder` : ''}${found(o.found)}.`);
             render();
         });
@@ -1030,9 +1030,9 @@
             (!isSpam || moves) && canSender ? spamSenderBox(m.spamKey ? `${m.spamKey}'s` : 'its sender\'s') : null,
             rescanButton(m, 'btn'));
         const verdictText = pasted ? 'Checked from a pasted copy: nothing was stored, moved or counted.'
-            : m.falseAlarm === true && m.releasedByUser && !m.markedBy ? 'Its reader moved it back to the Inbox, so it counts as Not phishing for now. No admin has looked at it yet: answer it below.'
-            : m.falseAlarm === true && m.autoAnswered ? (m.autoAnswered.kind === 'campaign' ? `Answered Not phishing automatically: ${m.markedBy || 'an admin'} dismissed its campaign as a false alarm.` : `Answered Not phishing automatically: ${m.markedBy || 'an admin'} answered an identical email Not phishing (Settings → Sender lists → Remembered answers).`)
-            : m.falseAlarm === true ? `Answered Not phishing by ${m.markedBy || 'an admin'}.` : m.falseAlarm === false ? (m.spam ? `Answered Spam by ${m.markedBy || 'an admin'}.` : m.spam === false ? `Answered Phishing by ${m.markedBy || 'an admin'}.` : `Answered Phishing or spam by ${m.markedBy || 'an admin'} (before Spam was its own answer).`)
+            : m.falseAlarm === true && m.releasedByUser && !m.markedBy ? 'Its reader moved it back to the Inbox, so it counts as safe for now. No admin has looked at it yet: answer it below.'
+            : m.falseAlarm === true && m.autoAnswered ? (m.autoAnswered.kind === 'campaign' ? `Marked safe automatically: ${m.markedBy || 'an admin'} dismissed its campaign as a false alarm.` : `Marked safe automatically: ${m.markedBy || 'an admin'} marked an identical email safe (Settings → Sender lists → Remembered answers).`)
+            : m.falseAlarm === true ? `Marked safe by ${m.markedBy || 'an admin'}.` : m.falseAlarm === false ? (m.spam ? `Answered Spam by ${m.markedBy || 'an admin'}.` : m.spam === false ? `Answered Phishing by ${m.markedBy || 'an admin'}.` : `Answered Phishing or spam by ${m.markedBy || 'an admin'} (before Spam was its own answer).`)
             : m.unclear && m.markedBy ? `Answered Not sure by ${m.markedBy}: left as it is, and not used to train the AI.` : 'Not answered yet.';
         return [quiet ? null : h('button', { class: 'linkbtn back', type: 'button', onclick: back }, '← Back'),
             h(quiet ? 'h2' : 'h1', { class: quiet ? 'pasted-title' : null, text: m.subject || (pasted ? '(no subject)' : '(subject not stored)') }),
@@ -1060,7 +1060,7 @@
                     h('section', { class: 'card' }, h('h2', { text: 'What the AI thought' }), aiNotTheCause(m), aiOpinion(m, ai, opts)),
                     h('section', { class: 'card' }, h('h2', { text: 'Details' }), h('dl', { class: 'kv' },
                         h('dt', { text: 'Sender check' }), h('dd', { text: m.auth ? `DMARC ${m.auth.dmarc || '–'}${m.auth.derived ? ` (worked out from ${m.auth.derived}: Gmail wrote no DMARC result)` : ''}, SPF ${m.auth.spf || '–'}, DKIM ${m.auth.dkim || '–'}` : 'not recorded' }),
-                        h('dt', { text: 'What moved it' }), h('dd', { text: m.trigger ? ({ rules: 'Rules', ai: 'AI score', 'rules+ai': 'Rules and AI', admin: 'An admin\'s search for a campaign' })[m.trigger] || m.trigger : m.state === 'moved' && m.heldMovedBy ? `none: ${m.heldMovedBy} confirmed it as phishing` : 'none' }),
+                        h('dt', { text: 'What moved it' }), h('dd', { text: m.trigger ? ({ rules: 'Rules', ai: 'AI score', 'rules+ai': 'Rules and AI', admin: 'An admin marked its campaign Phishing, and the search for its copies found it' })[m.trigger] || m.trigger : m.state === 'moved' && m.heldMovedBy ? `none: ${m.heldMovedBy} confirmed it as phishing` : 'none' }),
                         h('dt', { text: 'Mode when it arrived' }), h('dd', { text: m.mode === 'enforce' ? 'Enforce (moves mail)' : m.mode === 'monitor' ? 'Monitor (moves nothing)' : (m.mode || '–') }),
                         h('dt', { text: 'Looked up' }), h('dd', { text: m.checks ? [m.checks.cloudflare ? `Cloudflare: ${m.checks.cloudflare} site${m.checks.cloudflare === 1 ? '' : 's'}` : '', m.checks.safeBrowsing ? `Safe Browsing: ${m.checks.safeBrowsing} link${m.checks.safeBrowsing === 1 ? '' : 's'}` : '', m.checks.lists ? 'phishing lists' : '', m.checks.ages ? `site age: ${m.checks.ages}` : '', m.checks.notChecked ? `${m.checks.notChecked} not checked` : ''].filter(Boolean).join(' · ') || 'nothing to look up' : 'offline checks only' }),
                         h('dt', { text: 'Attachments' }), h('dd', { text: m.attachments && m.attachments.length ? m.attachments.map(a => a.name || a.type).join(', ') : 'none' }),
@@ -1339,12 +1339,12 @@
         let list = [];
         try { list = (await api('/api/remembered')).list || []; } catch (e) { return null; }
         const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Remembered answers' }),
-            h('p', { class: 'sub', text: 'Emails answered Not phishing in Review, an email\'s page or Mail: their identical copies are answered the same way. Each is kept as a one-way hash of the email, with its sender and subject line for this list.' }));
+            h('p', { class: 'sub', text: 'Emails marked safe (not phishing or spam) in Review, an email\'s page or Mail: their identical copies are marked safe too. "Was" shows what the service had taken the email for. Each is kept as a one-way hash of the email, with its sender and subject line for this list.' }));
         const draw = (rows) => {
             card.querySelectorAll('table, p.empty').forEach(t => t.remove());
             if (!rows.length) { card.append(h('p', { class: 'empty', text: 'No answer remembered yet.' })); return; }
-            card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Sender', 'Subject', 'Answered by', 'Copies since', 'Until', ''].map(t => h('th', { text: t })))),
-                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.sender }), h('td', { class: 'trunc', text: r.label || '–' }), h('td', { text: r.by || '' }),
+            card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Sender', 'Subject', 'Was', 'Marked safe by', 'Copies since', 'Until', ''].map(t => h('th', { text: t })))),
+                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.sender }), h('td', { class: 'trunc', text: r.label || '–' }), h('td', {}, h('span', { class: `kind-tag ${/^Phishing/.test(r.was || '') ? 'needs' : ''}`, text: r.was || 'not recorded' })), h('td', { text: r.by || '' }),
                     h('td', { 'data-sort': String(r.hits || 0), text: `${num(r.hits || 0)}${r.last && r.hits ? ` (last ${dayOf(r.last)})` : ''}` }), h('td', { 'data-sort': String(r.until || 0), text: dayOf(r.until) }),
                     h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
                         e.target.disabled = true;
@@ -1390,7 +1390,7 @@
             e.target.disabled = true;
             try {
                 const out = await api('/api/allow-watch', { method: 'POST', body: { domain: r.domain, release, projectId: idBox ? idBox.value.trim() : '' } });
-                toast(`${r.domain} stays on its list${r.suspended ? ' and is no longer suspended' : ''}${release ? `: ${num(out.answered)} email${out.answered === 1 ? '' : 's'} marked Not phishing, ${num(out.released)} moved back to the Inbox` : ''}.`);
+                toast(`${r.domain} stays on its list${r.suspended ? ' and is no longer suspended' : ''}${release ? `: ${num(out.answered)} email${out.answered === 1 ? '' : 's'} marked safe, ${num(out.released)} moved back to the Inbox` : ''}.`);
                 render();
             } catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); e.target.disabled = false; }
         };
@@ -1404,7 +1404,7 @@
                 isModerator() ? null : h('div', { class: 'review-actions' },
                     idBox ? h('label', { class: 'project inline' }, h('span', { text: 'Project ID, to confirm' }), idBox) : null,
                     h('button', { class: 'btn', type: 'button', onclick: answer(r, false, idBox) }, 'Keep it on the list'),
-                    r.emails ? h('button', { class: 'btn', type: 'button', onclick: answer(r, true, idBox) }, `Keep it, and mark its ${num(r.emails)} email${r.emails === 1 ? '' : 's'} Not phishing`) : null,
+                    r.emails ? h('button', { class: 'btn', type: 'button', onclick: answer(r, true, idBox) }, `Keep it, and mark its ${num(r.emails)} email${r.emails === 1 ? '' : 's'} safe`) : null,
                     h('span', { class: 'small muted', text: ' Not wanted any more? Remove it from its list below.' }))));
         }
         return card;
@@ -1417,7 +1417,7 @@
         link: ['Link site allowed', 'link', 'Not a sender: a phishing list\'s listing of the whole domain doesn\'t flag links to it (the other link checks still apply).'],
         kept: ['Not moved for some people', 'kept', 'People took its spam back out of Spam: not moved as spam for them (for anyone once 3 did).'],
         promo: ['Promotional, kept', 'promo-kept', 'An admin answered Keep in Review → Promotional: its promotional mail isn\'t listed there again. It is still checked as usual, and moved if it is phishing or spam.'],
-        remembered: ['Answered Not phishing', 'remembered', 'An identical email (the same sender, subject, text, links and attachments) was answered Not phishing: its later copies to anyone are answered the same way and left alone, for 90 days, when Gmail confirms the sender (DMARC) and nothing outside the email says otherwise. Only a hash of the email is kept.'],
+        remembered: ['Marked safe', 'remembered', 'An identical email (the same sender, subject, text, links and attachments) was marked safe (not phishing or spam): its later copies to anyone are answered the same way and left alone, for 90 days, when Gmail confirms the sender (DMARC) and nothing outside the email says otherwise. Only a hash of the email is kept.'],
         company: ['A company\'s own domain', 'company', 'Its mail under the company\'s name isn\'t counted as an imitation, and links between it and the company\'s other domains aren\'t counted as disguised; every other check still applies.']
     };
     const listHead = (k) => h('div', { class: 'list-head' }, h('span', { class: `list-label ${LIST_LABELS[k][1]}`, text: LIST_LABELS[k][0] }), h('span', { class: 'small muted', text: LIST_LABELS[k][2] }));
@@ -1461,6 +1461,44 @@
         draw(d);
         return card;
     }
+    // (0.6.59) Spam learning: for the days an admin chooses, promotional mail and mail the AI is sure is spam, from senders Gmail
+    // confirms, go to Spam and the senders to Spam senders; someone taking its mail back out of Spam trusts a sender again.
+    async function spamLearningCard() {
+        let info = null;
+        try { info = (await api('/api/spam-learning')).info; } catch (e) { return null; }
+        const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Spam learning' }),
+            h('p', { class: 'sub', text: 'For the days you choose, promotional mail (Gmail\'s Promotions tab, a one-click unsubscribe, the AI\'s spam answer) and mail the AI is at least 99% sure is spam, from senders Gmail confirms (DMARC) outside your organization, go to Spam, and each sender is added to Spam senders ("by Spam learning"), so its later mail goes there too. A sender stays trusted only when someone takes its mail back out of Spam: for that person at once, for everyone once 3 people did. Never mail from inside, Trusted senders, or a platform\'s notification. Monitor mode: recorded as "would move", nothing moved.' }));
+        const body = h('div');
+        card.append(body);
+        const draw = (i) => {
+            body.textContent = '';
+            const status = !i || !i.startedAt ? 'Never run.'
+                : i.active ? `Running: started ${dayOf(i.startedAt)} by ${i.by}, ends ${dayOf(i.endsAt)} (${num(i.days)} day${i.days === 1 ? '' : 's'}). ${num(i.learned)} sender${i.learned === 1 ? '' : 's'} learned so far.`
+                : `Last ran ${dayOf(i.startedAt)} to ${dayOf(i.endedAt)}${i.stoppedBy ? ` (stopped early by ${i.stoppedBy})` : ''}, started by ${i.by}: ${num(i.learned)} sender${i.learned === 1 ? '' : 's'} learned.`;
+            body.append(h('p', {}, h('span', { class: `pol-pill ${i && i.active ? 'on' : 'off'}`, text: i && i.active ? 'On' : 'Off' }), ' ', status));
+            if (isModerator()) return;
+            if (i && i.active) {
+                body.append(h('button', { class: 'btn', type: 'button', onclick: async (e) => {
+                    e.target.disabled = true;
+                    try { const out = await api('/api/spam-learning', { method: 'POST', body: { stop: true } }); toast('Spam learning stopped. The senders it learned stay on Spam senders.'); draw(out.info); }
+                    catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); e.target.disabled = false; } } }, 'Stop now'));
+                return;
+            }
+            const days = h('input', { type: 'number', min: 1, max: (i && i.maxDays) || 30, step: 1, value: '7', class: 'num-input', 'aria-label': 'Days to run' });
+            const agree = h('input', { type: 'checkbox' });
+            const start = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Start');
+            agree.addEventListener('change', () => { start.disabled = !agree.checked; });
+            start.addEventListener('click', async () => {
+                start.disabled = true;
+                try { const out = await api('/api/spam-learning', { method: 'POST', body: { days: Number(days.value), agree: agree.checked } }); toast(`Spam learning runs until ${dayOf(out.info.endsAt)}.`); draw(out.info); }
+                catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); start.disabled = false; }
+            });
+            body.append(h('div', { class: 'inline-form' }, h('label', { class: 'inline' }, h('span', { text: 'Run for ' }), days, h('span', { text: ` days (1 to ${(i && i.maxDays) || 30})` }))),
+                h('label', { class: 'choice' }, agree, h('span', { text: 'I agree: promotional mail, including newsletters people signed up for, will be moved to Spam until they take it back out.' })), start);
+        };
+        draw(info);
+        return card;
+    }
     async function spamSendersCard() {
         let list = [];
         try { list = (await api('/api/spam-senders')).list || []; } catch (e) { return null; }
@@ -1471,7 +1509,7 @@
             const at = card.querySelector('.spam-add');
             const tbl = rows.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Sender', 'Added', 'By', ''].map(t => h('th', { text: t })))),
                 h('tbody', {}, rows.map(r => h('tr', {}, h('td', {}, h('span', { class: 'list-label spam small-label', text: 'Always to Spam' }), ' ', h('b', { text: r.key })),
-                    h('td', { 'data-sort': String(r.at || 0), text: `${dayOf(r.at)}${r.from === 'review' ? ', from a Spam answer' : ''}` }), h('td', { text: r.by || '–' }),
+                    h('td', { 'data-sort': String(r.at || 0), text: `${dayOf(r.at)}${r.from === 'review' ? ', from a Spam answer' : r.from === 'learning' ? ', by Spam learning' : ''}` }), h('td', { text: r.by || '–' }),
                     h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
                         e.target.disabled = true;
                         try { const out = await api('/api/spam-senders', { method: 'POST', body: { key: r.key, remove: true } }); toast(`${r.key} is checked as usual again.`); draw(out.list || []); }
@@ -1581,6 +1619,7 @@
         const linkBusy = pageBusy; pageBusy = () => linkPrev() || linkBusy();
         for (const [card, k] of [[trusted, 'trusted'], [links, 'link']]) { const h2 = card.querySelector('h2'); if (h2) h2.after(listHead(k)); }
         const spam = await spamSendersCard();
+        const learning = await spamLearningCard();
         const companies = await companyDomainsCard();
         const tools = [[trusted, 'Trusted senders'], [spam, 'Spam senders'], [brand, 'Brand senders'], [companies, 'Company domains'], [links, 'Link sites'], [kept, 'Spam people took back'], [remembered, 'Remembered answers'], [promoKept, 'Promotional senders kept']]
             .map(([c, n]) => listTools(c, n)).filter(Boolean);
@@ -1600,6 +1639,7 @@
             await allowReviewCard(),
             trusted,
             spam,
+            learning,
             brand,
             companies,
             links,
@@ -1985,7 +2025,7 @@
     const ANSWER = {
         phishing: { label: 'Phishing', moved: 'Phishing: move to the Spam folder', cls: 'phish', help: 'A scam or an attack: it tries to trick the reader.' },
         spam: { label: 'Spam', moved: 'Spam: move to the Spam folder', cls: '', help: 'Unwanted bulk mail (ads, newsletters nobody asked for, political mail): annoying, not dangerous.' },
-        'false-alarm': { label: 'Not phishing', moved: 'Not phishing: move back to the Inbox', cls: 'safe', help: 'A genuine email: nothing wrong with it.' },
+        'false-alarm': { label: 'Mark safe', moved: 'Mark safe: move back to the Inbox', cls: 'safe', help: 'Not phishing or spam: a genuine email, nothing wrong with it.' },
         unclear: { label: 'Not sure', moved: 'Not sure', cls: '', help: 'You can\'t tell: it is left as it is, and not used to train the AI.' }
     };
     const answerLabel = (action, moves) => (moves ? ANSWER[action].moved : ANSWER[action].label);
@@ -2182,10 +2222,10 @@
             h('div', {}, h('h1', { text: 'Review' }),
                 h('p', { class: 'sub' }, st.groups.length ? [`${num(emails(st))} ${Q.what} in `, h('b', { text: `${num(st.groups.length)} item${st.groups.length === 1 ? '' : 's'}` }), `, last ${days} days, ${Q.order}. One answer covers every copy of an email. Open one to weigh the evidence.`] : `Every email in this tab from the last ${days} days has an answer.`)),
             // (0.6.39) What an answer moves, said once above the list (the quick buttons are short).
-            h('span', { class: 'mode-note', text: st.mode !== 'enforce' ? 'Monitor mode: answers move nothing' : 'Enforce mode: Phishing and Spam move emails to the Spam folder; Not phishing moves them back to the Inbox. Each answer can be undone.' })),
+            h('span', { class: 'mode-note', text: st.mode !== 'enforce' ? 'Monitor mode: answers move nothing' : 'Enforce mode: Phishing and Spam move emails to the Spam folder; Mark safe moves them back to the Inbox. Each answer can be undone.' })),
             h('div', { class: 'review-tools' },
                 reviewTabs(queue, left),
-                h('span', { class: 'keys-hint' }, h('kbd', { text: 'P' }), ' phishing ', h('kbd', { text: 'S' }), ' spam ', h('kbd', { text: 'F' }), ' not phishing ', h('kbd', { text: 'I' }), ' not sure ', h('kbd', { text: 'N' }), ' skip ', h('kbd', { text: 'R' }), ' check again', ' (the open email)')),
+                h('span', { class: 'keys-hint' }, h('kbd', { text: 'P' }), ' phishing ', h('kbd', { text: 'S' }), ' spam ', h('kbd', { text: 'F' }), ' mark safe ', h('kbd', { text: 'I' }), ' not sure ', h('kbd', { text: 'N' }), ' skip ', h('kbd', { text: 'R' }), ' check again', ' (the open email)')),
             queue === 'suspicious' ? h('p', { class: 'sub', text: 'Suspicious: the checks found signs (a rules score of 3 or more; from a sender Gmail confirmed, only when the AI agrees) or the AI scored it at least the suspicious line, but not enough to move it, so it is still in the Inbox. Marking them is the best way to see what the move rules miss, and what retraining needs (Health → Model health).' }) : null];
         if (!st.groups.length) {
             return [...head, h('div', { class: 'alert good', role: 'status' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '✓' }),
@@ -2768,6 +2808,9 @@
             : 'Off: mail from inside the organization (your domains, Gmail confirming the sender is real (DMARC)) isn\'t read by the AI. The rule checks read it as any email: its links, its headers and the rest; a forged inside address (DMARC not passing) is outside mail, and the AI reads it') },
         { key: 'aiMovesInside', label: 'Let the AI alone move staff email', show: (v, d) => (v ? `On: an email from inside the organization that the AI scores ${pct(d.aiThreshold)} or more is ${d.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} on the AI score alone, as outside mail is, whatever the rules find. The AI reads inside mail for it`
             : 'Off: the AI score alone never moves mail from inside the organization (your domains, Gmail confirming the sender is real (DMARC)); the rules still can (a staff account taken over), and a forged inside address is outside mail') },
+        // (0.6.59) Off by default: the signs that move outside mail to Spam without review (policy.js strictWhy).
+        { key: 'strictSpam', label: 'Straight to Spam', show: (v) => ((v || []).length ? `On for: ${(v || []).map(k => STRICT_LABELS[k] || k).join('; ')}. Such an email from outside the organization is moved to Spam without review (monitor mode: recorded as "would move"); Trusted senders Gmail confirms and mail from inside never are`
+            : 'Off: these signs count with the other checks, and a reviewer decides what isn\'t moved') },
         { key: 'suspiciousLabel', label: 'Suspicious label', show: (v, d) => (v ? `On: an email that is suspicious but not moved gets the label ${d.suspiciousLabelName || 'SPRUCE/Suspicious'} in its mailbox, so its reader sees it (in monitor mode too). Nothing is moved by it`
             : 'Off: suspicious emails that aren\'t moved stay in the Inbox unmarked; only the dashboard lists them (Review)') },
         { key: 'recheck', label: 'Re-check delivered mail', show: (v, d) => (v ? `On: when a phishing list adds a site or sender that an email of the last ${num(d.recheckDays || 7)} days has, every copy still in an Inbox is checked again in full and ${d.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} if the checks now say so; suspicious mail is also looked at again an hour and a day after it arrived; so is mail from, replying to or linking to a look-alike of your domain once it is found or marked a threat${d.recheckAfterUpdateHours ? `, and the mail of the last ${num(d.recheckAfterUpdateHours)} hours still in the Inbox after an update that changes how email is checked (not one that only changes the dashboard or wording)` : ''}. Threats → Re-checked lists what was found`
@@ -2776,6 +2819,7 @@
         { key: 'timeZone', label: 'Time zone', show: (v) => `${v || 'UTC'}: the dashboard's days (the charts and daily counts), the weekly summary, and the nightly jobs` },
         { key: 'retentionDays', label: 'Records kept', show: (v) => `${num(v)} days: each email's record is deleted ${num(v)} days after it arrived, the oldest first` }
     ];
+    const STRICT_LABELS = { 'dmarc-fail': 'Gmail\'s DMARC check failed', 'dmarc-missing': 'no DMARC policy confirms the sender', 'forged-id': 'a forged message ID', listed: 'the sender or a link is on a list (phishing lists, Spamhaus, abuse.ch, Safe Browsing)' };
     // Each setting's default, and how the page names it when it is in force (0.6.0).
     const POLICY_DEFAULTS = { mode: ['monitor', 'Safe default'], aiMovesInside: [false, 'Safe default'], aiScansInside: [false, 'Default'], suspiciousLabel: [false, 'Default'], recheck: [true, 'Default'], brakePerHour: [0, 'Safe default'] };
     const entries = (l, none) => {
@@ -2790,13 +2834,13 @@
         // (0.5.73) Not a sender: link sites a phishing list's listing of the whole domain doesn't flag.
         { key: 'allowLinkDomains', label: 'Link domains', show: (v) => entries(v, 'None. Every phishing list counts for every link.') }
     ];
-    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', allowLinkDomains: 'ALLOW_LINK_DOMAINS', retentionDays: 'RETENTION_DAYS' };
+    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', strictSpam: 'STRICT_SPAM', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', allowLinkDomains: 'ALLOW_LINK_DOMAINS', retentionDays: 'RETENTION_DAYS' };
     function policyCard(d, ROWS, title, sub) {
         const P = d.policy || {};
         let openKey = null;
         pageBusy = () => !!openKey;
         const short = (key, v) => (Array.isArray(v) ? (v.length ? `${num(v.length)} entr${v.length === 1 ? 'y' : 'ies'}` : 'none')
-            : key === 'mode' ? v : key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel' || key === 'recheck' ? (v ? 'on' : 'off') : key === 'aiThreshold' || key === 'aiSuspicious' ? pct(v) : key === 'brakePerHour' ? (v ? `${num(v)} an hour` : 'automatic') : key === 'retentionDays' ? `${num(v)} days` : v);
+            : key === 'strictSpam' ? ((v || []).length ? (v || []).join(', ') : 'off') : key === 'mode' ? v : key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel' || key === 'recheck' ? (v ? 'on' : 'off') : key === 'aiThreshold' || key === 'aiSuspicious' ? pct(v) : key === 'brakePerHour' ? (v ? `${num(v)} an hour` : 'automatic') : key === 'retentionDays' ? `${num(v)} days` : v);
         const source = (key) => {
             const p = P[key] || {};
             if (p.changed && key === 'allowLinkDomains') return `Changed here by ${p.changed.by}, ${when(p.changed.at)}.`;
@@ -2804,6 +2848,7 @@
             if (p.replaced) return `From settings.env (${ENV_NAME[key]}). It replaced ${short(key, p.replaced.value)}, set here by ${p.replaced.by}.`;
             // (install.sh doesn't pass these: off, or for recheck on, unless changed here or set in the services' environment)
             if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel') return p.env ? `On in the services' environment (${ENV_NAME[key]}).` : `Off: the default (${ENV_NAME[key]}).`;
+            if (key === 'strictSpam') return (p.env || []).length ? `From the services' environment (${ENV_NAME[key]}).` : `Off: the default (${ENV_NAME[key]}).`;
             if (key === 'recheck') return p.env ? `On: the default (${ENV_NAME[key]}).` : `Off in the services' environment (${ENV_NAME[key]}=false).`;
             if (key === 'allowLinkDomains') return (p.env || []).length ? `From the services' environment (${ENV_NAME[key]}).` : 'None: the default. Added here.';
             return `From settings.env (${ENV_NAME[key]}).`;
@@ -2891,6 +2936,16 @@
             choices.addEventListener('change', () => { agreeBox.hidden = !(choices.querySelector('input:checked').value === 'on' && !value); update(); });
             read = () => choices.querySelector('input:checked').value === 'on';
             extra = [choices, agreeBox, h('div', { class: 'small muted', text: 'Inside: your domains, with Gmail confirming the sender is real (DMARC); a forged staff address is outside mail, and the AI can move it either way. Off by default (AI_MOVES_INSIDE).' })];
+        } else if (key === 'strictSpam') {
+            // (0.6.59) Each sign on its own; none chosen is off.
+            const box = (k, help) => h('label', { class: 'choice' }, h('input', { type: 'checkbox', value: k, checked: (value || []).includes(k) }), h('span', {}, h('b', { text: `${STRICT_LABELS[k][0].toUpperCase()}${STRICT_LABELS[k].slice(1)}.` }), ` ${help}`));
+            const choices = h('div', { class: 'choices' },
+                box('dmarc-fail', 'The From address is forged, or the sender\'s own mail setup is broken. A mailing list or forwarder that rewrites mail can break it too.'),
+                box('dmarc-missing', 'Many small businesses, vendors and parents\' providers have no DMARC policy: this moves all their mail. Try it in monitor mode first.'),
+                box('forged-id', 'Its message ID claims a mail program that nothing else in the email shows: written by a bulk sender or a phishing kit.'),
+                box('listed', 'A link is blocked or on a phishing list, or the sender is on a list or blocked.'));
+            read = () => [...choices.querySelectorAll('input:checked')].map(x => x.value);
+            extra = [choices, h('div', { class: 'small muted', text: 'An email from outside with any sign ticked is moved to Spam without review (monitor mode: recorded as "would move"). Trusted senders that Gmail confirms, and mail from inside (your domains, DMARC passing), never are. The brake and a campaign\'s hold still apply. Its reader can take it back out of Spam.' })];
         } else if (key === 'suspiciousLabel') {
             // (0.5.33) Off by default; visible to the email's reader, never moves anything.
             const radio = (v, label) => h('label', { class: 'choice' }, h('input', { type: 'radio', name: 'policy-suspicious-label', value: v ? 'on' : 'off', checked: !!value === v }), h('span', { text: label }));

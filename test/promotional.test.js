@@ -99,3 +99,42 @@ test('Spam: each waiting email answered Spam (moved in enforce mode), its sender
     assert.deepEqual([later.action, later.trigger], ['move', 'spam']);
     assert.equal((await judge(svc, SAM, { from: 'receipts@bigstore.example' })).trigger, 'promotional', 'its main domain\'s mail: checked as usual');
 });
+
+test('0.6.59: Spam learning: for the days chosen, promotional mail goes to Spam and its sender to Spam senders; taking it back out trusts the sender again', async () => {
+    const svc = make();
+    assert.equal((await svc.spamLearningInfo()).active, false, 'off until an admin starts it');
+    assert.equal((await svc.startSpamLearning(0, ADMIN)).status, 400);
+    assert.equal((await svc.startSpamLearning(31, ADMIN)).status, 400);
+    const started = await svc.startSpamLearning(7, ADMIN);
+    assert.equal(started.info.active, true);
+    assert.equal(started.info.endsAt - started.info.startedAt, 7 * 24 * 3600e3);
+    // A promotional email: moved as spam, its sender learned.
+    const r = await judge(svc, PAT);
+    assert.deepEqual([r.action, r.trigger], ['move', 'spam'], r.why);
+    assert.match(r.why, /spam learning \(Settings → Sender lists → Spam learning, until \d{4}-\d\d-\d\d\): promotional/);
+    const list = await svc.spamSenderList();
+    assert.deepEqual(list.map(x => [x.key, x.from]), [['em.bigstore.example', 'learning']]);
+    assert.equal((await svc.spamLearningInfo()).learned, 1);
+    // Its next email to someone else: moved by Spam senders.
+    const next = await judge(svc, SAM);
+    assert.deepEqual([next.action, next.trigger], ['move', 'spam']);
+    assert.match(next.why, /is on Settings → Sender lists → Spam senders \(added by Spam learning\)/);
+    // The reader takes it back out of Spam: trusted again for them.
+    await svc.store.updateRecord(r.key, { state: 'moved', readHistoryId: '100' });
+    await svc.userReleased(PAT, r.messageId, { at: '200' });
+    assert.notEqual((await judge(svc, PAT)).trigger, 'spam', 'not moved as spam for the person who took it back');
+    // A forged copy, inside mail, and monitor mode.
+    assert.notEqual((await judge(svc, SAM, { dmarc: 'fail', from: 'deals@em.otherstore.example', dkimDomain: 'otherstore.example' })).trigger, 'spam', 'a sender Gmail couldn\'t confirm isn\'t learned');
+    const mon = make('monitor');
+    await mon.startSpamLearning(3, ADMIN);
+    const m = await judge(mon, PAT);
+    assert.equal(m.action, 'would-move');
+    assert.equal(mon.modified.length, 0, 'monitor mode moves nothing');
+    // Stopped: when it last ran is kept; the senders learned stay.
+    const stopped = await svc.stopSpamLearning(ADMIN);
+    assert.equal(stopped.info.active, false);
+    assert.ok(stopped.info.endedAt >= stopped.info.startedAt);
+    assert.equal(stopped.info.stoppedBy, ADMIN);
+    assert.equal((await svc.stopSpamLearning(ADMIN)).status, 409);
+    assert.equal((await judge(svc, SAM, { from: 'deals@em.thirdstore.example', dkimDomain: 'thirdstore.example' })).action, 'promo', 'after it ends, promotional mail is promotional again');
+});

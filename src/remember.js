@@ -1,9 +1,10 @@
 'use strict';
-// (0.6.56) Remembered "Not phishing" answers. An admin who answers an email Not phishing answers every identical copy:
+// (0.6.56) Remembered "Mark safe" answers (0.6.59: was "Not phishing"). An admin who marks an email safe answers every identical copy:
 // to other people, and later. "Identical" is a fingerprint, a one-way hash (SHA-256) of the email's
 //   - sender: the exact From address;
 //   - subject: lower case, the reader's mailbox name, "Re:"/"Fwd:" and numbers taken out;
-//   - text: the whole visible text, the same way (and the names the To line gives the reader);
+//   - text: the whole visible text, the same way (and the names the To line gives the reader, and (0.6.59) the name
+//     after a greeting: "Dear Pat," and "Dear Sam," match; a subject's leading "Name," too);
 //   - links: every link as the email has it. On a site where anyone shares a document or a file (Google Docs and Drive,
 //     SharePoint, OneDrive, Dropbox, Box, DocuSign, forms, link shorteners…) the WHOLE link, so another document never
 //     matches; elsewhere its host and path, with long random parts (a mailing service's per-copy tracking) taken out;
@@ -19,8 +20,16 @@ const MAX_REMEMBERED = 3000;                 // the most kept (the least recentl
 // Sites where anyone shares a document, a file or a form, or shortens a link: the whole link counts.
 const SHARE_HOSTS = /(^|\.)(docs\.google\.com|drive\.google\.com|sites\.google\.com|forms\.gle|goo\.gl|sharepoint\.com|onedrive\.live\.com|1drv\.ms|forms\.office\.com|forms\.microsoft\.com|dropbox\.com|dropboxusercontent\.com|box\.com|docusign\.net|docusign\.com|wetransfer\.com|we\.tl|jotform\.com|typeform\.com|canva\.com|notion\.site|bit\.ly|tinyurl\.com|t\.co|ow\.ly|rebrand\.ly|is\.gd|cutt\.ly|shorturl\.at)$/i;
 
-function words(t, drop) {
+// (0.6.59) The name a greeting gives ("Dear Pat," "Hi Sam Madeup:" "Good morning Ms. Samplefield,"), at the start of the
+// text or of a line, up to the comma, colon or line end: copies of one email to different people greet each by name,
+// and the To line doesn't always carry it (no display name, or a nickname). The greeting word itself stays.
+const GREETING = /(^|\n)([ \t]*(?:dear|hi|hello|hey|hiya|greetings|good (?:morning|afternoon|evening|day)|attention|attn|to)\b)[ \t]+[^\n,:;!?]{1,40}(?=[,:;!?]|\n|$)/gu;
+// A subject that starts with the reader's name and a comma ("Pat, your invoice is ready"): the name is left out.
+const SUBJECT_NAME = /^\s*[\p{L}'’.-]{2,20}(?:\s+[\p{L}'’.-]{2,20})?\s*,\s*/u;
+
+function words(t, drop, { subject = false } = {}) {
     let s = String(t || '').toLowerCase().normalize('NFKC');
+    s = subject ? s.replace(/^((re|fw|fwd)\s*:\s*)+/g, '').replace(SUBJECT_NAME, '') : s.replace(GREETING, '$1$2 ');
     for (const d of drop) if (d.length >= 3) s = s.split(d).join(' ');
     return s.replace(/^((re|fw|fwd)\s*:\s*)+/g, '').replace(/[0-9]+/g, ' ').replace(/[^\p{L}]+/gu, ' ').trim();
 }
@@ -47,7 +56,7 @@ function fingerprintOf(facts, user) {
     const drop = [local, ...local.split(/[._-]+/), ...named].filter(Boolean).sort((a, b) => b.length - a.length);
     const links = [...new Set((facts.links || []).map(l => linkKey(l.href || l.url || '')).filter(Boolean))].sort();
     const files = (facts.attachmentFiles || []).filter(a => !a.inline).map(a => (a.content ? crypto.createHash('sha256').update(a.content).digest('hex') : `${a.type}|${a.size}`)).sort();
-    const parts = [String(facts.senderAddress || '').toLowerCase(), words(facts.subject, drop), words(facts.visibleText, drop).slice(0, 50000), links, files];
+    const parts = [String(facts.senderAddress || '').toLowerCase(), words(facts.subject, drop, { subject: true }), words(facts.visibleText, drop).slice(0, 50000), links, files];
     return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 32);
 }
 

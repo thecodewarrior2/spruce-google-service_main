@@ -43,3 +43,16 @@ test('the AI reads only the checks it was trained on: the new kind changes the r
     const facts = { subject: 'Your invoice', senderName: 'Billing', senderAddress: 'billing@madeup-billing.example', bodyText: 'Hello.', links: [], mailChecks: ['forged-message-id'] };
     assert.equal(modelInputText(facts), modelInputText(Object.assign({}, facts, { mailChecks: [] })));
 });
+
+test('0.6.59: the analysis tells the policy\'s Straight to Spam what it found: a forged ID, and Gmail\'s DMARC result', async () => {
+    const { readMessage } = require('../src/engine/mime');
+    const { analyze } = require('../src/engine/analyze');
+    const ctx = { mailbox: USER, orgDomains: ['maple-schools.example'] };
+    const a = await analyze(await readMessage(Buffer.from(raw('<CAF1abc2def3@mail.gmail.com>'))), ctx);
+    assert.deepEqual([a.strictSigns.forgedId, a.strictSigns.dmarc], [true, null], 'forged ID; DMARC passed');
+    const failing = raw('<a1@madeup-billing.example>').replace('dmarc=pass', 'dmarc=fail');
+    const b = await analyze(await readMessage(Buffer.from(failing)), ctx);
+    assert.deepEqual([b.strictSigns.forgedId, b.strictSigns.dmarc], [false, 'fail']);
+    const none = raw('<a1@madeup-billing.example>').replace('dmarc=pass', 'dmarc=none');
+    assert.equal((await analyze(await readMessage(Buffer.from(none)), ctx)).strictSigns.dmarc, 'missing');
+});

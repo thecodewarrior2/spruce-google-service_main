@@ -177,6 +177,26 @@ test('an admin\'s decision stands: a released email or one marked a false alarm 
     assert.equal(t.gmail.modified.length, 0);
 });
 
+test('0.6.59: reviewed mail is never judged again: marked safe, phishing or spam, Not sure, or promotional mail an admin kept', async () => {
+    const t = setup();
+    const base = { processedAt: t.clock.get(), receivedAt: t.clock.get(), state: 'inbox', sender: { address: 'notices@payroll-center.example', domain: 'payroll-center.example' }, signals: [] };
+    const cases = [
+        { action: 'flag', falseAlarm: true, markedBy: `it@${ORG}` },
+        { action: 'flag', falseAlarm: false, markedBy: `it@${ORG}` },
+        { action: 'flag', falseAlarm: false, spam: true, markedBy: `it@${ORG}` },
+        { action: 'flag', falseAlarm: null, unclear: true },
+        { action: 'promo', falseAlarm: null, promoKept: { by: `it@${ORG}`, at: t.clock.get() } }
+    ];
+    for (const [i, c] of cases.entries()) {
+        const id = `r${i}`;
+        await t.deliver(`ana@${ORG}`, id, lure(`ana@${ORG}`, 1));
+        await t.store.saveRecord(Object.assign({ key: `ana@${ORG}|${id}`, user: `ana@${ORG}`, messageId: id }, base, c));
+        const out = await t.svc.recheckMessage({ user: `ana@${ORG}`, id, source: 'update', version: 'test' });
+        assert.equal(out.outcome, 'skipped', JSON.stringify(c));
+    }
+    assert.equal(t.gmail.modified.length, 0);
+});
+
 test('Link clicks (off by default): Gmail\'s logs say who opened it and who clicked a link; a click is an alert', async () => {
     const t = setup();
     await t.feeds.sync();

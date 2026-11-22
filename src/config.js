@@ -11,7 +11,7 @@ const bool = (v, d) => (v === undefined || v === '' ? d : /^(1|true|yes|on)$/i.t
 // Spamhaus, abuse.ch). They read from a live
 // copy that only setPolicyValues changes (src/pipeline.js: refreshPolicy, setPolicy); envPolicy keeps what
 // the environment (deploy/settings.env) says. The rest of the configuration is frozen.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
 function withLivePolicy(c) {
     const envPolicy = Object.freeze(Object.fromEntries(POLICY_KEYS.map(k => [k, c[k]])));
     const live = Object.assign({}, envPolicy);
@@ -53,6 +53,9 @@ function loadConfig(env = process.env) {
         // the threshold): off by default, and then only the rules move inside mail (a staff account taken
         // over trips them). Settings → Policy too ("AI alone moves inside mail", with an agreement).
         aiMovesInside: bool(env.AI_MOVES_INSIDE, false),
+        // (0.6.59) Straight to Spam (policy.js strictWhy): the signs that move outside mail to Spam without review, from
+        // dmarc-fail, dmarc-missing, forged-id and listed (comma-separated). None by default. Settings → Policy too.
+        strictSpam: list(env.STRICT_SPAM).filter(k => ['dmarc-fail', 'dmarc-missing', 'forged-id', 'listed'].includes(k)),
         // Whether the AI model reads mail from inside the organization (your domains, Gmail's DMARC check
         // passing): off by default; the rule checks (links, headers, the rest) read it either way, and a
         // forged inside address (DMARC not passing) is outside mail, read by the AI. Settings → Policy too.

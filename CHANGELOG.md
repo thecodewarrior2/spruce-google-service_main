@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.6.59: Mark safe, Straight to Spam, Spam learning; greetings don't split a remembered answer
+
+- **"Not phishing" is now "Mark safe"** (not phishing or spam) on every button, answer and list ("Marked safe by …",
+  "Marked safe automatically"; key F). **Remembered answers** are listed as "Marked safe", with a **Was** column: what
+  the service had taken the email for (Phishing (moved), Phishing (would move), Suspicious, Spam, Promotional).
+  Answers remembered before this version show "not recorded" there.
+- **Today's chart** called the moves of a campaign's copies "Confirmed by an admin" without saying what was confirmed:
+  now "Copies of a campaign an admin marked Phishing", and an email's page says the same.
+- **Reviewed mail is never judged again:** the re-check after an update (and the list and look-alike re-checks)
+  already left alone any email an admin answered (safe, phishing, spam, Not sure), its reader moved, or a brake held;
+  promotional mail an admin kept in Review → Promotional is now left alone too.
+- **Remembered answers and greetings:** the fingerprint (0.6.56) now leaves out the name a greeting gives at the start
+  of the text or a line ("Dear Pat," and "Dear Sam,"; "Hi Pat Madeup:"; "Good morning Ms. Samplefield,") and a
+  subject's leading "Name,", so one email sent to many people, each greeted by name, is one email. The rest of the text
+  still counts word for word. Fingerprints of emails with a greeting change: an answer remembered before this version
+  matches only later copies without a greeting.
+- **Straight to Spam** (Settings → Policy; `STRICT_SPAM`), **off by default**: tick any of Gmail's DMARC check failing,
+  no DMARC policy confirming the sender, a forged message ID, or the sender or a link on a list (phishing lists,
+  Spamhaus, abuse.ch, Safe Browsing), and outside mail with that sign is moved to Spam without review (monitor mode:
+  "would move"; counted with the rules). Trusted senders Gmail confirms and mail from inside never are; the brake and a
+  campaign's hold still apply. The form warns that "no DMARC" catches many small senders' genuine mail.
+- **Spam learning** (Settings → Sender lists), **off until an admin starts it** (with the number of days, 1 to 30, and a
+  ticked agreement): promotional mail and mail the AI is at least 99% sure is spam, from senders Gmail confirms outside
+  the organization, go to Spam, and each sender goes on Spam senders ("by Spam learning"). Someone taking its mail back
+  out of Spam trusts the sender again: for them at once, for everyone once 3 people did. The card shows the start and
+  end of the last run and how many senders it learned; Stop now ends it early.
+- The checks level is raised to 49 (the fingerprint, the re-check, the two options). No installation change.
+
 ## 0.6.58: phish-tiny 0.26.0, with a spam answer
 
 - **The AI model is phish-tiny 0.26.0** (TinyPhishLLM `8798d1f`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.25.0),

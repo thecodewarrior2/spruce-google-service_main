@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { readMessage } = require('./engine/mime');
 const { analyze, aiReading, senderVerified, sameOrgDomain, platformNotification, shareSource } = require('./engine/analyze');
 const { MASS_SHARE } = require('./engine/notifications');
-const { decide, isAllowed } = require('./policy');
+const { decide, isAllowed, STRICT_KINDS } = require('./policy');
 const { GoogleApiError } = require('./gmail/client');
 const { compareHistoryIds, movesForward } = require('./store/history');
 const { buildDigest, mime, isSummary, localParts } = require('./digest');
@@ -130,6 +130,16 @@ async function pool(items, n, fn, stop = () => false) {
     await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
 }
 // Sender addresses are remembered as a hash only (as the extension's senderHistoryKey).
+// (0.6.59) What the service took a record for, in a few words (Remembered answers' "Was" column).
+function verdictOf(rec) {
+    if (!rec) return 'unknown';
+    if (rec.trigger === 'spam') return rec.action === 'move' ? 'Spam (moved)' : 'Spam';
+    if (rec.action === 'move') return 'Phishing (moved)';
+    if (rec.action === 'would-move') return 'Phishing (would move)';
+    if (rec.action === 'flag') return 'Suspicious';
+    if (rec.action === 'promo') return 'Promotional';
+    return 'Not flagged';
+}
 const senderHash = (address) => crypto.createHash('sha256').update(String(address || '').toLowerCase()).digest('hex').slice(0, 16);
 const recordKey = (user, messageId) => `${user}|${messageId}`;
 
@@ -197,9 +207,13 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 // by, at }) and applies to every instance within POLICY_REFRESH_MS. It records the settings.env value it
 // replaced (env): when settings.env later has another value for the same setting (changed, then
 // install.sh), that one is newer and applies. The most recent change wins, wherever it was made.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
 const LIST_KEYS = ['allowDomains', 'allowAddresses', 'allowLinkDomains'];
+// (0.6.59) Settings → Policy → Straight to Spam (policy.js strictWhy).
+const STRICT_WORDS = { 'dmarc-fail': 'DMARC failing', 'dmarc-missing': 'no DMARC', 'forged-id': 'a forged message ID', listed: 'on a list' };
 const MAX_ALLOWED = 500;
+// (0.6.59) Spam learning: the longest run, and how sure the AI's spam answer must be (outside promotional mail).
+const SPAM_LEARN_MAX_DAYS = 30, SPAM_LEARN_SURE = 0.99;
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 // A list as kept: lower case, no repeats, sorted (from a list, or text with one entry per line or
 // separated by commas or semicolons: an entry with a space in it is reported whole).
@@ -263,6 +277,11 @@ function policyValue(key, v, now = {}) {
         return s;
     }
     if (key === 'mode') return v === 'monitor' || v === 'enforce' ? v : bad('The mode is monitor or enforce.');
+    if (key === 'strictSpam') {
+        const items = asList(v);
+        const wrong = items.filter(x => !STRICT_KINDS.includes(x));
+        return wrong.length ? bad(`Straight to Spam takes ${STRICT_KINDS.join(', ')} (or none).`) : STRICT_KINDS.filter(x => items.includes(x));
+    }
     if (key === 'watchScope') return v === 'pilot' || v === 'domain' ? v : bad('Who is checked is the pilot or the whole domain.');
     const pc = (x) => `${Math.round(Number(x) * 1000) / 10}%`;
     if (key === 'aiThreshold') {
@@ -289,6 +308,7 @@ function policyValue(key, v, now = {}) {
 function policyWords(key, v) {
     if (LIST_KEYS.includes(key)) { const l = asList(v); return l.length ? (l.length > 5 ? `${l.length} entries` : l.join(', ')) : 'none'; }
     if (key === 'mode') return v === 'enforce' ? 'enforce' : 'monitor';
+    if (key === 'strictSpam') { const l = asList(v); return l.length ? l.map(x => STRICT_WORDS[x] || x).join(', ') : 'off'; }
     if (key === 'releasesRepo' || key === 'modelRepo') return String(v || '').trim() ? repos.shown(v) : 'not set';
     if (key === 'watchScope') return v === 'domain' ? 'the whole domain' : 'the pilot';
     if (key === 'aiThreshold' || key === 'aiSuspicious') return `${Math.round(Number(v) * 1000) / 10}%`;
@@ -436,7 +456,7 @@ class Service {
             : key === 'mode'
             ? (value === 'enforce' ? `${by} switched to enforce mode on the dashboard (${how}): from now on, emails the policy flags are moved to Spam.`
                 : `${by} switched to monitor mode on the dashboard (${how}): nothing is moved from now on, and emails already moved stay in Spam.`)
-            : `${by} changed ${({ aiThreshold: 'the AI move threshold', aiSuspicious: 'the AI suspicious line', aiScansInside: 'whether the AI reads mail from inside the organization', aiMovesInside: 'whether the AI alone moves mail from inside the organization', brakePerHour: 'the brake', timeZone: 'the time zone', retentionDays: 'how long records are kept' })[key]} from ${policyWords(key, before)} to ${policyWords(key, value)} on the dashboard (${how}).`
+            : `${by} changed ${({ aiThreshold: 'the AI move threshold', aiSuspicious: 'the AI suspicious line', aiScansInside: 'whether the AI reads mail from inside the organization', aiMovesInside: 'whether the AI alone moves mail from inside the organization', brakePerHour: 'the brake', timeZone: 'the time zone', retentionDays: 'how long records are kept', strictSpam: 'Straight to Spam' })[key]} from ${policyWords(key, before)} to ${policyWords(key, value)} on the dashboard (${how}).`
               + (key === 'timeZone' ? ' The weekly summary uses it now; the nightly jobs move to it the next time deploy/install.sh runs.' : '')
               + (key === 'retentionDays' ? (value < before ? ` Records older than ${value} days are deleted over the next hours, the oldest first.`
                   : ` Records saved from now on are kept ${value} days; the ones already saved keep the date they had (${before} days after they arrived).`) : '');
@@ -711,7 +731,7 @@ class Service {
         catch (e) { if (e && e.status === 404) fail(404, 'The email is no longer in the mailbox (deleted for good): it can\'t be re-scanned.'); throw e; }
         if (!msg || !msg.raw || !msg.raw.length) fail(404, 'The email is no longer in the mailbox: it can\'t be re-scanned.');
         const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
-        if (ownSentCopy(rec.user, msg, facts)) fail(409, `This copy is ${rec.user}'s own sent message (it was never delivered to them), so it isn't judged. Mark it Not phishing to clear it from the review.`);
+        if (ownSentCopy(rec.user, msg, facts)) fail(409, `This copy is ${rec.user}'s own sent message (it was never delivered to them), so it isn't judged. Mark it safe to clear it from the review.`);
         const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
         // The sender counts as new if it was on arrival (by now it isn't, and that would change the rules'
         // score, not the model or the checks): from the arrival's signs, kept with them after a re-scan.
@@ -850,6 +870,12 @@ class Service {
             const promo = await this.promotionalOf(user, msg, facts, result, { allowlisted, relay }).catch((e) => { this.log.error('promotional:', e); return null; });
             if (promo) decision = { action: 'promo', trigger: 'promotional', why: `promotional: ${promo.signs.join('; ')} (not moved: an admin answers in Review → Promotional)`, promotional: promo };
         }
+        // (0.6.59) Spam learning: for the days an admin set, promotional mail, and mail the AI is all but sure is spam, from a
+        // verified sender go to Spam, and the sender to Spam senders, until someone takes its mail back out of Spam.
+        if ((decision.action === 'promo' || decision.action === 'none') && !alreadyMoved && !userPlaced && !relay) {
+            const learned = await this.learnSpam(user, facts, result, decision, allowlisted).catch((e) => { this.log.error('spam learning:', e); return null; });
+            if (learned) decision = learned.action === 'move' && await this.brakeOn(now) ? Object.assign({}, learned, { action: 'would-move', why: `${learned.why}; the brake is on, so it was left in the Inbox` }) : learned;
+        }
         if (decision.action === 'none') return this.withIndex({ user, messageId: msg.id, action: 'none', status: result.status, ai: result.ai && result.ai.probability }, msg, facts, result);
         const senderDomain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
         const campaign = campaignOf(senderDomain, facts.subject, user);
@@ -857,7 +883,7 @@ class Service {
         // (0.6.56) An identical email an admin answered Not phishing, or a copy of a campaign an admin dismissed: answered
         // the same way (recorded, never moved, no Suspicious label, not listed for review).
         const auto = !alreadyMoved && ['move', 'would-move', 'flag'].includes(decision.action) ? await this.autoAnswerOf(result, verified, decision, campaign.key).catch((e) => { this.log.error('remembered answer:', e); return null; }) : null;
-        if (auto) decision = { action: 'flag', trigger: decision.trigger, why: `${decision.why}; ${auto.kind === 'remembered' ? `${auto.by} answered an identical email Not phishing` : `${auto.by} dismissed this campaign as a false alarm`}, so it is answered the same way and left alone`, autoAnswer: auto };
+        if (auto) decision = { action: 'flag', trigger: decision.trigger, why: `${decision.why}; ${auto.kind === 'remembered' ? `${auto.by} marked an identical email safe` : `${auto.by} dismissed this campaign as a false alarm`}, so it is answered the same way and left alone`, autoAnswer: auto };
         // The brake was already on (decide): held for the admin's resume.
         let held = decision.braked ? 'brake' : null;
         if (decision.action === 'move' && !alreadyMoved) ({ decision, held } = await this.brakes(decision, result, campaign.key, campaignLabel, now));
@@ -1050,6 +1076,62 @@ class Service {
     // on the page; an entry covers its subdomains (spamListMatch). Only when Gmail's DMARC
     // check passed for it (a forged copy is judged as usual), never mail from inside or an allowlisted sender, not for a
     // person who took that sender's spam back out of Spam, nor while the 30-day check has it suspended. State spamSenders.
+    // (0.6.59) Spam learning (Settings → Sender lists → Spam learning; off until an admin starts it). For the days chosen
+    // (1 to SPAM_LEARN_MAX_DAYS), promotional mail (promotionalOf: Gmail's Promotions tab, a signed one-click unsubscribe,
+    // the AI's spam answer) and mail the AI is at least SPAM_LEARN_SURE sure is spam (nothing else suspicious) from a
+    // sender Gmail confirmed (DMARC) outside the organization is moved to Spam as spam (monitor mode: would be), and the
+    // sender is added to Spam senders (from 'learning'), so its later mail goes there too. Never mail from inside, a Trusted
+    // sender, a platform's notification, or a sender the person (or SPAM_SHARED people) took back out of Spam: taking it
+    // back out is what makes a sender trusted again. State spamLearning: { days, startedAt, endsAt, by, stoppedAt,
+    // stoppedBy, learned }, which also says when it last ran.
+    async spamLearningState() {
+        if (!this._spamLearning || this.now() - this._spamLearning.at > 60000) this._spamLearning = { at: this.now(), st: (await this.store.getState('spamLearning')) || null };
+        return this._spamLearning.st;
+    }
+    async spamLearningInfo() {
+        const st = (await this.store.getState('spamLearning')) || null, now = this.now();
+        if (!st) return { active: false, maxDays: SPAM_LEARN_MAX_DAYS };
+        const active = !st.stoppedAt && now < st.endsAt;
+        return { active, maxDays: SPAM_LEARN_MAX_DAYS, days: st.days, startedAt: st.startedAt, endsAt: st.endsAt, endedAt: active ? null : Math.min(st.stoppedAt || st.endsAt, st.endsAt), by: st.by, stoppedBy: st.stoppedBy || null, learned: st.learned || 0 };
+    }
+    async startSpamLearning(days, by) {
+        const n = Number(days);
+        if (!Number.isInteger(n) || n < 1 || n > SPAM_LEARN_MAX_DAYS) return { error: `Spam learning runs a whole number of days, from 1 to ${SPAM_LEARN_MAX_DAYS}.`, status: 400 };
+        const now = this.now();
+        await this.store.setState('spamLearning', { days: n, startedAt: now, endsAt: now + n * DAY, by, stoppedAt: null, stoppedBy: null, learned: 0 });
+        this._spamLearning = null;
+        await this.store.addEvent({ kind: 'settings', text: `${by} started Spam learning for ${n} day${n === 1 ? '' : 's'} (until ${dayOf(now + n * DAY)}): promotional mail and mail the AI is sure is spam, from senders Gmail confirms, ${this.cfg.mode === 'enforce' ? 'go' : 'would go (monitor mode)'} to Spam, and the senders to Spam senders; someone taking its mail back out of Spam trusts that sender again.` });
+        return { ok: true, info: await this.spamLearningInfo() };
+    }
+    async stopSpamLearning(by) {
+        const st = (await this.store.getState('spamLearning')) || null, now = this.now();
+        if (!st || st.stoppedAt || now >= st.endsAt) return { error: 'Spam learning isn\'t running.', status: 409 };
+        await this.store.setState('spamLearning', Object.assign({}, st, { stoppedAt: now, stoppedBy: by }));
+        this._spamLearning = null;
+        await this.store.addEvent({ kind: 'settings', text: `${by} stopped Spam learning (started ${dayOf(st.startedAt)}; ${st.learned || 0} sender${st.learned === 1 ? '' : 's'} learned, still on Spam senders).` });
+        return { ok: true, info: await this.spamLearningInfo() };
+    }
+    // The decision Spam learning makes for an email the checks didn't move ({ action, trigger, why }), or null.
+    async learnSpam(user, facts, result, decision, allowlisted) {
+        if (allowlisted || !result || result.inside || !result.verified || result.status === 'trusted') return null;
+        const st = await this.spamLearningState(), now = this.now();
+        if (!st || st.stoppedAt || now >= st.endsAt) return null;
+        const q = result.ai && typeof result.ai.spam === 'number' ? result.ai.spam : null;
+        const p = result.ai && typeof result.ai.probability === 'number' ? result.ai.probability : null;
+        const promo = decision.action === 'promo';
+        const sure = decision.action === 'none' && result.status === 'clean' && q !== null && q >= SPAM_LEARN_SURE && (p === null || p < (this.cfg.aiSuspicious || 0.65));
+        if (!promo && !sure) return null;
+        if (await this.spamKept(user, facts.senderAddress)) return null;
+        const added = await this.addSpamSender(facts.senderAddress, 'Spam learning', { from: 'learning' });
+        if (!added || !added.ok) return null;
+        if (added.added) {
+            const cur = (await this.store.getState('spamLearning')) || st;
+            await this.store.setState('spamLearning', Object.assign({}, cur, { learned: (cur.learned || 0) + 1 }));
+        }
+        const what = promo ? `promotional (${(decision.promotional && decision.promotional.signs || []).slice(0, 2).join('; ')})` : `the AI was ${Math.min(99, Math.round(q * 100))}% sure it is spam`;
+        const why = `spam learning (Settings → Sender lists → Spam learning, until ${dayOf(st.endsAt)}): ${what}; ${added.key} is on Spam senders now${this.cfg.mode === 'enforce' ? '' : ' (monitor mode: nothing is moved)'}`;
+        return { action: this.cfg.mode === 'enforce' ? 'move' : 'would-move', trigger: 'spam', why, learned: true, promotional: decision.promotional };
+    }
     async spamSenderList() {
         const all = (await this.store.getState('spamSenders')) || {};
         return Object.entries(all).map(([key, v]) => ({ key, by: v.by, at: v.at, from: v.from || 'page', count: v.count || 0, last: v.last || null }))
@@ -1089,8 +1171,9 @@ class Service {
         if (Object.keys(all).length > 2000) return { error: 'The list is full (2,000 senders).', status: 409 };
         await this.store.setState('spamSenders', all);
         this._spamSenders = null;
-        if (!had) await this.store.addEvent({ kind: 'settings', text: `${by} added ${key} to Spam senders${from === 'review' ? ' (answering Spam on an email)' : ''}: its verified mail goes straight to Spam, as spam.` });
-        return { ok: true, key, list: await this.spamSenderList() };
+        if (!had && from !== 'learning') await this.store.addEvent({ kind: 'settings', text: `${by} added ${key} to Spam senders${from === 'review' ? ' (answering Spam on an email)' : ''}: its verified mail goes straight to Spam, as spam.` });
+        // (0.6.59) Spam learning adds many: it reads no list back.
+        return from === 'learning' ? { ok: true, key, added: !had } : { ok: true, key, added: !had, list: await this.spamSenderList() };
     }
     async removeSpamSender(key, by) {
         const all = Object.assign({}, (await this.store.getState('spamSenders')) || {});
@@ -1231,6 +1314,8 @@ class Service {
         if (!e) return null;
         if (await this.allowSuspendedFor(String(facts.senderAddress || '').toLowerCase().split('@')[1] || '')) return null;
         if (await this.store.getCached('spamok', `${senderHash(user)}|${senderHash(this.spamSenderKey(facts.senderAddress))}`)) return null;
+        // (0.6.59) Learned by Spam learning, not an admin's choice: once several people took its mail back, for everyone.
+        if (e.from === 'learning' && await this.spamKept(user, facts.senderAddress)) return null;
         return Object.assign({ key }, e);
     }
     // (0.6.29) Brand senders the organization's reviewers confirmed: "False alarm" on an email whose only sign was a brand's
@@ -1271,7 +1356,8 @@ class Service {
         if (!rec || !rec.fingerprint || !rec.verified || rec.inside) return null;
         const all = Object.assign({}, (await this.store.getState('rememberedSafe')) || {});
         const had = all[rec.fingerprint];
-        all[rec.fingerprint] = Object.assign({ sender: String((rec.sender && rec.sender.address) || '').slice(0, 320), label: String(rec.subject || String(rec.campaignLabel || '').replace(/^[^:]*:\s*/, '') || '').slice(0, 160), by, at: this.now(), last: this.now(), hits: 0, key: rec.key }, had ? { last: this.now() } : {});
+        // (0.6.59) was: what the service had taken the email for before the admin marked it safe (shown in the list).
+        all[rec.fingerprint] = Object.assign({ sender: String((rec.sender && rec.sender.address) || '').slice(0, 320), label: String(rec.subject || String(rec.campaignLabel || '').replace(/^[^:]*:\s*/, '') || '').slice(0, 160), was: verdictOf(rec), by, at: this.now(), last: this.now(), hits: 0, key: rec.key }, had ? { last: this.now() } : {});
         const keys = Object.keys(all).sort((x, y) => (all[y].last || 0) - (all[x].last || 0));
         for (const k of keys.slice(remember.MAX_REMEMBERED)) delete all[k];
         await this.store.setState('rememberedSafe', all);
@@ -1286,7 +1372,7 @@ class Service {
             const m = await this.mark(r.key, true, by, { quiet: true, noRemember: true }).catch(() => null);
             if (m && m.record) answered++;
         });
-        if (!had) await this.store.addEvent({ kind: 'mark', text: `${by} answered an email from ${all[rec.fingerprint].sender} Not phishing: identical copies to anyone are answered the same way for 90 days (Settings → Sender lists → Remembered answers)${answered ? `; ${answered} waiting cop${answered === 1 ? 'y' : 'ies'} answered now` : ''}.` });
+        if (!had) await this.store.addEvent({ kind: 'mark', text: `${by} marked an email from ${all[rec.fingerprint].sender} safe (it was ${all[rec.fingerprint].was}): identical copies to anyone are answered the same way for 90 days (Settings → Sender lists → Remembered answers)${answered ? `; ${answered} waiting cop${answered === 1 ? 'y' : 'ies'} answered now` : ''}.` });
         return { added: !had, answered };
     }
     async forgetAnswer(fp, by, { quiet = false } = {}) {
@@ -1296,13 +1382,13 @@ class Service {
         delete all[fp];
         await this.store.setState('rememberedSafe', all);
         this._remembered = null;
-        if (!quiet) await this.store.addEvent({ kind: 'settings', text: `${by} removed a remembered Not phishing answer (an email from ${e.sender}, answered by ${e.by}): its later copies are judged as usual again.` });
+        if (!quiet) await this.store.addEvent({ kind: 'settings', text: `${by} removed a remembered Marked safe answer (an email from ${e.sender}, marked safe by ${e.by}): its later copies are judged as usual again.` });
         return { ok: true, list: await this.rememberedList() };
     }
     // Settings → Sender lists → Remembered answers, most recently seen first (the fingerprint's first 12 digits as its id).
     async rememberedList() {
         const all = await this.rememberedMap();
-        return Object.entries(all).map(([fp, v]) => ({ id: fp, sender: v.sender, label: v.label, by: v.by, at: v.at, last: v.last, hits: v.hits || 0, until: (v.at || 0) + remember.KEEP_MS }))
+        return Object.entries(all).map(([fp, v]) => ({ id: fp, sender: v.sender, label: v.label, was: v.was || null, by: v.by, at: v.at, last: v.last, hits: v.hits || 0, until: (v.at || 0) + remember.KEEP_MS }))
             .sort((a, b) => (b.last || 0) - (a.last || 0));
     }
     // Whether an email the checks would record is answered already: an identical email an admin answered Not phishing
@@ -2222,10 +2308,10 @@ class Service {
         const key = recordKey(user, id), now = this.now();
         const before = await this.store.getRecord(key);
         // A decision already made stands: moved or released, an admin's mark, the reader's own choice, a
-        // re-check that already moved it or would.
+        // re-check that already moved it or would; (0.6.59) promotional mail an admin kept in Review → Promotional.
         // (A copy held by a brake waits for the admins: the brake's resume on Today, or the campaign's decision
-        // on Threats → Campaigns.)
-        if (before && (before.state !== 'inbox' || before.falseAlarm != null || before.unclear || before.userPlaced || before.held || (before.recheck && before.recheck.outcome !== 'flag'))) return { item, outcome: 'skipped' };
+        // on Threats → Campaigns.) Reviewed mail is never judged again, by an update's re-check or any other.
+        if (before && (before.state !== 'inbox' || before.falseAlarm != null || before.markedBy || before.unclear || before.userPlaced || before.held || before.promoKept || (before.recheck && before.recheck.outcome !== 'flag'))) return { item, outcome: 'skipped' };
         let msg;
         try { msg = await this.gmail.raw(user, id); }
         catch (e) { if (e instanceof GoogleApiError && e.status === 404) return { item, outcome: 'gone' }; throw e; }

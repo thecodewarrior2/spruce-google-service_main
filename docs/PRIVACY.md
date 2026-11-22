@@ -102,7 +102,7 @@ It also keeps, shared by every instance:
 - **brand-ownership answers** (whose a domain is, 0.5.64): 30 days; an unknown one, a day. (0.6.56) Also whether two
   domains belong to the same company (a link's text and its destination, a sender and its Reply-To), the same way.
 - **remembered answers** (0.6.56): each recorded email's **fingerprint**, a one-way hash (SHA-256) of its sender, subject,
-  text, links and attachments, never the email itself; and, for an email an admin answered Not phishing, that hash with its
+  text, links and attachments, never the email itself; and, for an email an admin marked safe, that hash with its
   sender's address, its campaign's label (the subject line, when subjects are stored) and who answered, for 90 days
   (Settings → Sender lists → Remembered answers).
 

@@ -199,3 +199,33 @@ test('0.5.53: switching who is checked (the pilot or the whole domain) needs the
         assert.equal(r.status, 200); assert.equal(cfg.watchScope, 'pilot');
     } finally { await s.close(); }
 });
+
+test('0.6.59: Straight to Spam: off by default; each chosen sign moves outside mail without review; never Trusted or inside mail; monitor mode and the brake apply', () => {
+    const { decide, strictWhy } = require('../src/policy');
+    const base = { mode: 'enforce', aiThreshold: 0.9, aiSuspicious: 0.65, moveOnRules: true, aiMovesInside: false, strictSpam: [] };
+    const r = (signs, extra = {}) => Object.assign({ status: 'clean', score: 0, ai: { probability: 0.1 }, inside: false, strictSigns: Object.assign({ dmarc: null, forgedId: false, listed: [] }, signs) }, extra);
+    assert.equal(decide(r({ dmarc: 'fail', forgedId: true }), base).action, 'none', 'off by default');
+    const cfg = Object.assign({}, base, { strictSpam: ['dmarc-fail', 'forged-id', 'listed'] });
+    const failing = decide(r({ dmarc: 'fail' }), cfg);
+    assert.deepEqual([failing.action, failing.trigger, failing.strict], ['move', 'rules', true]);
+    assert.match(failing.why, /straight to Spam \(Settings → Policy → Straight to Spam\): Gmail's DMARC check failed/);
+    assert.equal(decide(r({ forgedId: true }), cfg).action, 'move');
+    assert.equal(decide(r({ listed: ['a link is blocked or on a phishing list'] }), cfg).action, 'move');
+    assert.equal(decide(r({ dmarc: 'missing' }), cfg).action, 'none', 'missing DMARC only when chosen');
+    assert.equal(decide(r({ dmarc: 'missing' }), Object.assign({}, cfg, { strictSpam: ['dmarc-missing'] })).action, 'move');
+    assert.equal(decide(r({ forgedId: true }, { status: 'trusted' }), cfg).action, 'none', 'Trusted senders Gmail confirmed');
+    assert.equal(decide(r({ forgedId: true }, { inside: true }), cfg).action, 'none', 'inside mail');
+    assert.equal(decide(r({ dmarc: 'fail' }), Object.assign({}, cfg, { mode: 'monitor' })).action, 'would-move');
+    const braked = decide(r({ dmarc: 'fail' }), cfg, { brake: true });
+    assert.deepEqual([braked.action, braked.braked], ['would-move', true]);
+    assert.equal(strictWhy(r({}), cfg), null, 'no sign: nothing');
+});
+
+test('0.6.59: Straight to Spam on the dashboard: only the four signs, kept in order; set from STRICT_SPAM', async () => {
+    const { policyValue } = require('../src/pipeline');
+    assert.deepEqual(policyValue('strictSpam', ['listed', 'dmarc-fail']), ['dmarc-fail', 'listed']);
+    assert.deepEqual(policyValue('strictSpam', []), []);
+    assert.throws(() => policyValue('strictSpam', ['everything']), /Straight to Spam takes/);
+    assert.deepEqual(loadConfig(Object.assign({}, ENV, { STRICT_SPAM: 'forged-id, nonsense' })).strictSpam, ['forged-id']);
+    assert.deepEqual(loadConfig(ENV).strictSpam, []);
+});

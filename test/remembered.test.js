@@ -47,7 +47,17 @@ const make = (mode = 'monitor') => {
 };
 const judge = async (svc, user, opts = {}) => { n++; return svc.judge(user, { id: `m${n}-${user}`, threadId: `t${n}`, internalDate: Date.now(), labelIds: ['INBOX'] }, await readMessage(raw(user, opts))); };
 
-test('Not phishing on one copy: the waiting copies and every later identical copy answered the same way; a forged one isn\'t', async (t) => {
+test('0.6.59: the fingerprint leaves out the name a greeting gives and a subject\'s leading name; the rest still counts', () => {
+    const f = (text, subject = 'Your invoice is ready') => fingerprintOf({ senderAddress: 'billing@madeup-vendor.example', subject, visibleText: text, links: [], attachmentFiles: [], people: { to: [] } }, 'jmadeup@maple-schools.example');
+    assert.equal(f('Dear Pat,\nYour invoice is attached.\nThanks'), f('Dear Sam,\nYour invoice is attached.\nThanks'), 'Dear Pat / Dear Sam');
+    assert.equal(f('Good morning Ms. Samplefield:\nYour invoice is attached.'), f('Good morning Mr. Testwood:\nYour invoice is attached.'));
+    assert.equal(f('Hi Pat Madeup,\nYour invoice is attached.'), f('hi sam,\nYour invoice is attached.'));
+    assert.equal(f('x', 'Pat, your invoice is ready'), f('x', 'Sam, your invoice is ready'), 'a subject\'s leading name');
+    assert.notEqual(f('Dear Pat,\nYour invoice is attached.'), f('Dear Pat,\nYour invoice is attached. Wire the payment today.'), 'other words still count');
+    assert.notEqual(f('Dear Pat,\nYour invoice is attached.'), f('Your invoice is attached, dear Pat, and overdue.'), 'only a greeting at the start of a line');
+});
+
+test('Mark safe on one copy: the waiting copies and every later identical copy answered the same way; a forged one isn\'t', async (t) => {
     const was = E.model.analyze;
     E.model.analyze = async () => ({ probability: 0.97, reasons: [], model: 'phish-tiny', version: 'test' });
     t.after(() => { E.model.analyze = was; });
@@ -68,13 +78,14 @@ test('Not phishing on one copy: the waiting copies and every later identical cop
     assert.equal(later.action, 'flag', later.why);
     const lr = await svc.store.getRecord(later.key);
     assert.deepEqual([lr.falseAlarm, lr.markedBy, lr.autoAnswered.kind], [true, ADMIN, 'remembered']);
-    assert.match(lr.why, /it\.madeup@maple-schools\.example answered an identical email Not phishing, so it is answered the same way and left alone/);
+    assert.match(lr.why, /it\.madeup@maple-schools\.example marked an identical email safe, so it is answered the same way and left alone/);
     assert.ok(!svc.modified.some(x => x.id === `m${n}-${LEE}`), 'no label, nothing moved');
     // The list (Settings → Sender lists → Remembered answers).
     const list = await svc.rememberedList();
     assert.equal(list.length, 1);
     assert.equal(list[0].sender, 'notices@madeup-vendor.example');
     assert.equal(list[0].by, ADMIN);
+    assert.equal(list[0].was, 'Phishing (would move)', '(0.6.59) what the service had taken it for');
     // A forged copy (Gmail couldn't confirm the sender) is judged as usual.
     const forged = await judge(svc, LEE, { dmarc: 'fail' });
     assert.notEqual((await svc.store.getRecord(forged.key)).markedBy, ADMIN, 'not answered');

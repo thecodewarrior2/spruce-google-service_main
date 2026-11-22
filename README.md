@@ -31,6 +31,11 @@ mode).
     account is compromised and sends dangerous links. Even when the AI reads it, its score alone doesn't
     move inside mail unless you turn on **"AI alone moves inside mail"** (Settings → Policy, with a ticked
     agreement; `AI_MOVES_INSIDE`), off by default.
+  - **Straight to Spam** (0.6.59; Settings → Policy; `STRICT_SPAM`), off by default: choose any of Gmail's DMARC check
+    failing, no DMARC policy confirming the sender, a forged message ID, or the sender or a link on a list, and outside
+    mail with that sign is moved to Spam without waiting for review (monitor mode: recorded as "would move"). Trusted
+    senders Gmail confirms and mail from inside never are; the brake and a campaign's hold still apply. "No DMARC" moves
+    all mail of the many small senders without a DMARC policy: try it in monitor mode first.
   - **Mail dressed up as inside is outside mail:** a staff address that fails Gmail's DMARC check is read
     by the AI and gets a sign of its own ("claims to come from inside your organization"), and so does an
     outside sender whose name shows one of your addresses ("it@your-district.org" <x@elsewhere>).
@@ -111,7 +116,7 @@ For each new Inbox message:
 | Sender inside (your domains, DMARC passing), and the rules don't flag it | Nothing: the AI doesn't read it (with "AI on inside mail" on: a score of 90% or more is recorded as suspicious, not moved by the AI alone; with "AI alone moves inside mail" on: moved, as from outside) |
 | A rules score of 3 or more, or an AI score of **65%** or more (`AI_SUSPICIOUS_THRESHOLD`), below what moves it | Recorded as suspicious, not moved |
 | (0.6.40) The same rules score of 3 or more from an outside sender Gmail confirmed (DMARC), with the AI under the suspicious line | Nothing: the rules alone are too weak to ask about (newsletters and notices trip them). Staff mail, a platform's notification (a share) and a link check's verdict still count |
-| (0.6.56) An **identical email an admin answered Not phishing** (the same sender, subject, text, links and attachments, by a one-way fingerprint), Gmail confirming the sender and nothing outside the email against it; or a copy of a campaign an admin dismissed | Answered the same way: recorded as Not phishing, never moved, not listed for review (Settings → Sender lists → Remembered answers, 90 days) |
+| (0.6.56) An **identical email an admin marked safe** (the same sender, subject, text, links and attachments, by a one-way fingerprint), Gmail confirming the sender and nothing outside the email against it; or a copy of a campaign an admin dismissed | Answered the same way: recorded as Not phishing, never moved, not listed for review (Settings → Sender lists → Remembered answers, 90 days) |
 | (0.6.52) **Promotional**: Gmail put it in its Promotions category, or the sender signed a one-click unsubscribe (bulk senders must add one to marketing mail), or (0.6.55) the AI's spam answer is 90% or more; from an outside sender Gmail verified (DMARC), and nothing else found | Never moved for that: listed in **Review → Promotional** for an admin to answer once per company (Spam, or Keep); in enforce mode labeled `SPRUCE/Promotional` |
 | Allowlisted sender, DMARC passing | Nothing |
 
@@ -198,6 +203,14 @@ visible one counts 5 (0.6.33: flagged on its own) when it goes to another site t
 **Sender lists** (0.6.35; was Allowlist; 0.6.45: each list shows 8 entries, **Show all** opens the whole list, with its search, sorting and buttons, in a popup): Trusted senders (never moved), Spam senders (always to Spam: added with a Spam
 answer in Review, ticked by default for admins, or on the page; verified mail only), brand senders your reviewers
 confirmed, link sites, and spam people took back, each labeled with what it does. One search box looks through every list; each list has its own search and sorting (0.6.36).
+**Spam learning** (0.6.59), off until an admin starts it on Sender lists: for the days chosen (1 to 30), promotional mail
+(Gmail's Promotions tab, a signed one-click unsubscribe, the AI's spam answer) and mail the AI is at least 99% sure is
+spam, from senders Gmail confirms (DMARC) outside the organization, go to Spam (monitor mode: "would move"), and each
+sender goes on Spam senders ("by Spam learning"). A sender is trusted again only when someone takes its mail back out
+of Spam: for that person at once, for everyone once 3 people did. The card shows when it last ran (start and end) and
+how many senders it learned; Stop now ends it early, and the senders learned stay on Spam senders until removed.
+Never mail from inside, a Trusted sender or a platform's notification.
+
 **Company domains** (0.6.49) lists the domains proven a company's from public records, and lets an admin confirm one whose registry shows the owner only on its own website (EURid's .eu), saying where it was checked. Review leaves out the emails of senders on Trusted senders, Spam senders or Brand senders (0.6.40): someone already
 decided about them.
 
@@ -347,8 +360,8 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   - **Filter** (0.6.44): search by sender, domain or subject; filter by the sender check, the AI score and the kind;
     **Tick all shown**, then answer them at once. Each row shows its sender check, and ⌕ shows only that sender's mail.
   - **The same four answers everywhere** (0.6.39: Review, an email's page, Mail's ticked emails, a campaign's
-    box): **Phishing**, **Spam**, **Not phishing** and **Not sure**. When an answer moves the email in enforce mode,
-    the button says so ("Phishing: move to the Spam folder", "Not phishing: move back to the Inbox"). **Spam**
+    box): **Phishing**, **Spam**, **Mark safe** and **Not sure**. When an answer moves the email in enforce mode,
+    the button says so ("Phishing: move to the Spam folder", "Mark safe: move back to the Inbox"). **Spam**
     offers "also send future mail from this sender straight to Spam", ticked by default for admins.
   - **The Review count** in the menu updates right after an answer, and is gone when nothing waits (0.6.40). It counts the
     period picked at the top, as the page does; an empty Review says how many older emails still wait (0.6.50). New emails
@@ -358,7 +371,7 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     undo for an hour): the earlier answer comes back, the email goes back where it was, and a sender the answer
     added to Spam senders or Brand senders is taken off again. One step only.
   - Each row shows the AI score, the subject, the sender, how many copies and people, when it arrived and its
-    heaviest sign, with quick **Phishing**, **Spam**, **Not phishing** and **Not sure** buttons for the clear
+    heaviest sign, with quick **Phishing**, **Spam**, **Mark safe** and **Not sure** buttons for the clear
     cases. Tick several to answer them all at once (more than 50 asks first).
   - **Open one** to weigh the evidence (0.6.42: each sign is a heat box holding its points, which add up to the rules
     score; its color, pale yellow to red, or blue for safe, is how strong it is): who sent it to whom (the first two, **…show more** for everyone), where
@@ -366,7 +379,7 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     (each weak, medium or strong), and what the AI weighed most. Under the evidence, a note says when the
     sender check (DMARC) neither passed nor failed (no result from Gmail, a "none" policy, another result such as
     temperror): it is not counted either way (0.6.4). Its answers, with their keys:
-    - **P Phishing**; **S Spam**; **F Not phishing**: an email in Spam goes back to the Inbox too (0.6.1); **I Not sure** (0.5.60): for an email that is
+    - **P Phishing**; **S Spam**; **F Mark safe** (0.6.59; was "Not phishing"): an email in Spam goes back to the Inbox too (0.6.1); **I Not sure** (0.5.60): for an email that is
       neither clearly phishing nor clearly safe, such as an outside request for access to a form, where only the
       reader can tell. It is left as it is (still in the Inbox, with its Suspicious label), counts as reviewed so it
       leaves the queue, is never used for retraining, and the later checks and the re-check after an update leave
@@ -398,7 +411,7 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     moved, would move, moved back, highest AI score, top reason, first and last seen, and **Open every copy**.
     Every campaign is in the table below; each opens the list of emails behind it, with **Confirm phishing: move
     every copy** (optionally searching every watched mailbox for copies the service didn't record), **Spam
-    (every copy)**, **Not sure (every copy)**, **Not phishing: move every copy back** (each copy answered Not
+    (every copy)**, **Not sure (every copy)**, **Mark safe: move every copy back** (each copy marked safe, not
     phishing, as on its own page), and **Find other copies**.
   - **Re-checked** (0.5.35): emails already delivered and found later to be phishing or suspicious, one
     card per email (all its copies): why (which list added which site, or a second look), when it was first
@@ -418,7 +431,7 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     (with "in enforce mode" for an old move while the service is in monitor mode now), where it is now, its scores
     and when; every column sorts. On a phone each email is a card. An email found to be phishing after it was
     delivered has a red mark and "found later".
-    - Tick several to answer them at once: **Phishing**, **Spam**, **Not phishing** or **Not sure**, with Undo.
+    - Tick several to answer them at once: **Phishing**, **Spam**, **Mark safe** or **Not sure**, with Undo.
     - Each email's page leads with why it was moved or flagged (when the rule checks or a list did it, not the AI,
       it says so above the AI's number), then the signs found with their weights, flagged links, what the AI
       thought with what weighed most, the sender check, and how strong the evidence was. Buttons: the four
