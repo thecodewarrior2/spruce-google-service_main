@@ -84,7 +84,7 @@ domain found or marked a threat, or an update that changed how email is checked)
 checked in full, as on arrival, and gets a record like any flagged email, with when it was re-checked,
 whether it was still in the Inbox, and whether it had been opened (Gmail's unread mark then). With
 **Settings → Link clicks** on (off by default), the service also reads, for each re-checked email, Gmail's
-own log events (Admin SDK Reports API, as the admin typed there) of its recipient for the time since it
+own log events (Admin SDK Reports API, as the directory admin, `DIRECTORY_ADMIN`) of its recipient for the time since it
 arrived: opened (first time) and link clicked. Only the events naming that email are used; its record keeps
 whether and when it was first opened and a link clicked, nothing else from the logs.
 

@@ -580,7 +580,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const cl = await service.clickLogs();
             const seen = { at: await store.getState('recheckSeenAt'), campaigns: (await store.getState('recheckSeenCampaigns')) || {} };
             return { groups: A.rechecked(records, Date.now(), nDays(q), seen), recheck: !!cfg.recheck, recheckDays: cfg.recheckDays, mode: cfg.mode,
-                     clickLogs: { on: !!cl.on, admin: cl.admin || '' }, seenAt: await store.getState('recheckSeenAt'), queued: ((await store.getState('recheckQueue')) || []).length,
+                     clickLogs: { on: !!cl.on, admin: cfg.directoryAdmin || '' }, seenAt: await store.getState('recheckSeenAt'), queued: ((await store.getState('recheckQueue')) || []).length,
                      // (0.5.51) Re-checks after an update that changed the checks, and the last such update.
                      afterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, afterUpdateMax: cfg.recheckAfterUpdateMax,
                      updateSweep: (({ version, queued, max, startedAt, doneAt } = {}) => version ? { version, queued, max, startedAt, doneAt: doneAt || null } : null)((await store.getState('updateRecheck')) || {}) };
@@ -608,11 +608,11 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const on = body.on === true;
             const bad = await projectCheck(admin, body, `Link clicks (turn ${on ? 'on' : 'off'})`);
             if (bad) return bad;
-            return service.setClickLogs(on, body.admin, admin.email);
+            return service.setClickLogs(on, admin.email);
         },
         'POST /api/clicks/test': async (q, body, admin) => {
             if (!once(`clicks-test|${admin.email}`, 10 * 1000)) return { error: 'Tested less than 10 seconds ago.', status: 429 };
-            return service.testClickLogs(body.admin, admin.email);
+            return service.testClickLogs(admin.email);
         },
         // (0.6.60) Settings → User reports (off by default): Gmail's "Report phishing" reports, read from the Alert Center.
         'GET /api/user-reports': async () => ({ userReports: await service.userReports(), health: await store.getState('userReportsHealth'), test: await store.getState('userReportsTest'),

@@ -3175,7 +3175,7 @@
                 kvRow('Re-checking', d.recheck ? `On (Settings → Policy): emails of the last ${num(d.recheckDays)} days are looked for when a phishing list adds one of their sites or senders, or a look-alike of your domain is found or marked a threat (Threats → Look-alikes); suspicious mail is looked at again an hour and a day after it arrived.` : 'Off (Settings → Policy): mail is checked once, when it arrives.'),
                 d.recheck ? kvRow('After updates', d.afterUpdateHours ? `An update that changes how email is checked re-checks the mail of the last ${num(d.afterUpdateHours)} hours still in the Inbox, newest first (at most ${num(d.afterUpdateMax)}); one that only changes the dashboard, wording or documentation re-checks nothing.`
                     + (d.updateSweep ? ` Last: version ${d.updateSweep.version}, ${when(d.updateSweep.startedAt)}: ${num(d.updateSweep.queued)} emails ${d.updateSweep.doneAt ? 'checked again' : 'queued so far, more each hour'}.` : '') : 'Off: updates check nothing again (for IT: RECHECK_AFTER_UPDATE_HOURS is 0).') : null,
-                kvRow('Link clicks', h('span', {}, cl.on ? `On: Gmail's logs are read (as ${cl.admin}) for who opened each email and clicked a link in it. ` : 'Off: whether each email had been opened comes from Gmail\'s unread mark when it was re-checked; clicks aren\'t known. ', h('a', { href: '#/clicks', text: 'Settings → Link clicks' }))),
+                kvRow('Link clicks', h('span', {}, cl.on ? `On: Gmail's logs are read (as ${cl.admin || 'DIRECTORY_ADMIN'}) for who opened each email and clicked a link in it. ` : 'Off: whether each email had been opened comes from Gmail\'s unread mark when it was re-checked; clicks aren\'t known. ', h('a', { href: '#/clicks', text: 'Settings → Link clicks' }))),
                 d.queued ? kvRow('Waiting', `${num(d.queued)} emails to be checked again at the next hourly run.`) : null,
                 d.seenAt ? kvRow('Last marked seen', when(d.seenAt)) : null),
                 seen ? h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: seen }, 'Mark all as seen')) : null),
@@ -3444,13 +3444,14 @@
     async function clicksPage() {
         const d = await api('/api/clicks');
         const cl = d.clickLogs || {}, hl = d.health, t = d.test;
-        const admin = h('input', { type: 'email', autocomplete: 'off', spellcheck: 'false', value: cl.admin || d.directoryAdmin || '', placeholder: 'admin@your-district.org', 'aria-label': 'Admin account' });
+        // (0.6.62) Always DIRECTORY_ADMIN (deploy/settings.env): the account the service already acts as.
+        const reader = d.directoryAdmin || '';
         const testOut = h('div', { class: 'small', role: 'status' });
         const testBtn = h('button', { class: 'btn', type: 'button' }, 'Test');
         testBtn.addEventListener('click', async () => {
             testBtn.disabled = true; testOut.textContent = 'Reading the last day of this admin\'s own Gmail log…';
             try {
-                const o = await api('/api/clicks/test', { method: 'POST', body: { admin: admin.value } });
+                const o = await api('/api/clicks/test', { method: 'POST', body: {} });
                 if (!o.ok && o.why) { testOut.textContent = ''; testOut.append(h('b', { class: 'bad-text', text: `${o.why} ` }), h('span', { text: o.fix || '' })); return; }
                 testOut.textContent = !o.ok ? `Google refused: ${o.error}` : !o.events ? 'Google answered, with no events for the last day (no mail read, or this edition has no Gmail logs in the Reports API).'
                     : o.named ? `Working: ${num(o.events)} events in the last day, ${num(o.named)} naming their email. Clicks can be matched to emails.` : `Google answered with ${num(o.events)} events, but none names its email: clicks can't be matched to emails in this domain.`;
@@ -3459,7 +3460,7 @@
         });
         const status = !cl.on ? 'Off' : hl && !hl.ok ? `On, but Gmail's logs couldn't be read (${when(hl.at)}): ${hl.error}` : hl ? `On: last read ${when(hl.at)} (${num(hl.checked)} emails).` : 'On: nothing to read yet (no re-checked mail).';
         const sw = cl.on ? confirmForm('Turn off', '/api/clicks', () => ({ on: false }), () => 'Link clicks is off: Gmail\'s logs are no longer read.')
-            : confirmForm('Turn on', '/api/clicks', () => ({ on: true, admin: admin.value }), () => 'Link clicks is on: Gmail\'s logs are read for the re-checked mail.', h('div', { class: 'small muted', text: 'The admin account above is the one whose rights read the logs.' }));
+            : confirmForm('Turn on', '/api/clicks', () => ({ on: true }), () => 'Link clicks is on: Gmail\'s logs are read for the re-checked mail.', h('div', { class: 'small muted', text: `Gmail's logs are read as ${reader || 'DIRECTORY_ADMIN'} (DIRECTORY_ADMIN in deploy/settings.env).` }));
         const clState = !cl.on ? 'off' : hl && !hl.ok ? 'bad' : 'on';
         return [serviceTitle('Link clicks', clState, SERVICE_WORDS[clState]),
             h('p', { class: 'sub', text: 'Who opened an email found to be phishing after it was delivered, and who clicked a link in it, from Gmail\'s own logs. Off by default.' }),
@@ -3472,11 +3473,10 @@
                 h('div', { class: 'small muted', text: 'Gmail\'s logs can take a few hours to show a click: each email is looked at again every 3 hours, 4 times. Nothing is sent outside Google; only the re-checked emails\' own events are kept on their records.' })),
             h('section', { class: 'card spaced' }, h('h2', { text: 'Status' }), h('dl', { class: 'kv' },
                 kvRow('Link clicks', status),
-                kvRow('Logs read as', cl.admin || 'not set'),
+                kvRow('Logs read as', reader ? `${reader} (DIRECTORY_ADMIN in deploy/settings.env, the account the service acts as for the directory)` : 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env'),
                 t ? kvRow('Last test', t.ok ? `${when(t.at)} by ${t.by}: ${num(t.events)} events, ${num(t.named)} naming their email.` : `${when(t.at)} by ${t.by}: refused (${t.error}).`) : null,
                 cl.by ? kvRow('Changed', `${cl.on ? 'Turned on' : 'Turned off'} by ${cl.by}, ${when(cl.at)}.`) : null),
                 h('div', { class: 'policy-form sb-form' },
-                    h('label', { class: 'project' }, h('span', { text: 'Admin account (Reports privilege)' }), admin),
                     h('div', { class: 'actions' }, testBtn), testOut,
                     d.demoProjectId ? h('div', { class: 'small muted', text: `Demo mode: the project ID is ${d.demoProjectId}; made-up logs are read.` }) : null),
                 h('div', { class: 'actions' }, sw)),
@@ -3484,7 +3484,7 @@
                 h('ol', { class: 'steps' },
                     h('li', {}, h('b', { text: 'A Google Workspace edition with Gmail logs in the Reports API ' }), '(Gmail log events, not in every edition). To check: Admin console → Reporting → Audit and investigation → Gmail log events; if it is there and shows events, the logs exist. The Test button above says what Google answers.'),
                     h('li', {}, h('b', { text: 'One more scope on the service\'s domain-wide delegation: ' }), h('code', { text: 'https://www.googleapis.com/auth/admin.reports.audit.readonly' }), '. Admin console → Security → Access and data control → API controls → Manage Domain Wide Delegation → the service\'s client ID → Edit, add it to the line, Authorize (docs/INSTALL.md, "Link clicks").'),
-                    h('li', {}, h('b', { text: 'An admin account with the Reports privilege ' }), '(a super admin has it), typed above: the service reads the logs with its rights. It reads only; nothing is changed. The directory admin filled in above doesn\'t have it until you tick Reports on its role: Admin console → Account → Admin roles → SPRUCE group reader → Privileges → Admin console privileges → Reports.'),
+                    h('li', {}, h('b', { text: 'The Reports privilege on the directory admin\'s role: ' }), `Admin console → Account → Admin roles → SPRUCE group reader (the role ${reader || 'DIRECTORY_ADMIN'} has) → Privileges → Admin console privileges → tick Reports → Save. The service reads the logs with it; nothing is changed.`),
                     h('li', {}, 'Test, then Turn on (with the project ID). Changes are noted in Health → Activity → What admins did.')))];
     }
 

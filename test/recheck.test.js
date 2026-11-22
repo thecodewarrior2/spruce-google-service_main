@@ -67,7 +67,7 @@ function setup({ mode = 'enforce', recheck = true, env = {} } = {}) {
     };
     const store = new MemoryStore();
     const feeds = createFeeds({ http: createHttp({ fetch }), store, engine: E, now: () => now, log: silent });
-    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `a@${ORG}`, FIRST_SEEN_LEARNING_DAYS: '0', MODE: mode, RECHECK: recheck ? 'true' : 'false', ALERT_EMAIL: `it@${ORG}`, ...env });
+    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `a@${ORG}`, DIRECTORY_ADMIN: `it@${ORG}`, FIRST_SEEN_LEARNING_DAYS: '0', MODE: mode, RECHECK: recheck ? 'true' : 'false', ALERT_EMAIL: `it@${ORG}`, ...env });
     const boxes = new Map();   // `${user}|${id}` → { raw, labels }
     const gmail = {
         modified: [], events: [],
@@ -213,9 +213,8 @@ test('Link clicks (off by default): Gmail\'s logs say who opened it and who clic
     let out = await t.svc.syncFeeds();
     assert.ok(!out.clicks, 'off: Gmail\'s logs not read');
     assert.equal(t.gmail.events.length, 0);
-    assert.equal((await t.svc.setClickLogs(true, 'someone@elsewhere.example', `it@${ORG}`)).status, 400);
-    await t.svc.setClickLogs(true, `it@${ORG}`, `it@${ORG}`);
-    assert.ok((await t.store.listEvents(0)).some(e => e.admin && /turned on Link clicks \(Gmail's logs read as it@maple-schools\.example\)/.test(e.text)));
+    await t.svc.setClickLogs(true, `it@${ORG}`);
+    assert.ok((await t.store.listEvents(0)).some(e => e.admin && /turned on Link clicks \(Gmail's logs read as it@maple-schools\.example, DIRECTORY_ADMIN\)/.test(e.text)), '(0.6.62) read as DIRECTORY_ADMIN');
     t.clock.add(HOUR);
     out = await t.svc.syncFeeds();
     assert.deepEqual([out.clicks.checked, out.clicks.clicked], [2, 1]);
@@ -234,8 +233,11 @@ test('Link clicks (off by default): Gmail\'s logs say who opened it and who clic
     assert.deepEqual(t.gmail.events.slice(n).map(e => e.mailbox), [`ben@${ORG}`, `ben@${ORG}`, `ben@${ORG}`]);
     // The test: the admin's own log for the last day.
     t.gmail.logs[`it@${ORG}`] = [ev(7, '<x1@elsewhere.example>')];
-    const tested = await t.svc.testClickLogs('', `it@${ORG}`);
+    const tested = await t.svc.testClickLogs(`it@${ORG}`);
     assert.deepEqual([tested.ok, tested.events, tested.named], [true, 1, 1]);
+    // (0.6.62) Without DIRECTORY_ADMIN: refused, said plainly.
+    const none = setup({ env: { DIRECTORY_ADMIN: '' } });
+    assert.match((await none.svc.setClickLogs(true, `it@${ORG}`)).error, /DIRECTORY_ADMIN isn't set/);
 });
 
 test('suspicious mail is checked again an hour and a day after it arrived', async () => {
@@ -262,20 +264,20 @@ test('suspicious mail is checked again an hour and a day after it arrived', asyn
 });
 
 test('0.5.39: Link clicks\' Test explains Google\'s refusal: the Reports privilege missing, or the scope', async () => {
-    const t = setup();
+    const t = setup({ env: { DIRECTORY_ADMIN: `spruce-directory@${ORG}` } });
     const { GoogleApiError } = require('../src/gmail/client');
     t.gmail.gmailEvents = async () => { throw new GoogleApiError(401, '{ "error": { "code": 401, "message": "Access denied. You are not authorized to read activity records." } }', `GET /spruce-directory%40${ORG}/applications/gmail`); };
-    let r = await t.svc.testClickLogs(`spruce-directory@${ORG}`, `it@${ORG}`);
+    let r = await t.svc.testClickLogs(`it@${ORG}`);
     assert.equal(r.ok, false);
     assert.match(r.why, /spruce-directory@maple-schools\.example isn't allowed to read Google's activity reports: its admin role doesn't have the Reports privilege/);
     assert.match(r.fix, /Admin roles → the role .* \(the directory admin's is "SPRUCE group reader"\) → Privileges → Admin console privileges → tick Reports/);
     assert.equal((await t.store.getState('clickLogsTest')).why, r.why);
     t.gmail.gmailEvents = async () => { throw new Error(`token for spruce-directory@${ORG}: HTTP 401 {"error":"unauthorized_client"} (is domain-wide delegation set up for https://www.googleapis.com/auth/admin.reports.audit.readonly?)`); };
-    r = await t.svc.testClickLogs(`spruce-directory@${ORG}`, `it@${ORG}`);
+    r = await t.svc.testClickLogs(`it@${ORG}`);
     assert.match(r.why, /scope admin\.reports\.audit\.readonly isn't on its domain-wide delegation entry/);
     assert.match(r.fix, /Manage Domain Wide Delegation .* add https:\/\/www\.googleapis\.com\/auth\/admin\.reports\.audit\.readonly/);
     // The hourly look says the same in its alert.
-    await t.svc.setClickLogs(true, `spruce-directory@${ORG}`, `it@${ORG}`);
+    await t.svc.setClickLogs(true, `it@${ORG}`);
     await t.store.saveRecord({ key: `ana@${ORG}|m1`, user: `ana@${ORG}`, messageId: 'm1', rfc822MessageId: 'x@y.example', processedAt: t.clock.get(), receivedAt: t.clock.get(), action: 'move', state: 'moved', sender: { address: 'a@b.example' }, recheck: { at: t.clock.get(), outcome: 'moved' } });
     t.gmail.gmailEvents = async () => { throw new GoogleApiError(401, 'Access denied. You are not authorized to read activity records.', 'GET /x'); };
     await t.svc.followClicks();

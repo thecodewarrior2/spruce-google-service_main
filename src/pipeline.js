@@ -2450,7 +2450,8 @@ class Service {
     // is an alert; logs that can't be read are an alert once a day.
     async followClicks({ budgetMs = 15000, max = 100 } = {}) {
         const cl = await this.clickLogs();
-        if (!cl.on || !cl.admin) return null;
+        const reader = this.readerOfAlerts();   // (0.6.62) DIRECTORY_ADMIN, as for User reports
+        if (!cl.on || !reader) return null;
         const started = Date.now(), now = this.now();
         const recs = (await this.store.listRecords({ sinceMs: now - (this.cfg.recheckDays + 2) * DAY, limit: 5000 }))
             .filter(r => r.recheck && r.rfc822MessageId && now - r.recheck.at < 3 * DAY && ['moved', 'would-move', 'held', 'not-in-inbox', 'flag'].includes(r.recheck.outcome))
@@ -2460,36 +2461,34 @@ class Service {
         for (const r of recs.slice(0, max)) {
             if (Date.now() - started > budgetMs) break;
             try {
-                const c = await this.clicksOf(r, cl.admin);
+                const c = await this.clicksOf(r, reader);
                 checked++;
                 await this.store.updateRecord(r.key, { recheck: Object.assign({}, r.recheck, { clicks: c }) });
                 if (c.clicked) clicked.push(Object.assign({}, r, { clickedAt: c.clickedAt }));
-            } catch (e) { const p = reportsProblem(e, cl.admin); failed = `${p.why} ${p.fix}`; break; }
+            } catch (e) { const p = reportsProblem(e, reader); failed = `${p.why} ${p.fix}`; break; }
         }
         await this.store.setState('clickLogsHealth', { at: now, ok: !failed, error: failed, checked });
-        if (failed) await this.alertDaily('click-logs', `Gmail's logs couldn't be read for re-checked mail (Settings → Link clicks, as ${cl.admin}): ${failed} More: docs/ALERTS.md, "Gmail's logs couldn't be read".`);
+        if (failed) await this.alertDaily('click-logs', `Gmail's logs couldn't be read for re-checked mail (Settings → Link clicks, as ${reader}, DIRECTORY_ADMIN): ${failed} More: docs/ALERTS.md, "Gmail's logs couldn't be read".`);
         if (clicked.length) {
             const who = clicked.slice(0, 5).map(r => `${r.user} (an email from ${r.sender.address}${r.clickedAt ? `, at ${new Date(r.clickedAt).toISOString().slice(0, 16).replace('T', ' ')} UTC` : ''})`);
             await this.alert('recheck-click', `A link was clicked in mail later found to be phishing: ${who.join('; ')}${clicked.length > 5 ? ` and ${clicked.length - 5} more` : ''}. Their password may have been given away: consider resetting it, ending their sessions and checking their sign-ins (Admin console). Dashboard: Threats → Re-checked. More: docs/ALERTS.md, "A link was clicked".`, { clicked: clicked.length });
         }
         return { checked, clicked: clicked.length, error: failed };
     }
-    // Settings → Link clicks: on (with the admin to read the logs as) or off; Test reads the admin's own
-    // mailbox's log for the last day, and says whether its events name the emails they are about.
-    async setClickLogs(on, admin, by) {
-        const was = await this.clickLogs();
-        const a = String(admin || was.admin || '').trim().toLowerCase();
-        if (on && !/^[^\s@]+@[^\s@]+$/.test(a)) return { error: 'Type the address of the admin whose rights read Gmail\'s logs.', status: 400 };
-        if (on && !this.cfg.orgDomains.includes(a.split('@')[1])) return { error: `${a} isn't in your organization's domains (${this.cfg.orgDomains.join(', ')}).`, status: 400 };
-        const v = { on: !!on, admin: on ? a : was.admin || '', by, at: this.now() };
+    // Settings → Link clicks: on or off; Test reads the directory admin's own mailbox's log for the last day, and says
+    // whether its events name the emails they are about. (0.6.62) Always read as DIRECTORY_ADMIN (deploy/settings.env):
+    // an address typed on the page before is no longer used.
+    async setClickLogs(on, by) {
+        const a = this.readerOfAlerts();
+        if (on && !a) return { error: 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env: Link clicks reads Gmail\'s logs as that account.', status: 400 };
+        const v = { on: !!on, admin: a, by, at: this.now() };
         await this.store.setState('clickLogs', v);
-        await this.adminNotice('settings', `${by} turned ${on ? `on Link clicks (Gmail's logs read as ${a})` : 'off Link clicks'}.`);
+        await this.adminNotice('settings', `${by} turned ${on ? `on Link clicks (Gmail's logs read as ${a}, DIRECTORY_ADMIN)` : 'off Link clicks'}.`);
         return { clickLogs: v };
     }
-    async testClickLogs(admin, by) {
-        const cl = await this.clickLogs();
-        const a = String(admin || cl.admin || '').trim().toLowerCase();
-        if (!/^[^\s@]+@[^\s@]+$/.test(a)) return { error: 'Type the admin\'s address first.', status: 400 };
+    async testClickLogs(by) {
+        const a = this.readerOfAlerts();
+        if (!a) return { error: 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env: Link clicks reads Gmail\'s logs as that account.', status: 400 };
         const now = this.now();
         let evs;
         try { evs = await this.gmail.gmailEvents(a, a, { startTime: now - DAY, endTime: now, max: 200 }); }
@@ -2519,7 +2518,8 @@ class Service {
         if (!this._userReportsOn || this.now() - this._userReportsOn.at > 60000) this._userReportsOn = { at: this.now(), on: !!(await this.userReports()).on };
         return this._userReportsOn.on;
     }
-    // (0.6.62) Read as DIRECTORY_ADMIN (deploy/settings.env), the account the service already acts as for the directory.
+    // (0.6.62) User reports and Link clicks read as DIRECTORY_ADMIN (deploy/settings.env), the account the service already
+    // acts as for the directory.
     readerOfAlerts() { return String(this.cfg.directoryAdmin || '').trim().toLowerCase(); }
     async setUserReports(on, by) {
         const was = await this.userReports();

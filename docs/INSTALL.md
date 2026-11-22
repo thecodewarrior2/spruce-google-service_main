@@ -104,11 +104,11 @@ email and whether it had been opened.
    https://www.googleapis.com/auth/admin.reports.audit.readonly
    ```
 
-3. On the dashboard, **Settings → Link clicks**: type an admin account with the **Reports** privilege (a
-   super admin has it; the service only reads with it), **Test**, then **Turn on** with the project ID. To use
-   the directory admin (step 2, filled in by default), give its role the privilege first: Admin console →
-   Account → Admin roles → **SPRUCE group reader** → Privileges → Admin console privileges → tick **Reports** →
-   Save. Without it, Google answers "not authorized to read activity records", and Test says so.
+3. The service reads the logs as the directory admin (step 2, `DIRECTORY_ADMIN`; 0.6.62: no address is typed on the
+   page). Give its role the **Reports** privilege: Admin console → Account → Admin roles → **SPRUCE group reader** →
+   Privileges → Admin console privileges → tick **Reports** → Save. Without it, Google answers "not authorized to read
+   activity records", and Test says so. The service only reads with it.
+4. On the dashboard, **Settings → Link clicks**: **Test**, then **Turn on** with the project ID.
 
 Logs can take a few hours to show a click: each re-checked email is looked at again every 3 hours, 4 times.
 A click found is an alert (docs/ALERTS.md, "A link was clicked").

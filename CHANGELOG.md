@@ -1,12 +1,16 @@
 # Changelog
 
-## 0.6.62: User reports reads the Alert Center as the directory admin
+## 0.6.62: User reports and Link clicks read as the directory admin
 
+- **Settings → Link clicks** no longer asks for an admin address either: it reads Gmail's logs as `DIRECTORY_ADMIN`,
+  whose role needs the Reports privilege (as before for the directory admin). An installation that typed another
+  account there reads as `DIRECTORY_ADMIN` from this version: if Test then says the Reports privilege is missing, tick
+  Reports on the SPRUCE group reader role.
 - **Settings → User reports** no longer asks for an admin address: it always reads the Alert Center as `DIRECTORY_ADMIN`
   (deploy/settings.env), the account the service already acts as for the directory, and the page says so. That account's
   role (SPRUCE group reader) needs one more privilege: Admin console → Account → Admin roles → SPRUCE group reader →
   Privileges → Admin console privileges → Security → Alert Center → View access. Test says so when it's missing.
-- An address typed there before is no longer used. No email is judged differently (the checks level stays 49); no
+- An address typed on either page before is no longer used. No email is judged differently (the checks level stays 49); no
   installation change.
 
 ## 0.6.61: Review's Reported tab only while User reports is on
