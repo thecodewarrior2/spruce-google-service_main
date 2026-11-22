@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.61: Review's Reported tab only while User reports is on
+
+- **Review → Reported** is shown only while Settings → User reports is on. Turned off, the tab is hidden, unless emails
+  reported before still wait for an answer (so none is left where nobody sees it); once they are answered, it goes too.
+  The demo has User reports on.
+- Dashboard only: nothing judges email differently (the checks level stays 49), no installation change.
+
 ## 0.6.60: Gmail's own "Report phishing" reaches Review (Settings → User reports)
 
 - **User reports** (Settings → User reports), **off by default**: when someone clicks Gmail's own **Report phishing**,

@@ -917,11 +917,13 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const promo = records.filter(promoUnreviewed);
             const reported = records.filter(reportedUnreviewed);
             const counts = { moved: movedList.length + (suspAll.length - suspOnly.length), suspicious: suspOnly.length, promotional: promo.length, reported: reported.length };
-            if (queue === 'promotional') return { queue, total: promo.length, companies: A.promoGroups(promo).slice(0, 1000), mode: cfg.mode, counts };
+            // (0.6.61) The Reported tab is shown only while Settings → User reports is on, or while reports still wait.
+            const reportedOn = service.userReportsOn ? await service.userReportsOn() : false;
+            if (queue === 'promotional') return { queue, total: promo.length, companies: A.promoGroups(promo).slice(0, 1000), mode: cfg.mode, counts, reportedOn };
             const list = queue === 'reported' ? reported.sort((a, b) => (b.userReported.at || 0) - (a.userReported.at || 0))
                 : queue === 'suspicious' ? suspOnly.sort((a, b) => b.processedAt - a.processedAt)
                 : movedList.concat(suspAll.filter(r => r.campaign && movedCampaigns.has(r.campaign))).sort((a, b) => a.processedAt - b.processedAt);
-            return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode, counts };
+            return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode, counts, reportedOn };
         },
         // Several emails at once: release, false-alarm, phishing or unclear (ignore, treat as suspicious), at most
         // 500. Moderators: not release (moderatorMay).
@@ -949,7 +951,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const suspiciousAll = all.filter(r => suspiciousUnreviewed(r) && !movedAllKeys.has(r.key)).length;
             const olderMoved = Math.max(0, movedAll.length - inMoved.length);
             const reported = records.filter(reportedUnreviewed).length;
-            return { brake, held, rescues, days: n, unreviewed: inMoved.length, suspicious, promotional: records.filter(promoUnreviewed).length, reported, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
+            const reportedOn = service.userReportsOn ? await service.userReportsOn() : false;
+            return { brake, held, rescues, days: n, unreviewed: inMoved.length, suspicious, promotional: records.filter(promoUnreviewed).length, reported, reportedOn, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
                 total: (brake ? 1 : 0) + held + rescues + reported };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).

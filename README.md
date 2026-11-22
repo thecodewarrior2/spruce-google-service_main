@@ -217,7 +217,8 @@ the email goes to **Review → Reported** within the hour (read from Google's Al
 mailbox is listed there whatever the checks made of it, even from a Trusted sender (an account can be taken over); an
 email the checks had let through is read and checked again and recorded. Phishing or Spam confirms the report and
 trains the AI; Mark safe records a false report. Nothing is moved: Gmail already moved it to the reader's Spam folder.
-The tab's count is in the browser tab's title.
+The tab's count is in the browser tab's title. (0.6.61) The tab is shown only while User reports is on, or while
+reports from before still wait.
 
 **Company domains** (0.6.49) lists the domains proven a company's from public records, and lets an admin confirm one whose registry shows the owner only on its own website (EURid's .eu), saying where it was checked. Review leaves out the emails of senders on Trusted senders, Spam senders or Brand senders (0.6.40): someone already
 decided about them.

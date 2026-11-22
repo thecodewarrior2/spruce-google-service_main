@@ -199,6 +199,8 @@ async function buildDemo({ now = Date.now(), cfg }) {
     // listed its site, and the re-check moved every copy still in an Inbox. Some had been opened, one link
     // clicked (Gmail's logs, Settings → Link clicks on); one copy its reader had archived.
     await seedRechecked({ store, staff, intel, raws, cfg, now, r });
+    // (0.6.61) User reports is on in the demo, so Review shows its Reported tab (it is hidden while the setting is off).
+    await store.setState('userReports', { on: true, admin: `spruce-directory@${ORG}`, by: `it.helpdesk@${ORG}`, at: now - 20 * DAY, cursor: now - 3600e3 });
     // (0.6.60) Reported by their readers with Gmail's Report phishing (Settings → User reports): the pay-statement lure the
     // AI scored low (made by seedRechecked), reported by two of the people who got it; waiting in Review → Reported.
     for (const x of (await store.listRecords({ sinceMs: 0 })).filter(x => /paystub-viewer/.test(x.sender.domain) && !x.markedBy).slice(0, 2)) await store.updateRecord(x.key, { userReported: { at: x.processedAt + 40 * 60 * 1000, alertId: `demo-${x.messageId}` } });

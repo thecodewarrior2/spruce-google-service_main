@@ -107,8 +107,12 @@ test('the dashboard: Review → Reported lists the reports nobody answered, even
         assert.deepEqual(rv.keys, [`${PAT}|a`]);
         assert.equal(rv.counts.reported, 1);
         assert.equal(rv.counts.suspicious, 0, 'listed only under Reported');
+        assert.equal(rv.reportedOn, false, '(0.6.61) off: the dashboard hides the tab unless reports still wait');
         const p = await get('/api/pending?days=7');
         assert.equal(p.reported, 1);
+        assert.equal(p.reportedOn, false);
+        await svc.setUserReports(true, ADMIN, ADMIN);
+        assert.equal((await get('/api/review?queue=moved&days=7')).reportedOn, true, 'turned on: the tab is shown');
         assert.ok(p.total >= 1);
     } finally { await new Promise(r => srv.close(r)); }
 });

@@ -20,7 +20,7 @@
     }
     // The AI move threshold and suspicious line in force, and whether the Let the AI alone move staff email (every
     // answer says them; 90%, 65% and off until the first one).
-    let aiThreshold = 0.9, aiSuspicious = 0.65, aiMovesInside = false;
+    let aiThreshold = 0.9, aiSuspicious = 0.65, aiMovesInside = false, reportedOn = false;
     // (0.6.1) admin, or moderator (MODERATOR_GROUP: the review pages only; the service refuses the rest whatever the page shows).
     let role = 'admin';
     const isModerator = () => role === 'moderator';
@@ -32,6 +32,7 @@
         if (data && typeof data.aiThreshold === 'number') aiThreshold = data.aiThreshold;
         if (data && typeof data.aiSuspicious === 'number') aiSuspicious = data.aiSuspicious;
         if (data && typeof data.aiMovesInside === 'boolean') aiMovesInside = data.aiMovesInside;
+        if (data && typeof data.reportedOn === 'boolean') reportedOn = data.reportedOn;   // (0.6.61) Review's Reported tab
         if (data && (data.role === 'admin' || data.role === 'moderator')) role = data.role;
         return data;
     };
@@ -2127,7 +2128,8 @@
         return done;
     }
     // The tabs above Review's lists, each with how many emails it holds (left: the queue's count).
-    const reviewTabs = (queue, left) => h('nav', { class: 'segmented', 'aria-label': 'Which emails to review' }, shownQueues().map(([k, x]) =>
+    // (0.6.61) Reported only while Settings → User reports is on, or while reports from before still wait (or it is open).
+    const reviewTabs = (queue, left) => h('nav', { class: 'segmented', 'aria-label': 'Which emails to review' }, shownQueues().filter(([k]) => k !== 'reported' || reportedOn || left(k) > 0 || queue === k).map(([k, x]) =>
         h('a', { href: k === 'moved' ? '#/review' : `#/review?queue=${k}`, 'aria-current': k === queue ? 'page' : null, title: x.label }, `${x.short} · ${num(left(k))}`)));
     // (0.6.52) Review → Promotional: marketing and subscribed mail (Gmail's Promotions category, or a one-click unsubscribe the
     // sender signed) from senders Gmail verified, that the checks found nothing wrong with. Never moved for that. One row per

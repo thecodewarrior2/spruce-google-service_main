@@ -2514,6 +2514,11 @@ class Service {
     // recorded as usual (Mark safe leaves it where its reader put it). State userReports: { on, admin, by, at, cursor (the
     // last alert's time), seen (the last alerts read) }; userReportsHealth, userReportsTest.
     async userReports() { return Object.assign({ on: false, admin: '' }, await this.store.getState('userReports')); }
+    // (0.6.61) Whether it is on, read at most once a minute (Review shows its Reported tab only then: GET /api/review, pending).
+    async userReportsOn() {
+        if (!this._userReportsOn || this.now() - this._userReportsOn.at > 60000) this._userReportsOn = { at: this.now(), on: !!(await this.userReports()).on };
+        return this._userReportsOn.on;
+    }
     async setUserReports(on, admin, by) {
         const was = await this.userReports();
         const a = String(admin || was.admin || '').trim().toLowerCase();
@@ -2523,6 +2528,7 @@ class Service {
         // Turned on: reports from the last day are read too; turned on again later, from where it stopped.
         const v = Object.assign({}, was, { on: !!on, admin: on ? a : was.admin || '', by, at: now, cursor: was.cursor || (on ? now - DAY : null) });
         await this.store.setState('userReports', v);
+        this._userReportsOn = null;
         await this.adminNotice('settings', `${by} turned ${on ? `on User reports (Gmail's Report phishing reports read from the Alert Center as ${a}; they go to Review → Reported)` : 'off User reports'}.`);
         return { userReports: v };
     }
