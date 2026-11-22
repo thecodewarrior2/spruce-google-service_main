@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.63: spam has its own brake; an admin's Spam senders skip the campaign hold
+
+- **Spam no longer counts toward the domain-wide brake.** Moves of spam (padded list mail, the AI's spam answer, Spam
+  senders, Spam learning; Straight to Spam counts with the rules, as phishing) are counted apart, against
+  spam's own hourly limit (`SPAM_BRAKE_PER_HOUR`; by default the same number as the brake's). Over it, only spam stops,
+  until an admin resumes it on Today ("Moving spam is paused", with Resume and moving the held spam, or leaving it), and
+  an alert says so (docs/ALERTS.md, `spam-brake`). Phishing keeps being moved: a newsletter blast or a busy day of Spam
+  learning can't stop it any more. The domain-wide brake, when it is on (a misfire), still stops spam too.
+- **A sender an admin put on Spam senders isn't held by the campaign hold:** a newsletter to the whole staff from it is
+  moved for everyone (within spam's own limit). A sender Spam learning added is still held after CAMPAIGN_HOLD_AFTER
+  copies, as before. Settings → Policy's brake row says how spam is counted.
+- Nothing judges email differently (the checks level stays 49); no installation change (the new setting is optional).
+
 ## 0.6.62: User reports and Link clicks read as the directory admin
 
 - **Settings → Link clicks** no longer asks for an admin address either: it reads Gmail's logs as `DIRECTORY_ADMIN`,

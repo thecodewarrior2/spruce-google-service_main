@@ -242,3 +242,35 @@ test('the hourly health check: alerts once a day when Gmail has gone quiet, or w
     assert.deepEqual((await svc.syncFeeds()).feeds, ['downloaded']);
     assert.equal((await svc.syncFeeds()).skipped, 'checked within the day');
 });
+
+test('0.6.63: spam has its own brake: a spam blast stops only spam, never phishing; an admin\'s Spam senders skip the campaign hold, learned ones don\'t', async () => {
+    const list = users(12), more = users(16).slice(12);
+    const boxes = Object.assign(boxesWith(list, plain('deals@news.madeup-store.example', 'Weekend sale')), boxesWith(more, PHISH, 'p1'));
+    const { store, gmail, svc, alerts } = await setup({ BRAKE_PER_HOUR: '8', SPAM_BRAKE_PER_HOUR: '8', CAMPAIGN_HOLD_AFTER: '3' }, boxes, [...list, ...more]);
+    await svc.addSpamSender('deals@news.madeup-store.example', `it.admin@${ORG}`);
+    await deliver(svc, gmail, list, null);
+    const recs = (await store.listRecords({})).filter(r => r.trigger === 'spam');
+    assert.equal(recs.filter(r => r.state === 'moved').length, 8, 'spam moved up to spam\'s own limit, past the campaign hold (3): an admin\'s Spam senders entry');
+    assert.equal(recs.filter(r => r.held === 'spam-brake').length, 4);
+    assert.ok(await store.getState('spamBrake'), 'spam\'s brake is on');
+    assert.equal(await store.getState('brake'), null, 'the domain-wide brake isn\'t: spam isn\'t counted there');
+    assert.equal(alerts.filter(a => a.spruceAlert === 'spam-brake').length, 1);
+    // Phishing still moves.
+    await deliver(svc, gmail, more, null, 'p1');
+    const phish = (await store.listRecords({})).filter(r => r.messageId === 'p1');
+    assert.equal(phish.filter(r => r.state === 'moved').length, 4, 'phishing moved while spam is paused');
+    // Resuming spam moves what its brake left in the Inbox.
+    const out = await svc.resumeSpam(`it.admin@${ORG}`, { moveHeld: true });
+    assert.equal(out.held.moved, 4);
+    assert.equal(await store.getState('spamBrake'), null);
+    assert.match((await store.listEvents()).find(e => e.kind === 'resume').text, /Moving spam resumed by .*4 spam emails left in the Inbox/);
+    // A sender Spam learning added: the campaign hold applies as before.
+    const l2 = users(26).slice(16);
+    const b2 = boxesWith(l2, plain('promo@mail.madeup-shop.example', 'New arrivals'), 'q1');
+    const t2 = await setup({ BRAKE_PER_HOUR: '1000', CAMPAIGN_HOLD_AFTER: '3' }, b2, l2);
+    await t2.svc.addSpamSender('promo@mail.madeup-shop.example', 'Spam learning', { from: 'learning' });
+    await deliver(t2.svc, t2.gmail, l2, null, 'q1');
+    const r2 = (await t2.store.listRecords({})).filter(r => r.messageId === 'q1');
+    assert.equal(r2.filter(r => r.state === 'moved').length, 3, 'held after 3 copies: not an admin\'s choice');
+    assert.equal(r2.filter(r => r.held === 'campaign').length, 7);
+});

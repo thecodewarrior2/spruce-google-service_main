@@ -1,5 +1,5 @@
 {
   "checksLevel": 49,
   "fingerprint": "091312e85b244a61540b096658e7a3067ba14e074b0266091a0f970d29c0ec9b",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.62: Link clicks and User reports read as DIRECTORY_ADMIN; no verdict changes"
+  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.63: spam's own brake and the campaign hold for an admin's Spam senders; no verdict changes"
 }

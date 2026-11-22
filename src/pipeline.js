@@ -874,6 +874,7 @@ class Service {
         const spamSender = await this.spamSenderFor(user, facts, result, allowlisted).catch(() => null);
         if (spamSender) {
             result.spamSender = spamSender.key;
+            result.spamSenderFrom = spamSender.from || 'page';   // (0.6.63) an admin's entry, or Spam learning's
             decision = { action: this.cfg.mode === 'enforce' ? 'move' : 'would-move', trigger: 'spam', why: `spam: ${spamSender.key} is on Settings → Sender lists → Spam senders (added by ${spamSender.by})${this.cfg.mode === 'enforce' ? '' : ' (monitor mode: nothing is moved)'}` };
         }
         if (!alreadyMoved && decision.action === 'move' && await this.brakeOn(now)) decision = spamSender ? Object.assign({}, decision, { action: 'would-move', why: `${decision.why}; the brake is on, so it was left in the Inbox` }) : decide(result, this.cfg, { brake: true });
@@ -992,18 +993,34 @@ class Service {
     //     evidence is never held, so a clear phishing campaign reaches every mailbox;
     //   - the domain-wide brake, a last resort against a misfire: more than brakeLimit() moves in the
     //     clock hour (counted exactly, a slot reserved before each move) stops moving everywhere.
+    // (0.6.63) Spam (trigger 'spam': padded list mail, the AI's spam answer, Spam senders, Spam learning) has a brake of its
+    // own: its moves count against spamBrakeLimit() in their own hourly counter, never the domain-wide one, so a spam blast
+    // can't stop phishing from being moved; over the limit, only spam stops (state spamBrake) until an admin resumes it.
+    // The domain-wide brake, on, still stops spam too. A sender an admin put on Spam senders isn't held by the campaign
+    // hold (the list is their decision); one Spam learning added is.
     // Held copies are recorded as "would move" and can be moved later (moveHeld).
     async brakes(decision, result, campaignKey, campaignLabel, now) {
         const cs = await this.store.getCampaign(campaignKey);
         const released = (d) => ({ decision: { action: 'flag', trigger: d.trigger, why: `${d.why}; an admin dismissed this campaign as a false alarm, so its copies aren't moved` }, held: null });
         if (cs && cs.decision === 'released') return released(decision);
-        if (!result.strong && !(cs && cs.decision === 'confirmed')) {
+        const spam = decision.trigger === 'spam';
+        const adminSpamSender = spam && !!result.spamSender && result.spamSenderFrom !== 'learning';
+        if (!result.strong && !adminSpamSender && !(cs && cs.decision === 'confirmed')) {
             const h = await this.store.campaignHold(campaignKey, this.cfg.campaignHoldAfter, now, campaignLabel);
             if (h.decision === 'released') return released(decision);
             if (h.held) {
                 if (h.first) await this.alert('campaign-held', `Moving copies of "${campaignLabel}" is paused: more than ${this.cfg.campaignHoldAfter} were moved on evidence nothing outside the email confirms, so the next ones stay in the Inbox, like any email not moved. Confirm it as phishing (every copy is moved to Spam) or dismiss it as a false alarm (the moved ones go back to the Inbox): on the dashboard, Threats → Campaigns, then open the campaign.`, { campaign: campaignKey });
                 return { decision: { action: 'would-move', trigger: decision.trigger, why: `${decision.why} (not moved: moving this campaign is paused after ${this.cfg.campaignHoldAfter} copies on evidence nothing outside the email confirms, until an admin confirms it or dismisses it)` }, held: 'campaign' };
             }
+        }
+        if (spam) {
+            const spamHeld = { decision: { action: 'would-move', trigger: decision.trigger, why: `${decision.why} (not moved: moving spam is paused, its own brake is on)`, braked: true }, held: 'spam-brake' };
+            if (await this.store.getState('spamBrake')) return spamHeld;
+            const spamResumedAt = Number(await this.store.getState('spamBrakeResumedAt')) || 0;
+            const spamLimit = await this.spamBrakeLimit();
+            const s = await this.store.reserveMove(`spam|${hourOf(now)}|${spamResumedAt}`, spamLimit, now);
+            if (!s.ok) { await this.tripSpamBrake(now, s.count, spamLimit); return spamHeld; }
+            return { decision, held: null };
         }
         const resumedAt = Number(await this.store.getState('brakeResumedAt')) || 0;
         const limit = await this.brakeLimit();
@@ -1018,6 +1035,25 @@ class Service {
     async brakeLimit() {
         if (this.cfg.brakePerHour > 0) return this.cfg.brakePerHour;
         return Math.max(100, Math.ceil((Number(await this.store.getState('watchedCount')) || 0) / 2));
+    }
+    // (0.6.63) Spam's own limit: SPAM_BRAKE_PER_HOUR, else the domain-wide brake's (counted apart).
+    async spamBrakeLimit() {
+        if (this.cfg.spamBrakePerHour > 0) return this.cfg.spamBrakePerHour;
+        return this.brakeLimit();
+    }
+    async tripSpamBrake(now, count, limit) {
+        if (!(await this.store.setStateIfUnset('spamBrake', { at: now, moves: count, limit }))) return;
+        await this.alert('spam-brake', `${count} emails were moved as spam within the hour (spam's own limit: ${limit}). Moving spam has stopped in every mailbox until an admin resumes it on the dashboard (Today). Phishing is still moved as usual. If a sender on Spam senders or Spam learning sent this much, that may be expected; if the AI's spam answer did, look at what it moved first.`);
+    }
+    async spamBrakeOn() { return !!(await this.store.getState('spamBrake')); }
+    // The admin resumes moving spam: its hour's count starts again, and with moveHeld the spam its brake held is moved now.
+    async resumeSpam(by, { moveHeld = false } = {}) {
+        const b = await this.store.getState('spamBrake');
+        await this.store.setState('spamBrakeResumedAt', this.now());
+        await this.store.setState('spamBrake', null);
+        const out = moveHeld && b ? await this.moveHeld(r => r.held === 'spam-brake' && r.processedAt >= b.at, by, 'resumed moving spam', { sinceMs: b.at }) : null;
+        await this.store.addEvent({ kind: 'resume', text: `Moving spam resumed by ${by}${out ? (out.monitor ? '' : `; ${out.moved} spam emails left in the Inbox while its brake was on were moved to Spam${out.gone ? `, ${out.gone} no longer in the Inbox` : ''}`) : ''}.` });
+        return { ok: true, held: out };
     }
     // The brake comes on: only the instance that sets it first alerts (the others' moves were refused too).
     async tripBrake(now, count, limit) {

@@ -74,6 +74,8 @@ function loadConfig(env = process.env) {
         // on weaker evidence (no outside confirmation) beyond this are held until an admin confirms or
         // releases the campaign; strong evidence is never held.
         brakePerHour: num(env.BRAKE_PER_HOUR, 0),
+        // (0.6.63) Spam's own brake: moves of spam an hour before only spam stops (0: the same number as the brake's, counted apart).
+        spamBrakePerHour: num(env.SPAM_BRAKE_PER_HOUR, 0),
         campaignHoldAfter: num(env.CAMPAIGN_HOLD_AFTER, 25),
         // Alerts (logged for Cloud Monitoring to email; deploy/install.sh): a campaign moved this many
         // times, and no notification from Gmail for this many hours.

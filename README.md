@@ -64,7 +64,10 @@ mode).
     - **A domain-wide brake as a last resort:** more than `BRAKE_PER_HOUR` moves in an hour (by default
       half the watched mailboxes, at least 100) stops moving everywhere. That is a misfire on many
       unrelated emails, not one campaign. Counted exactly. While it is on, emails are left in the Inbox;
-      **Resume, and move those to Spam** moves them afterwards.
+      **Resume, and move those to Spam** moves them afterwards. (0.6.63) Spam (padded list mail, the AI's spam answer,
+      Spam senders, Spam learning) is counted apart, against its own limit (`SPAM_BRAKE_PER_HOUR`, by default the same
+      number): too much spam stops only spam, with its own Resume on Today, and never stops phishing from being moved.
+      A sender an admin put on Spam senders isn't held by the campaign hold either; one Spam learning added is.
     - **Alerts by email** when a brake engages, moving a campaign pauses, a large campaign arrives, Gmail goes
       quiet, or a scheduled job fails (`ALERT_EMAIL`, Cloud Monitoring).
   - **Every move can be undone** from the dashboard, and by the user: an email the user moves back

@@ -308,6 +308,12 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
 
     // The brake, and how many emails it holds (still in the Inbox, recorded since it came on). The brake and the
     // held campaigns are read at most every 15 s (0.6.7, shortLived), shared with GET /api/pending.
+    // (0.6.63) Spam's own brake: on, with the spam it left in the Inbox since.
+    async function spamBrakeInfo(records) {
+        const b = await shortLived('spamBrake', 15000, () => store.getState('spamBrake'));
+        if (!b) return null;
+        return Object.assign({}, b, { held: records.filter(r => r.held === 'spam-brake' && r.state === 'inbox' && r.processedAt >= b.at).length });
+    }
     async function brakeInfo(records) {
         const b = await shortLived('brake', 15000, () => store.getState('brake'));
         if (!b) return null;
@@ -517,7 +523,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const n = nDays(q), now = Date.now();
             return { summary: A.summary(records, stats, now, n), trend: A.trend(records, stats, now, n), topReasons: A.topReasons(records, now, n).slice(0, 8),
                      campaigns: A.campaigns(records, now, n).slice(0, 5), alerts: await eventsSince(now - 7 * A.DAY, 10),
-                     brake: await brakeInfo(records), heldCampaigns: await heldCampaigns(records), mode: cfg.mode, aiThreshold: cfg.aiThreshold,
+                     brake: await brakeInfo(records), spamBrake: await spamBrakeInfo(records), heldCampaigns: await heldCampaigns(records), mode: cfg.mode, aiThreshold: cfg.aiThreshold,
                      // The phishing lists that missed their download (0.5.22): the overview's banner.
                      missedLists: await missedLists(),
                      // Phishing found after delivery, not yet marked seen (0.5.35): the overview's banner.
@@ -679,7 +685,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             // (the list, only with ?mailboxes=1, at most 500: Settings → Mailboxes reads GET /api/mailboxes since 0.5.53)
             const listed = q && q.get && q.get('mailboxes') ? await store.listWatched(500) : null;
             return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, strictSpam: cfg.strictSpam || [], suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
-                     brakeLimit: await service.brakeLimit(), campaignHoldAfter: cfg.campaignHoldAfter, alertEmail: cfg.alertEmail || '',
+                     brakeLimit: await service.brakeLimit(), spamBrakePerHour: cfg.spamBrakePerHour || 0, campaignHoldAfter: cfg.campaignHoldAfter, alertEmail: cfg.alertEmail || '',
                      orgDomains: cfg.orgDomains, pilotGroups: cfg.pilotGroups, pilotOu: cfg.pilotOu, pilotUsers: cfg.pilotUsers.length, watchScope: cfg.watchScope, allowDomains: cfg.allowDomains, allowLinkDomains: cfg.allowLinkDomains || [], allowAddresses: cfg.allowAddresses.length,
                      retentionDays: cfg.retentionDays, storeSubjects: cfg.storeSubjects, storeAiQuotes: cfg.storeAiQuotes, movedLabel: cfg.movedLabel,
                      model: E.modelInfo, engine: E.vendor, watched: mb.watched, demo: cfg.demo,
@@ -850,7 +856,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             catch (e) { if (e.status) return { error: e.message, status: e.status }; throw e; }
         },
         // Resume moving; with moveHeld, the emails the brake held are moved now too.
-        'POST /api/resume': async (q, body, admin) => service.resume(admin.email, { moveHeld: body.moveHeld === true }),
+        'POST /api/resume': async (q, body, admin) => (body.spam === true ? service.resumeSpam(admin.email, { moveHeld: body.moveHeld === true }) : service.resume(admin.email, { moveHeld: body.moveHeld === true })),
         // A campaign: what the brakes and admins decided, and how many copies are where.
         'GET /api/campaign': async (q) => {
             const key = String(q.get('key') || '');
@@ -943,6 +949,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const all = await reviewRecords(service, cache, Date.now() - 90 * A.DAY);
             const records = all.filter(r => (r.processedAt || 0) >= from);
             const brake = !!(await shortLived('brake', 15000, () => store.getState('brake')));
+            const spamBrake = !!(await shortLived('spamBrake', 15000, () => store.getState('spamBrake')));
             const held = (await shortLived('held', 15000, () => store.listHeldCampaigns())).filter(c => !c.decision).length;
             const rescues = records.filter(rescueToCheck).length;
             const inMoved = movedTab(records), movedKeys = new Set(inMoved.map(r => r.key));
@@ -953,7 +960,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const reported = records.filter(reportedUnreviewed).length;
             const reportedOn = service.userReportsOn ? await service.userReportsOn() : false;
             return { brake, held, rescues, days: n, unreviewed: inMoved.length, suspicious, promotional: records.filter(promoUnreviewed).length, reported, reportedOn, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
-                total: (brake ? 1 : 0) + held + rescues + reported };
+                spamBrake, total: (brake ? 1 : 0) + (spamBrake ? 1 : 0) + held + rescues + reported };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).
         // (0.6.7) Shared by every open dashboard for a minute: each look asks Cloud Run, Cloud Scheduler and the lists.

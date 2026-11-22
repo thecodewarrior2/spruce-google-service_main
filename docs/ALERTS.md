@@ -187,6 +187,15 @@ Mail is still checked; one source of evidence is missing until it comes back.
 - **What to do:** look at Mail → Messages, then on Today **Resume**, moving the held emails to Spam or
   leaving them (docs/INSTALL.md, "In enforce mode, the brakes").
 
+### Moving spam is paused: spam's own brake (`spam-brake`)
+- **When:** (0.6.63) more emails were moved as spam within an hour than spam's own limit (`SPAM_BRAKE_PER_HOUR`, or the
+  same number as the brake's). Spam is padded list mail, the AI's spam answer, Spam senders and Spam learning.
+- **What it means for mail:** only spam stops: it stays in the Inbox until an admin resumes. Phishing is still moved as
+  usual (spam isn't counted toward the domain-wide brake).
+- **What to do:** if a sender on Spam senders or Spam learning sent that much, it may be expected; if the AI's spam
+  answer did, look at what it moved first (Mail → Messages). Then on Today **Resume** spam, moving the held spam to Spam
+  or leaving it.
+
 ### Moving a campaign is paused (`campaign-held`)
 - **When:** many copies of one campaign were moved on evidence nothing outside the email confirms.
 - **What to do:** Threats → Campaigns → open it → **Confirm phishing** (every copy to Spam) or **False alarm**
