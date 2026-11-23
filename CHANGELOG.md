@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.64: Remembered answers stays inside its card
+
+- **Settings → Sender lists → Remembered answers:** its table was wider than the card, so the Until column and the Remove
+  buttons spilled outside it. Long addresses and subjects now wrap inside the card, the Was tag wraps between words, and
+  where the card is narrower than the table can be read (two cards side by side) the table scrolls sideways inside the
+  card. An answer from before 0.6.59 shows a plain dash under Was instead of "not recorded". The demo has three
+  remembered answers.
+- Dashboard only: nothing judges email differently (the checks level stays 49), no installation change.
+
 ## 0.6.63: spam has its own brake; an admin's Spam senders skip the campaign hold
 
 - **Spam no longer counts toward the domain-wide brake.** Moves of spam (padded list mail, the AI's spam answer, Spam

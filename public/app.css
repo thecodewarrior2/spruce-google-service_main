@@ -235,6 +235,12 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover, tbody tr.clickable:focus { background: var(--surface-2); outline: none; }
 .table-wrap { overflow-x: auto; }
+/* (0.6.64) A table that stays inside its card: as wide as the card, long addresses and subjects wrap; a card narrower than
+   the table's readable width scrolls it sideways (in .table-wrap) instead of letting it spill out. */
+.tbl.fit { width: 100%; min-width: 620px; }
+.tbl.fit td .kind-tag { white-space: normal; overflow-wrap: normal; }
+.tbl.fit th, .tbl.fit td { overflow-wrap: anywhere; }
+.tbl.fit td:last-child, .tbl.fit th:last-child { white-space: nowrap; width: 1%; }
 .trunc { max-width: 360px; min-width: 200px; overflow-wrap: anywhere; }
 @media (max-width: 700px) { .table-wrap table { min-width: 600px; } .trunc { min-width: 200px; } }
 .muted { color: var(--muted); }

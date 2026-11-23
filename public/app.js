@@ -1351,15 +1351,17 @@
         const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Remembered answers' }),
             h('p', { class: 'sub', text: 'Emails marked safe (not phishing or spam) in Review, an email\'s page or Mail: their identical copies are marked safe too. "Was" shows what the service had taken the email for. Each is kept as a one-way hash of the email, with its sender and subject line for this list.' }));
         const draw = (rows) => {
-            card.querySelectorAll('table, p.empty').forEach(t => t.remove());
+            card.querySelectorAll('div.table-wrap, table, p.empty').forEach(t => t.remove());
             if (!rows.length) { card.append(h('p', { class: 'empty', text: 'No answer remembered yet.' })); return; }
-            card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Sender', 'Subject', 'Was', 'Marked safe by', 'Copies since', 'Until', ''].map(t => h('th', { text: t })))),
-                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.sender }), h('td', { class: 'trunc', text: r.label || '–' }), h('td', {}, h('span', { class: `kind-tag ${/^Phishing/.test(r.was || '') ? 'needs' : ''}`, text: r.was || 'not recorded' })), h('td', { text: r.by || '' }),
+            // (0.6.64) Inside the card: long addresses and subjects wrap; a narrow card scrolls the table sideways.
+            card.append(h('div', { class: 'table-wrap' }, h('table', { class: 'tbl fit remembered' },
+                h('thead', {}, h('tr', {}, ['Sender', 'Subject', 'Was', 'Marked safe by', 'Copies since', 'Until', ''].map(t => h('th', { text: t })))),
+                h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.sender }), h('td', { text: r.label || '–' }), h('td', {}, r.was ? h('span', { class: `kind-tag ${/^Phishing/.test(r.was) ? 'needs' : ''}`, text: r.was }) : h('span', { class: 'muted', title: 'Marked safe before 0.6.59, which began keeping what the service had taken it for', text: '–' })), h('td', { text: r.by || '' }),
                     h('td', { 'data-sort': String(r.hits || 0), text: `${num(r.hits || 0)}${r.last && r.hits ? ` (last ${dayOf(r.last)})` : ''}` }), h('td', { 'data-sort': String(r.until || 0), text: dayOf(r.until) }),
                     h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
                         e.target.disabled = true;
                         try { const out = await api('/api/remembered', { method: 'POST', body: { id: r.id } }); toast('Removed: its later copies are judged as usual again.'); draw(out.list || []); }
-                        catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); e.target.disabled = false; } } }, 'Remove')))))));
+                        catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); e.target.disabled = false; } } }, 'Remove'))))))));
         };
         draw(list);
         return card;
