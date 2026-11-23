@@ -346,3 +346,14 @@ test('the dashboard\'s event cache: 12,000 new events between two looks, all arr
     now += 10000;
     assert.equal((await ev.list(now - 86400000, { limit: Infinity })).length, 12001);
 });
+
+test('0.6.71: the loading bar: every start in the dashboard is ended by its own ticket, so it never stays after an action', () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'app.js'), 'utf8');
+    const lines = src.split('\n').filter(l => !/^\s*\/\//.test(l));
+    // A start whose ticket is dropped can't be ended exactly (busyEnd() with nothing, or with words, took another entry or
+    // none: a campaign box's answers and Mail's selection left the bar up until the page was reloaded).
+    const bare = lines.filter(l => /(^|[;{]\s*)busyStart\(/.test(l.trim()) && !/function busyStart/.test(l));
+    assert.deepEqual(bare, [], 'every busyStart( keeps its ticket');
+    const loose = lines.filter(l => /busyEnd\((\)|')/.test(l));
+    assert.deepEqual(loose, [], 'every busyEnd( is given a ticket');
+});

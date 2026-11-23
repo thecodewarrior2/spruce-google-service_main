@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.71: the loading bar no longer stays up after an action
+
+- **Fixed: the loading bar and the "Saving…" note in the corner stayed until the page was reloaded** after answering
+  every copy in a campaign's box (Messages) or a selection in Mail, most often seen when going to another page while it
+  was saving. Each of those started the bar with words and ended it without them, so its end found nothing to take away.
+  Now every start of the bar is ended by its own ticket (24 places), and a test keeps it so.
+- Dashboard only: nothing about how email is judged changes. No installation change.
+
 ## 0.6.70: Review drops emails answered on other pages; re-checks on Today; a veil while the dashboard rests
 
 - **Fixed: an email answered on its own page stayed in Review.** Review reads its list once and keeps it while it is
