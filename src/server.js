@@ -684,7 +684,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const mb = await mailboxes();
             // (the list, only with ?mailboxes=1, at most 500: Settings → Mailboxes reads GET /api/mailboxes since 0.5.53)
             const listed = q && q.get && q.get('mailboxes') ? await store.listWatched(500) : null;
-            return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, strictSpam: cfg.strictSpam || [], suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
+            return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, strictSpam: require('./policy').strictKinds(cfg.strictSpam), suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
                      brakeLimit: await service.brakeLimit(), spamBrakePerHour: cfg.spamBrakePerHour || 0, campaignHoldAfter: cfg.campaignHoldAfter, alertEmail: cfg.alertEmail || '',
                      orgDomains: cfg.orgDomains, pilotGroups: cfg.pilotGroups, pilotOu: cfg.pilotOu, pilotUsers: cfg.pilotUsers.length, watchScope: cfg.watchScope, allowDomains: cfg.allowDomains, allowLinkDomains: cfg.allowLinkDomains || [], allowAddresses: cfg.allowAddresses.length,
                      retentionDays: cfg.retentionDays, storeSubjects: cfg.storeSubjects, storeAiQuotes: cfg.storeAiQuotes, movedLabel: cfg.movedLabel,
@@ -1003,6 +1003,12 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (key === 'mode' && body.value === 'enforce' && cfg.mode !== 'enforce' && body.agree !== true) return { error: 'Tick "I agree" to switch to enforce mode. Nothing was changed.', status: 400 };
             // The AI alone moving colleagues' mail is a step away from the cautious default: agreed to, too.
             if (key === 'aiMovesInside' && /^(true|on|yes|1)$/i.test(String(body.value)) && !cfg.aiMovesInside && body.agree !== true) return { error: 'Tick "I agree" to let the AI alone move mail from inside. Nothing was changed.', status: 400 };
+            // (0.6.65) Skip review: turning any item on moves mail without review, so it is agreed to, ticked.
+            if (key === 'strictSpam') {
+                const { strictKinds } = require('./policy');
+                const was = strictKinds(cfg.strictSpam), now = strictKinds(Array.isArray(body.value) ? body.value : String(body.value || '').split(/[\s,;]+/));
+                if (now.some(k => !was.includes(k)) && body.agree !== true) return { error: 'Tick "I agree" to send this mail to Spam without review. Nothing was changed.', status: 400 };
+            }
             // (0.5.53) Who is checked (the pilot or the whole domain): ticked, and the signed-in admin's own address typed
             // too, both ways. The whole domain only when its mailboxes can be read from the directory.
             if (key === 'watchScope') {

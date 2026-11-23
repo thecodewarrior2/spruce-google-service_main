@@ -200,32 +200,59 @@ test('0.5.53: switching who is checked (the pilot or the whole domain) needs the
     } finally { await s.close(); }
 });
 
-test('0.6.59: Straight to Spam: off by default; each chosen sign moves outside mail without review; never Trusted or inside mail; monitor mode and the brake apply', () => {
+test('0.6.59/0.6.65: Skip review: off by default; each chosen sign moves outside mail without review; never Trusted or inside mail; monitor mode and the brake apply', () => {
     const { decide, strictWhy } = require('../src/policy');
     const base = { mode: 'enforce', aiThreshold: 0.9, aiSuspicious: 0.65, moveOnRules: true, aiMovesInside: false, strictSpam: [] };
-    const r = (signs, extra = {}) => Object.assign({ status: 'clean', score: 0, ai: { probability: 0.1 }, inside: false, strictSigns: Object.assign({ dmarc: null, forgedId: false, listed: [] }, signs) }, extra);
-    assert.equal(decide(r({ dmarc: 'fail', forgedId: true }), base).action, 'none', 'off by default');
-    const cfg = Object.assign({}, base, { strictSpam: ['dmarc-fail', 'forged-id', 'listed'] });
+    const r = (signs, extra = {}) => Object.assign({ status: 'clean', score: 0, ai: { probability: 0.1 }, inside: false, strictSigns: Object.assign({ dmarc: null, forgedHeaders: [], spamHeaders: [], senderListed: false, dangerousLinks: false }, signs) }, extra);
+    assert.equal(decide(r({ dmarc: 'fail', forgedHeaders: ['forged-message-id'] }), base).action, 'none', 'off by default');
+    const cfg = Object.assign({}, base, { strictSpam: ['dmarc-fail', 'forged-headers', 'spam-headers', 'sender-listed', 'dangerous-links'] });
     const failing = decide(r({ dmarc: 'fail' }), cfg);
     assert.deepEqual([failing.action, failing.trigger, failing.strict], ['move', 'rules', true]);
-    assert.match(failing.why, /straight to Spam \(Settings → Policy → Straight to Spam\): Gmail's DMARC check failed/);
-    assert.equal(decide(r({ forgedId: true }), cfg).action, 'move');
-    assert.equal(decide(r({ listed: ['a link is blocked or on a phishing list'] }), cfg).action, 'move');
+    assert.match(failing.why, /straight to Spam, skipping review \(Settings → Policy → Skip review\): the sender check failed/);
+    const forged = decide(r({ forgedHeaders: ['forged-received', 'duplicate-headers'] }), cfg);
+    assert.equal(forged.action, 'move');
+    assert.match(forged.why, /forged headers \(Received lines copied from other emails, repeated headers\)/);
+    assert.match(decide(r({ spamHeaders: ['spam-flag'] }), cfg).why, /spam headers \(a mail system on the way marked it spam\)/);
+    assert.match(decide(r({ senderListed: true }), cfg).why, /the sender is on a threat list/);
+    assert.match(decide(r({ dangerousLinks: true }), cfg).why, /a link is flagged dangerous/);
+    // The 0.6.59 names still work: forged-id is forged headers, listed is both the sender list and dangerous links.
+    const old = Object.assign({}, base, { strictSpam: ['forged-id', 'listed'] });
+    assert.equal(decide(r({ forgedHeaders: ['duplicate-headers'] }), old).action, 'move');
+    assert.equal(decide(r({ dangerousLinks: true }), old).action, 'move');
+    assert.equal(decide(r({ spamHeaders: ['spam-flag'] }), old).action, 'none', 'spam headers are a new item, not in the old names');
     assert.equal(decide(r({ dmarc: 'missing' }), cfg).action, 'none', 'missing DMARC only when chosen');
     assert.equal(decide(r({ dmarc: 'missing' }), Object.assign({}, cfg, { strictSpam: ['dmarc-missing'] })).action, 'move');
-    assert.equal(decide(r({ forgedId: true }, { status: 'trusted' }), cfg).action, 'none', 'Trusted senders Gmail confirmed');
-    assert.equal(decide(r({ forgedId: true }, { inside: true }), cfg).action, 'none', 'inside mail');
+    assert.equal(decide(r({ senderListed: true }, { status: 'trusted' }), cfg).action, 'none', 'Trusted senders Gmail confirmed');
+    assert.equal(decide(r({ dangerousLinks: true }, { inside: true }), cfg).action, 'none', 'inside mail');
     assert.equal(decide(r({ dmarc: 'fail' }), Object.assign({}, cfg, { mode: 'monitor' })).action, 'would-move');
     const braked = decide(r({ dmarc: 'fail' }), cfg, { brake: true });
     assert.deepEqual([braked.action, braked.braked], ['would-move', true]);
     assert.equal(strictWhy(r({}), cfg), null, 'no sign: nothing');
 });
 
-test('0.6.59: Straight to Spam on the dashboard: only the four signs, kept in order; set from STRICT_SPAM', async () => {
+test('0.6.59/0.6.65: Skip review on the dashboard: only its signs, kept in order, old names read as today\'s; set from STRICT_SPAM', async () => {
     const { policyValue } = require('../src/pipeline');
-    assert.deepEqual(policyValue('strictSpam', ['listed', 'dmarc-fail']), ['dmarc-fail', 'listed']);
+    assert.deepEqual(policyValue('strictSpam', ['dangerous-links', 'dmarc-fail']), ['dmarc-fail', 'dangerous-links']);
+    assert.deepEqual(policyValue('strictSpam', ['listed']), ['sender-listed', 'dangerous-links']);
     assert.deepEqual(policyValue('strictSpam', []), []);
-    assert.throws(() => policyValue('strictSpam', ['everything']), /Straight to Spam takes/);
-    assert.deepEqual(loadConfig(Object.assign({}, ENV, { STRICT_SPAM: 'forged-id, nonsense' })).strictSpam, ['forged-id']);
+    assert.throws(() => policyValue('strictSpam', ['everything']), /Skip review takes/);
+    assert.deepEqual(loadConfig(Object.assign({}, ENV, { STRICT_SPAM: 'forged-id, nonsense, spam-headers' })).strictSpam, ['forged-headers', 'spam-headers']);
     assert.deepEqual(loadConfig(ENV).strictSpam, []);
+});
+
+test('0.6.65: Skip review on the dashboard: turning an item on needs the agreement; turning one off doesn\'t', async () => {
+    const cfg = loadConfig({ DEMO: '1', MODE: 'monitor', ORG_DOMAINS: ORG });
+    const s = await serve(cfg, new MemoryStore());
+    try {
+        let r = await s.post({ key: 'strictSpam', value: ['dmarc-fail'], projectId: 'demo-project' });
+        assert.equal(r.status, 400); assert.match(r.body.error, /Tick "I agree" to send this mail to Spam without review/);
+        assert.deepEqual(cfg.strictSpam, [], 'nothing changed');
+        r = await s.post({ key: 'strictSpam', value: ['dmarc-fail', 'spam-headers'], projectId: 'demo-project', agree: true });
+        assert.equal(r.status, 200, JSON.stringify(r.body));
+        assert.deepEqual(cfg.strictSpam, ['spam-headers', 'dmarc-fail']);
+        assert.deepEqual((await s.settings()).strictSpam, ['spam-headers', 'dmarc-fail']);
+        r = await s.post({ key: 'strictSpam', value: ['spam-headers'], projectId: 'demo-project' });
+        assert.equal(r.status, 200, 'turning one off needs no agreement');
+        assert.deepEqual(cfg.strictSpam, ['spam-headers']);
+    } finally { await s.close(); }
 });

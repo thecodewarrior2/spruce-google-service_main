@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { readMessage } = require('./engine/mime');
 const { analyze, aiReading, senderVerified, sameOrgDomain, platformNotification, shareSource } = require('./engine/analyze');
 const { MASS_SHARE } = require('./engine/notifications');
-const { decide, isAllowed, suspiciousWhy, STRICT_KINDS } = require('./policy');
+const { decide, isAllowed, suspiciousWhy, STRICT_KINDS, strictKinds } = require('./policy');
 const { GoogleApiError } = require('./gmail/client');
 const { compareHistoryIds, movesForward } = require('./store/history');
 const { buildDigest, mime, isSummary, localParts } = require('./digest');
@@ -225,7 +225,7 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
 const LIST_KEYS = ['allowDomains', 'allowAddresses', 'allowLinkDomains'];
 // (0.6.59) Settings → Policy → Straight to Spam (policy.js strictWhy).
-const STRICT_WORDS = { 'dmarc-fail': 'DMARC failing', 'dmarc-missing': 'no DMARC', 'forged-id': 'a forged message ID', listed: 'on a list' };
+const STRICT_WORDS = { 'forged-headers': 'forged headers', 'spam-headers': 'spam headers', 'sender-listed': 'sender on a threat list', 'dmarc-fail': 'failed sender check', 'dmarc-missing': 'no DMARC', 'dangerous-links': 'dangerous links' };
 const MAX_ALLOWED = 500;
 // (0.6.59) Spam learning: the longest run, and how sure the AI's spam answer must be (outside promotional mail).
 const SPAM_LEARN_MAX_DAYS = 30, SPAM_LEARN_SURE = 0.99;
@@ -296,8 +296,8 @@ function policyValue(key, v, now = {}) {
     if (key === 'mode') return v === 'monitor' || v === 'enforce' ? v : bad('The mode is monitor or enforce.');
     if (key === 'strictSpam') {
         const items = asList(v);
-        const wrong = items.filter(x => !STRICT_KINDS.includes(x));
-        return wrong.length ? bad(`Straight to Spam takes ${STRICT_KINDS.join(', ')} (or none).`) : STRICT_KINDS.filter(x => items.includes(x));
+        const wrong = items.filter(x => !strictKinds([x]).length);
+        return wrong.length ? bad(`Skip review takes ${STRICT_KINDS.join(', ')} (or none).`) : strictKinds(items);
     }
     if (key === 'watchScope') return v === 'pilot' || v === 'domain' ? v : bad('Who is checked is the pilot or the whole domain.');
     const pc = (x) => `${Math.round(Number(x) * 1000) / 10}%`;
@@ -325,7 +325,7 @@ function policyValue(key, v, now = {}) {
 function policyWords(key, v) {
     if (LIST_KEYS.includes(key)) { const l = asList(v); return l.length ? (l.length > 5 ? `${l.length} entries` : l.join(', ')) : 'none'; }
     if (key === 'mode') return v === 'enforce' ? 'enforce' : 'monitor';
-    if (key === 'strictSpam') { const l = asList(v); return l.length ? l.map(x => STRICT_WORDS[x] || x).join(', ') : 'off'; }
+    if (key === 'strictSpam') { const l = strictKinds(v); return l.length ? l.map(x => STRICT_WORDS[x] || x).join(', ') : 'off'; }
     if (key === 'releasesRepo' || key === 'modelRepo') return String(v || '').trim() ? repos.shown(v) : 'not set';
     if (key === 'watchScope') return v === 'domain' ? 'the whole domain' : 'the pilot';
     if (key === 'aiThreshold' || key === 'aiSuspicious') return `${Math.round(Number(v) * 1000) / 10}%`;
@@ -473,7 +473,7 @@ class Service {
             : key === 'mode'
             ? (value === 'enforce' ? `${by} switched to enforce mode on the dashboard (${how}): from now on, emails the policy flags are moved to Spam.`
                 : `${by} switched to monitor mode on the dashboard (${how}): nothing is moved from now on, and emails already moved stay in Spam.`)
-            : `${by} changed ${({ aiThreshold: 'the AI move threshold', aiSuspicious: 'the AI suspicious line', aiScansInside: 'whether the AI reads mail from inside the organization', aiMovesInside: 'whether the AI alone moves mail from inside the organization', brakePerHour: 'the brake', timeZone: 'the time zone', retentionDays: 'how long records are kept', strictSpam: 'Straight to Spam' })[key]} from ${policyWords(key, before)} to ${policyWords(key, value)} on the dashboard (${how}).`
+            : `${by} changed ${({ aiThreshold: 'the AI move threshold', aiSuspicious: 'the AI suspicious line', aiScansInside: 'whether the AI reads mail from inside the organization', aiMovesInside: 'whether the AI alone moves mail from inside the organization', brakePerHour: 'the brake', timeZone: 'the time zone', retentionDays: 'how long records are kept', strictSpam: 'Skip review' })[key]} from ${policyWords(key, before)} to ${policyWords(key, value)} on the dashboard (${how}).`
               + (key === 'timeZone' ? ' The weekly summary uses it now; the nightly jobs move to it the next time deploy/install.sh runs.' : '')
               + (key === 'retentionDays' ? (value < before ? ` Records older than ${value} days are deleted over the next hours, the oldest first.`
                   : ` Records saved from now on are kept ${value} days; the ones already saved keep the date they had (${before} days after they arrived).`) : '');

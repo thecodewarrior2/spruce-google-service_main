@@ -8,7 +8,7 @@
   --accent: #1f6f54; --accent-ink: #ffffff; --accent-soft: #e3f0ea;
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #8a63d2;
   --total: #d9ddd9;   /* 0.5.45: the emails checked, behind the moved ones (recessive, neutral) */
-  --good: #0ca30c; --good-text: #006300; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --critical-text: #b42727;
+  --good: #0ca30c; --good-text: #006300; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --critical-text: #b42727; --warn-text: #8a5300;
   --critical-soft: #fbeaea; --warning-soft: #fff5de; --good-soft: #e7f6e7;
   /* 0.6.0: what points to phishing (orange) and to safe (blue): told apart by lightness too, not hue alone. */
   --phish: #c2410c; --phish-soft: #fdeee7; --phish-text: #9a3412; --safe: #2457c5; --safe-soft: #eaf0fc; --safe-text: #1d47a3;
@@ -25,7 +25,7 @@
     --accent: #5cc29a; --accent-ink: #0b1f17; --accent-soft: #1a3329;
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9b7ae0;
     --total: #34403a;
-    --good-text: #3fcf6a; --critical-text: #f08080; --critical-soft: #3a1d1d; --warning-soft: #3a2f14; --good-soft: #15301a;
+    --good-text: #3fcf6a; --critical-text: #f08080; --warn-text: #f0b44c; --critical-soft: #3a1d1d; --warning-soft: #3a2f14; --good-soft: #15301a;
     --phish: #f08a5d; --phish-soft: #3a2218; --phish-text: #f6a27e; --safe: #7fa6f5; --safe-soft: #1a2741; --safe-text: #a9c2fa;
     --shadow: none;
   }
@@ -38,7 +38,7 @@
   --accent: #5cc29a; --accent-ink: #0b1f17; --accent-soft: #1a3329;
   --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9b7ae0;
   --total: #34403a;
-  --good-text: #3fcf6a; --critical-text: #f08080; --critical-soft: #3a1d1d; --warning-soft: #3a2f14; --good-soft: #15301a;
+  --good-text: #3fcf6a; --critical-text: #f08080; --warn-text: #f0b44c; --critical-soft: #3a1d1d; --warning-soft: #3a2f14; --good-soft: #15301a;
   --phish: #f08a5d; --phish-soft: #3a2218; --phish-text: #f6a27e; --safe: #7fa6f5; --safe-soft: #1a2741; --safe-text: #a9c2fa;
   --shadow: none;
 }
@@ -235,6 +235,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover, tbody tr.clickable:focus { background: var(--surface-2); outline: none; }
 .table-wrap { overflow-x: auto; }
+/* (0.6.65) A warning under a setting that is on (Settings → Policy → Skip review). */
+.warn-text { color: var(--warn-text); margin-top: 4px; }
+.skip-review .policy-value > div:first-child { max-width: 72ch; }
 /* (0.6.64) A table that stays inside its card: as wide as the card, long addresses and subjects wrap; a card narrower than
    the table's readable width scrolls it sideways (in .table-wrap) instead of letting it spill out. */
 .tbl.fit { width: 100%; min-width: 620px; }

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.65: Skip review, its own section of the Policy page
+
+- **Settings → Policy → Skip review** replaces the Straight to Spam row: one row per sign, each saying what it is and what
+  can go wrong, each **off by default** and turned on with the project ID and a ticked agreement (turning one off needs
+  only the project ID). An outside email with a sign that is on goes straight to Spam and never waits in Review (monitor
+  mode: "would move"); Trusted senders Gmail confirms and mail from inside never are, and the brake and a campaign's hold
+  still apply. The section's own warning says so.
+  - **Forged headers:** a message ID claiming a mail program it never came through, Received lines copied from other
+    emails, or From or Subject written twice (0.6.59's "forged message ID" was the first of these only).
+  - **Spam headers** (new): a mail system on the way marked it spam (X-Spam-Flag), a bulk mailer's unfilled placeholders,
+    or a home-made mailer pointing at its own computer.
+  - **Sender on a threat list:** the sender's address or domain on the phishing lists, Spamhaus or abuse.ch, or blocked.
+  - **Failed sender check:** Gmail's DMARC check failed, explained on the page (the sender's domain publishes which servers
+    may send for it and signs its mail; DMARC says one of them must match the From address; failing means the From address
+    is forged or the sender's mail is set up badly; mailing lists and forwarders can make real mail fail).
+  - **No sender check (no DMARC):** kept, with its warning about small senders.
+  - **Dangerous links:** a link on a phishing list, blocked by Safe Browsing, or flagged dangerous by the link checks.
+- A choice made in 0.6.59-0.6.64 carries over: "forged message ID" is now Forged headers, and "on a list" is both Sender on
+  a threat list and Dangerous links. `STRICT_SPAM` takes the new names (the old ones still read).
+- The checks level is raised to 50 (with an item on, forged headers and dangerous links cover more signs than before). No
+  installation change.
+
 ## 0.6.64: Remembered answers stays inside its card
 
 - **Settings → Sender lists → Remembered answers:** its table was wider than the card, so the Until column and the Remove

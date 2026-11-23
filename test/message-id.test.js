@@ -49,10 +49,12 @@ test('0.6.59: the analysis tells the policy\'s Straight to Spam what it found: a
     const { analyze } = require('../src/engine/analyze');
     const ctx = { mailbox: USER, orgDomains: ['maple-schools.example'] };
     const a = await analyze(await readMessage(Buffer.from(raw('<CAF1abc2def3@mail.gmail.com>'))), ctx);
-    assert.deepEqual([a.strictSigns.forgedId, a.strictSigns.dmarc], [true, null], 'forged ID; DMARC passed');
+    assert.deepEqual([a.strictSigns.forgedHeaders, a.strictSigns.dmarc], [['forged-message-id'], null], 'forged ID; DMARC passed');
     const failing = raw('<a1@madeup-billing.example>').replace('dmarc=pass', 'dmarc=fail');
     const b = await analyze(await readMessage(Buffer.from(failing)), ctx);
-    assert.deepEqual([b.strictSigns.forgedId, b.strictSigns.dmarc], [false, 'fail']);
+    assert.deepEqual([b.strictSigns.forgedHeaders, b.strictSigns.dmarc], [[], 'fail']);
+    const flagged = raw('<a1@madeup-billing.example>', ['X-Spam-Flag: YES']);
+    assert.deepEqual((await analyze(await readMessage(Buffer.from(flagged)), ctx)).strictSigns.spamHeaders, ['spam-flag'], '(0.6.65) a relay\'s spam flag');
     const none = raw('<a1@madeup-billing.example>').replace('dmarc=pass', 'dmarc=none');
     assert.equal((await analyze(await readMessage(Buffer.from(none)), ctx)).strictSigns.dmarc, 'missing');
 });

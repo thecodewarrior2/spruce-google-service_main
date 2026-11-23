@@ -31,11 +31,15 @@ mode).
     account is compromised and sends dangerous links. Even when the AI reads it, its score alone doesn't
     move inside mail unless you turn on **"AI alone moves inside mail"** (Settings → Policy, with a ticked
     agreement; `AI_MOVES_INSIDE`), off by default.
-  - **Straight to Spam** (0.6.59; Settings → Policy; `STRICT_SPAM`), off by default: choose any of Gmail's DMARC check
-    failing, no DMARC policy confirming the sender, a forged message ID, or the sender or a link on a list, and outside
-    mail with that sign is moved to Spam without waiting for review (monitor mode: recorded as "would move"). Trusted
-    senders Gmail confirms and mail from inside never are; the brake and a campaign's hold still apply. "No DMARC" moves
-    all mail of the many small senders without a DMARC policy: try it in monitor mode first.
+  - **Skip review** (0.6.65, its own section of Settings → Policy; Straight to Spam in 0.6.59; `STRICT_SPAM`), each item off
+    by default and turned on with a ticked agreement: **forged headers** (a message ID claiming a mail program it never
+    came through, Received lines copied from other emails, From or Subject repeated), **spam headers** (another mail
+    system's spam flag, a bulk mailer's unfilled placeholders, a home-made mailer), **sender on a threat list**, **failed
+    sender check** (Gmail's DMARC check: the From address isn't confirmed as the sending domain's: forged, or the sender's
+    mail is set up badly), **no sender check** (no DMARC policy at all) and **dangerous links**. Outside mail with a sign
+    turned on goes straight to Spam and never waits in Review (monitor mode: "would move"). Each says what can go wrong
+    (mailing lists breaking DMARC, a business briefly listed, a newsletter tracker listed by mistake). Trusted senders
+    Gmail confirms and mail from inside never are; the brake and a campaign's hold still apply.
   - **Mail dressed up as inside is outside mail:** a staff address that fails Gmail's DMARC check is read
     by the AI and gets a sign of its own ("claims to come from inside your organization"), and so does an
     outside sender whose name shows one of your addresses ("it@your-district.org" <x@elsewhere>).

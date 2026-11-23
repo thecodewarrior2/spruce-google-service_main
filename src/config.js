@@ -53,9 +53,10 @@ function loadConfig(env = process.env) {
         // the threshold): off by default, and then only the rules move inside mail (a staff account taken
         // over trips them). Settings → Policy too ("AI alone moves inside mail", with an agreement).
         aiMovesInside: bool(env.AI_MOVES_INSIDE, false),
-        // (0.6.59) Straight to Spam (policy.js strictWhy): the signs that move outside mail to Spam without review, from
-        // dmarc-fail, dmarc-missing, forged-id and listed (comma-separated). None by default. Settings → Policy too.
-        strictSpam: list(env.STRICT_SPAM).filter(k => ['dmarc-fail', 'dmarc-missing', 'forged-id', 'listed'].includes(k)),
+        // (0.6.59; 0.6.65 Skip review) The signs that move outside mail to Spam without review (policy.js strictWhy): any of
+        // forged-headers, spam-headers, sender-listed, dmarc-fail, dmarc-missing, dangerous-links (comma-separated; the
+        // 0.6.59 names forged-id and listed still read). None by default. Settings → Policy → Skip review too.
+        strictSpam: require('./policy').strictKinds(list(env.STRICT_SPAM)),
         // Whether the AI model reads mail from inside the organization (your domains, Gmail's DMARC check
         // passing): off by default; the rule checks (links, headers, the rest) read it either way, and a
         // forged inside address (DMARC not passing) is outside mail, read by the AI. Settings → Policy too.

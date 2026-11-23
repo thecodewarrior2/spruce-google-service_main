@@ -1260,6 +1260,52 @@
     // --- Settings, in pages (its own menu beside the page, in four groups: SECTIONS.settings below) ------------
     async function settingsData(query = '') { const d = await api(`/api/settings${query}`); showMode(d.mode); return d; }
     const kvRow = (k, v) => [h('dt', { text: k }), v instanceof Node ? h('dd', {}, v) : h('dd', { text: v })];
+    // (0.6.65) Settings → Policy → Skip review: signs that send outside mail straight to Spam, without waiting in Review
+    // (policy.js strictWhy; stored as the setting strictSpam). Each item on its own, with what it is and what can go wrong.
+    const SKIP_ITEMS = [
+        { k: 'forged-headers', title: 'Forged headers',
+          what: 'The email\'s own headers were tampered with: a message ID that claims a mail program (Gmail, Outlook, Yahoo, iCloud) it never came through, Received lines copied from other emails, or its From or Subject written twice.',
+          warn: 'A few old mail systems and badly built bulk senders write odd headers, and some forwarding services repeat them: their real mail would go to Spam too.' },
+        { k: 'spam-headers', title: 'Spam headers',
+          what: 'A mail system it passed through already marked it as spam (X-Spam-Flag), or it carries a bulk-mailing tool\'s unfilled placeholders, or its tracking points at the sender\'s own computer (a home-made mailer).',
+          warn: 'Another system\'s spam flag can be wrong, and a small organization\'s newsletter tool can leave placeholders: that mail would go to Spam without anyone looking.' },
+        { k: 'sender-listed', title: 'Sender on a threat list',
+          what: 'The sender\'s address or domain is on a phishing or spam list the service reads (the phishing lists; Spamhaus and abuse.ch when they are on), or is blocked.',
+          warn: 'A real business whose domain was listed for a while (its own mail was hacked, or a list made a mistake) has all its mail sent to Spam until it comes off the list.' },
+        { k: 'dmarc-fail', title: 'Failed sender check',
+          what: 'Gmail checks that the From address really belongs to the server that sent the email: the sender\'s domain publishes which servers may send for it (SPF) and signs its mail (DKIM), and DMARC says that one of them must match the From address. Failing means Gmail could not confirm the sender: the From address is forged, or the sender\'s own mail setup is broken.',
+          warn: 'Mailing lists, forwarding services and some ticket or survey systems change mail on the way, which can make a real email fail; so can a vendor that set up its mail badly.' },
+        { k: 'dmarc-missing', title: 'No sender check (no DMARC)',
+          what: 'Gmail looked, but the sender\'s domain has no DMARC policy, so Gmail cannot confirm the sender either way.',
+          warn: 'Many small businesses, vendors, nonprofits and families\' mail providers have no DMARC: all of their mail would go to Spam. Try it in monitor mode first, and look at what it would move.' },
+        { k: 'dangerous-links', title: 'Dangerous links',
+          what: 'A link in it is on a phishing list, blocked by Google Safe Browsing (when it is on), or flagged dangerous by the link checks.',
+          warn: 'A real newsletter whose click tracker was listed by mistake goes to Spam too (Settings → Sender lists → Link sites can let a tracker through).' }
+    ];
+    const SKIP_OLD = { 'forged-id': ['forged-headers'], listed: ['sender-listed', 'dangerous-links'] };
+    const skipList = (v) => { const all = new Set((v || []).flatMap(x => SKIP_OLD[x] || [x])); return SKIP_ITEMS.map(x => x.k).filter(k => all.has(k)); };
+    function skipReviewCard(d) {
+        const P = d.policy || {};
+        const on = skipList((P.strictSpam || {}).value !== undefined ? P.strictSpam.value : d.strictSpam);
+        const enforce = ((P.mode || {}).value || d.mode) === 'enforce';
+        const rows = SKIP_ITEMS.map(x => {
+            const isOn = on.includes(x.k);
+            const agree = h('input', { type: 'checkbox' });
+            const note = isOn ? null : h('div', {},
+                h('label', { class: 'choice' }, agree, h('span', { text: `I agree: send outside mail with ${x.title.toLowerCase()} to Spam without review.` })));
+            const next = isOn ? on.filter(k => k !== x.k) : skipList([...on, x.k]);
+            const form = !d.projectKnown || isModerator() ? null : confirmForm(isOn ? 'Turn off' : 'Turn on', '/api/policy', () => ({ key: 'strictSpam', value: next, agree: isOn ? false : agree.checked }),
+                () => (isOn ? `${x.title}: off. That mail is reviewed as usual again.` : `${x.title}: on. ${enforce ? 'That mail now goes straight to Spam.' : 'Monitor mode: it is recorded as "would move".'}`), note);
+            return h('div', { class: 'policy-row' },
+                h('div', { class: 'policy-head' }, h('div', { class: 'policy-label' }, h('div', { text: x.title }), h('div', { class: 'pol-badges' }, h('span', { class: `pol-pill ${isOn ? 'on' : 'off'}`, text: isOn ? 'Skip review' : 'Off' }))),
+                    h('div', { class: 'policy-value' }, h('div', { text: x.what }), h('div', { class: 'small warn-text' }, h('b', { text: 'Warning: ' }), x.warn))),
+                form ? h('div', { class: 'policy-form-slot' }, form) : null);
+        });
+        return h('section', { class: 'card spaced skip-review' }, h('h2', { text: 'Skip review' }),
+            h('div', { class: 'alert warning' }, h('div', {}, h('b', { text: 'These send mail to Spam without anyone looking. ' }),
+                `An email from outside your organization with any sign turned on here goes straight to Spam${enforce ? '' : ' (monitor mode: recorded as "would move", nothing moved)'} and never waits in Review, whatever the AI and the other checks find. Its reader can still take it out of Spam. Trusted senders that Gmail confirms and mail from inside your organization are never moved by these; the brake and a campaign's pause still apply. Each is off by default: turn one on only after looking at what it catches (Mail → Messages).`)),
+            ...rows);
+    }
     async function settings() {   // Policy
         const d = await settingsData();
         const allowed = ((d.policy && d.policy.allowDomains && d.policy.allowDomains.value) || d.allowDomains || []).length;
@@ -1285,6 +1331,7 @@
                     h('div', { class: 'sub', text: `One scale, two lines: from the suspicious line an email is recorded for review; from the move line the AI score alone moves it${val('aiMovesInside') ? ' (inside mail too: "Let the AI alone move staff email" is on)' : ', from outside senders (inside mail never moves on the AI score alone)'}.` }),
                     scale, labels,
                     d.projectKnown ? h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: () => card.openRow('aiSuspicious') }, 'Change the suspicious line'), h('button', { class: 'btn', type: 'button', onclick: () => card.openRow('aiThreshold') }, 'Change the move line')) : null)),
+            skipReviewCard(d),
             card,
             h('section', { class: 'card spaced' }, h('h2', { text: 'How it decides' }), h('dl', { class: 'kv' },
                 kvRow('Moved: sender outside', d.moveOnRules ? `either one is enough: the AI scores ${pct(d.aiThreshold)} or more, or the rules flag it (a rules score of 5 or more). The AI score needs no rule, link check or other sign to agree.`
@@ -2824,9 +2871,6 @@
             : 'Off: mail from inside the organization (your domains, Gmail confirming the sender is real (DMARC)) isn\'t read by the AI. The rule checks read it as any email: its links, its headers and the rest; a forged inside address (DMARC not passing) is outside mail, and the AI reads it') },
         { key: 'aiMovesInside', label: 'Let the AI alone move staff email', show: (v, d) => (v ? `On: an email from inside the organization that the AI scores ${pct(d.aiThreshold)} or more is ${d.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} on the AI score alone, as outside mail is, whatever the rules find. The AI reads inside mail for it`
             : 'Off: the AI score alone never moves mail from inside the organization (your domains, Gmail confirming the sender is real (DMARC)); the rules still can (a staff account taken over), and a forged inside address is outside mail') },
-        // (0.6.59) Off by default: the signs that move outside mail to Spam without review (policy.js strictWhy).
-        { key: 'strictSpam', label: 'Straight to Spam', show: (v) => ((v || []).length ? `On for: ${(v || []).map(k => STRICT_LABELS[k] || k).join('; ')}. Such an email from outside the organization is moved to Spam without review (monitor mode: recorded as "would move"); Trusted senders Gmail confirms and mail from inside never are`
-            : 'Off: these signs count with the other checks, and a reviewer decides what isn\'t moved') },
         { key: 'suspiciousLabel', label: 'Suspicious label', show: (v, d) => (v ? `On: an email that is suspicious but not moved gets the label ${d.suspiciousLabelName || 'SPRUCE/Suspicious'} in its mailbox, so its reader sees it (in monitor mode too). Nothing is moved by it`
             : 'Off: suspicious emails that aren\'t moved stay in the Inbox unmarked; only the dashboard lists them (Review)') },
         { key: 'recheck', label: 'Re-check delivered mail', show: (v, d) => (v ? `On: when a phishing list adds a site or sender that an email of the last ${num(d.recheckDays || 7)} days has, every copy still in an Inbox is checked again in full and ${d.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} if the checks now say so; suspicious mail is also looked at again an hour and a day after it arrived; so is mail from, replying to or linking to a look-alike of your domain once it is found or marked a threat${d.recheckAfterUpdateHours ? `, and the mail of the last ${num(d.recheckAfterUpdateHours)} hours still in the Inbox after an update that changes how email is checked (not one that only changes the dashboard or wording)` : ''}. Threats → Re-checked lists what was found`
@@ -2835,7 +2879,6 @@
         { key: 'timeZone', label: 'Time zone', show: (v) => `${v || 'UTC'}: the dashboard's days (the charts and daily counts), the weekly summary, and the nightly jobs` },
         { key: 'retentionDays', label: 'Records kept', show: (v) => `${num(v)} days: each email's record is deleted ${num(v)} days after it arrived, the oldest first` }
     ];
-    const STRICT_LABELS = { 'dmarc-fail': 'Gmail\'s DMARC check failed', 'dmarc-missing': 'no DMARC policy confirms the sender', 'forged-id': 'a forged message ID', listed: 'the sender or a link is on a list (phishing lists, Spamhaus, abuse.ch, Safe Browsing)' };
     // Each setting's default, and how the page names it when it is in force (0.6.0).
     const POLICY_DEFAULTS = { mode: ['monitor', 'Safe default'], aiMovesInside: [false, 'Safe default'], aiScansInside: [false, 'Default'], suspiciousLabel: [false, 'Default'], recheck: [true, 'Default'], brakePerHour: [0, 'Safe default'] };
     const entries = (l, none) => {
@@ -2856,7 +2899,7 @@
         let openKey = null;
         pageBusy = () => !!openKey;
         const short = (key, v) => (Array.isArray(v) ? (v.length ? `${num(v.length)} entr${v.length === 1 ? 'y' : 'ies'}` : 'none')
-            : key === 'strictSpam' ? ((v || []).length ? (v || []).join(', ') : 'off') : key === 'mode' ? v : key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel' || key === 'recheck' ? (v ? 'on' : 'off') : key === 'aiThreshold' || key === 'aiSuspicious' ? pct(v) : key === 'brakePerHour' ? (v ? `${num(v)} an hour` : 'automatic') : key === 'retentionDays' ? `${num(v)} days` : v);
+            : key === 'mode' ? v : key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel' || key === 'recheck' ? (v ? 'on' : 'off') : key === 'aiThreshold' || key === 'aiSuspicious' ? pct(v) : key === 'brakePerHour' ? (v ? `${num(v)} an hour` : 'automatic') : key === 'retentionDays' ? `${num(v)} days` : v);
         const source = (key) => {
             const p = P[key] || {};
             if (p.changed && key === 'allowLinkDomains') return `Changed here by ${p.changed.by}, ${when(p.changed.at)}.`;
@@ -2952,16 +2995,6 @@
             choices.addEventListener('change', () => { agreeBox.hidden = !(choices.querySelector('input:checked').value === 'on' && !value); update(); });
             read = () => choices.querySelector('input:checked').value === 'on';
             extra = [choices, agreeBox, h('div', { class: 'small muted', text: 'Inside: your domains, with Gmail confirming the sender is real (DMARC); a forged staff address is outside mail, and the AI can move it either way. Off by default (AI_MOVES_INSIDE).' })];
-        } else if (key === 'strictSpam') {
-            // (0.6.59) Each sign on its own; none chosen is off.
-            const box = (k, help) => h('label', { class: 'choice' }, h('input', { type: 'checkbox', value: k, checked: (value || []).includes(k) }), h('span', {}, h('b', { text: `${STRICT_LABELS[k][0].toUpperCase()}${STRICT_LABELS[k].slice(1)}.` }), ` ${help}`));
-            const choices = h('div', { class: 'choices' },
-                box('dmarc-fail', 'The From address is forged, or the sender\'s own mail setup is broken. A mailing list or forwarder that rewrites mail can break it too.'),
-                box('dmarc-missing', 'Many small businesses, vendors and parents\' providers have no DMARC policy: this moves all their mail. Try it in monitor mode first.'),
-                box('forged-id', 'Its message ID claims a mail program that nothing else in the email shows: written by a bulk sender or a phishing kit.'),
-                box('listed', 'A link is blocked or on a phishing list, or the sender is on a list or blocked.'));
-            read = () => [...choices.querySelectorAll('input:checked')].map(x => x.value);
-            extra = [choices, h('div', { class: 'small muted', text: 'An email from outside with any sign ticked is moved to Spam without review (monitor mode: recorded as "would move"). Trusted senders that Gmail confirms, and mail from inside (your domains, DMARC passing), never are. The brake and a campaign\'s hold still apply. Its reader can take it back out of Spam.' })];
         } else if (key === 'suspiciousLabel') {
             // (0.5.33) Off by default; visible to the email's reader, never moves anything.
             const radio = (v, label) => h('label', { class: 'choice' }, h('input', { type: 'radio', name: 'policy-suspicious-label', value: v ? 'on' : 'off', checked: !!value === v }), h('span', { text: label }));

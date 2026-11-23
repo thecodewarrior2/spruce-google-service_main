@@ -100,6 +100,9 @@ function sameOrgDomain(a, b) {
     const rx = E.registrableDomain(x) || x, ry = E.registrableDomain(y) || y;
     return rx === ry;
 }
+// (0.6.65) The header signs Settings → Policy → Skip review reads (shared.js headerAnomalies).
+const FORGED_HEADER_KINDS = new Set(['forged-message-id', 'forged-received', 'duplicate-headers']);
+const SPAM_HEADER_KINDS = new Set(['spam-flag', 'placeholders', 'local-tool']);
 function senderVerified(facts) {
     const a = facts && facts.auth;
     const domain = String((facts && facts.senderAddress) || '').toLowerCase().split('@')[1] || '';
@@ -301,14 +304,17 @@ async function analyze(facts, ctx = {}) {
         platformNote: relay ? true : undefined,
         confirmedBy,
         strong: verdict.status === 'flagged' && confirmedBy.length > 0,
-        // (0.6.59) For Settings → Policy → Straight to Spam (policy.js strictWhy): Gmail's DMARC result for the sender
-        // ('fail'; 'missing' when Gmail checked the email but confirmed no DMARC policy; null when it passed or Gmail's
-        // check isn't there), a forged message ID, and what lists the sender or a link is on.
+        // (0.6.59; 0.6.65 Settings → Policy → Skip review) What policy.js strictWhy reads: Gmail's DMARC result for the sender
+        // ('fail'; 'missing' when Gmail checked the email but confirmed no DMARC policy; null when it passed or Gmail's check
+        // isn't there), forged headers (a forged message ID, Received lines copied from other emails, From or Subject
+        // repeated), spam headers (another mail system's spam flag, a bulk mailer's unfilled placeholders, a home-made mailer
+        // pointing at its own computer), the sender on a threat list or blocked, and a link flagged dangerous.
         strictSigns: {
             dmarc: !facts.auth ? null : facts.auth.dmarc === 'fail' ? 'fail' : facts.auth.dmarc === 'pass' ? null : 'missing',
-            forgedId: signals.some(s => s.kind === 'forged-message-id'),
-            listed: [judged.some(j => j.network && j.severity === 'danger') ? 'a link is blocked or on a phishing list' : '',
-                     net.signals.some(s => s.kind === 'scam-sender-list' || s.kind === 'sender-domain-blocked' || s.kind === 'sender-domain-listed') ? 'the sender is on a list or blocked' : ''].filter(Boolean)
+            forgedHeaders: [...new Set(signals.filter(s => FORGED_HEADER_KINDS.has(s.kind)).map(s => s.kind))],
+            spamHeaders: [...new Set(signals.filter(s => SPAM_HEADER_KINDS.has(s.kind)).map(s => s.kind))],
+            senderListed: net.signals.some(s => s.kind === 'scam-sender-list' || s.kind === 'sender-domain-blocked' || s.kind === 'sender-domain-listed'),
+            dangerousLinks: judged.some(j => j.severity === 'danger')
         },
         // (0.6.19) Spam, not phishing: moved to Spam by the policy (trigger 'spam') when nothing else is wrong.
         spam: spam || undefined,
