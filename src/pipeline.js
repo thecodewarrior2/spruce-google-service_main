@@ -224,7 +224,7 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 // install.sh), that one is newer and applies. The most recent change wins, wherever it was made.
 const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
 const LIST_KEYS = ['allowDomains', 'allowAddresses', 'allowLinkDomains'];
-// (0.6.59) Settings → Policy → Straight to Spam (policy.js strictWhy).
+// (0.6.59; 0.6.65) Settings → Policy → Skip review (policy.js strictWhy).
 const STRICT_WORDS = { 'forged-headers': 'forged headers', 'spam-headers': 'spam headers', 'sender-listed': 'sender on a threat list', 'dmarc-fail': 'failed sender check', 'dmarc-missing': 'no DMARC', 'dangerous-links': 'dangerous links' };
 const MAX_ALLOWED = 500;
 // (0.6.59) Spam learning: the longest run, and how sure the AI's spam answer must be (outside promotional mail).
@@ -1141,17 +1141,23 @@ class Service {
         if (!this._spamLearning || this.now() - this._spamLearning.at > 60000) this._spamLearning = { at: this.now(), st: (await this.store.getState('spamLearning')) || null };
         return this._spamLearning.st;
     }
+    // (0.6.66) The senders a run learned are kept apart (state spamLearned: sender → { at, monitor }, reset at each start), so
+    // counting them never rewrites the run itself (an admin's Stop now can't be undone by a count written at the same time);
+    // monitor: in monitor mode, the senders it would have added to Spam senders (none is added then).
     async spamLearningInfo() {
         const st = (await this.store.getState('spamLearning')) || null, now = this.now();
         if (!st) return { active: false, maxDays: SPAM_LEARN_MAX_DAYS };
         const active = !st.stoppedAt && now < st.endsAt;
-        return { active, maxDays: SPAM_LEARN_MAX_DAYS, days: st.days, startedAt: st.startedAt, endsAt: st.endsAt, endedAt: active ? null : Math.min(st.stoppedAt || st.endsAt, st.endsAt), by: st.by, stoppedBy: st.stoppedBy || null, learned: st.learned || 0 };
+        const got = Object.values((await this.store.getState('spamLearned')) || {});
+        return { active, maxDays: SPAM_LEARN_MAX_DAYS, days: st.days, startedAt: st.startedAt, endsAt: st.endsAt, endedAt: active ? null : Math.min(st.stoppedAt || st.endsAt, st.endsAt), by: st.by, stoppedBy: st.stoppedBy || null,
+            learned: got.filter(x => x && !x.monitor).length, wouldLearn: got.filter(x => x && x.monitor).length };
     }
     async startSpamLearning(days, by) {
         const n = Number(days);
         if (!Number.isInteger(n) || n < 1 || n > SPAM_LEARN_MAX_DAYS) return { error: `Spam learning runs a whole number of days, from 1 to ${SPAM_LEARN_MAX_DAYS}.`, status: 400 };
         const now = this.now();
-        await this.store.setState('spamLearning', { days: n, startedAt: now, endsAt: now + n * DAY, by, stoppedAt: null, stoppedBy: null, learned: 0 });
+        await this.store.setState('spamLearning', { days: n, startedAt: now, endsAt: now + n * DAY, by, stoppedAt: null, stoppedBy: null });
+        await this.store.setState('spamLearned', {});
         this._spamLearning = null;
         await this.store.addEvent({ kind: 'settings', text: `${by} started Spam learning for ${n} day${n === 1 ? '' : 's'} (until ${dayOf(now + n * DAY)}): promotional mail and mail the AI is sure is spam, from senders Gmail confirms, ${this.cfg.mode === 'enforce' ? 'go' : 'would go (monitor mode)'} to Spam, and the senders to Spam senders; someone taking its mail back out of Spam trusts that sender again.` });
         return { ok: true, info: await this.spamLearningInfo() };
@@ -1161,29 +1167,41 @@ class Service {
         if (!st || st.stoppedAt || now >= st.endsAt) return { error: 'Spam learning isn\'t running.', status: 409 };
         await this.store.setState('spamLearning', Object.assign({}, st, { stoppedAt: now, stoppedBy: by }));
         this._spamLearning = null;
-        await this.store.addEvent({ kind: 'settings', text: `${by} stopped Spam learning (started ${dayOf(st.startedAt)}; ${st.learned || 0} sender${st.learned === 1 ? '' : 's'} learned, still on Spam senders).` });
+        const n = (await this.spamLearningInfo()).learned;
+        await this.store.addEvent({ kind: 'settings', text: `${by} stopped Spam learning (started ${dayOf(st.startedAt)}; ${n} sender${n === 1 ? '' : 's'} learned, still on Spam senders).` });
         return { ok: true, info: await this.spamLearningInfo() };
     }
     // The decision Spam learning makes for an email the checks didn't move ({ action, trigger, why }), or null.
+    // (0.6.66) It never overrides an admin: not an email an admin marked safe (its remembered answer), nor a sender an admin
+    // took off Spam senders (spamSendersRemoved). In monitor mode it adds nothing to Spam senders: it records the senders it
+    // would have added (the card counts them), so switching to enforce later moves nothing nobody saw. Whether the run is
+    // still on is read again (not from the minute-long cache) before it acts, so Stop now takes effect at once.
     async learnSpam(user, facts, result, decision, allowlisted) {
         if (allowlisted || !result || result.inside || !result.verified || result.status === 'trusted') return null;
-        const st = await this.spamLearningState(), now = this.now();
-        if (!st || st.stoppedAt || now >= st.endsAt) return null;
+        const cached = await this.spamLearningState();
+        if (!cached || cached.stoppedAt || this.now() >= cached.endsAt) return null;
         const q = result.ai && typeof result.ai.spam === 'number' ? result.ai.spam : null;
         const p = result.ai && typeof result.ai.probability === 'number' ? result.ai.probability : null;
         const promo = decision.action === 'promo';
         const sure = decision.action === 'none' && result.status === 'clean' && q !== null && q >= SPAM_LEARN_SURE && (p === null || p < (this.cfg.aiSuspicious || 0.65));
         if (!promo && !sure) return null;
         if (await this.spamKept(user, facts.senderAddress)) return null;
-        const added = await this.addSpamSender(facts.senderAddress, 'Spam learning', { from: 'learning' });
-        if (!added || !added.ok) return null;
-        if (added.added) {
-            const cur = (await this.store.getState('spamLearning')) || st;
-            await this.store.setState('spamLearning', Object.assign({}, cur, { learned: (cur.learned || 0) + 1 }));
+        if (result.fingerprint && (await this.rememberedMap())[result.fingerprint]) return null;   // an admin marked it safe
+        const key = this.spamListKey(facts.senderAddress);
+        if (!key || ((await this.store.getState('spamSendersRemoved')) || {})[key]) return null;   // an admin took it off the list
+        const st = await this.store.getState('spamLearning');   // fresh: Stop now applies at once
+        this._spamLearning = { at: this.now(), st };
+        if (!st || st.stoppedAt || this.now() >= st.endsAt) return null;
+        const monitor = this.cfg.mode !== 'enforce';
+        if (!monitor) {
+            const added = await this.addSpamSender(facts.senderAddress, 'Spam learning', { from: 'learning' });
+            if (!added || !added.ok) return null;
         }
+        const got = (await this.store.getState('spamLearned')) || {};
+        if (!got[key] && Object.keys(got).length < 5000) await this.store.setState('spamLearned', Object.assign({}, got, { [key]: { at: this.now(), monitor } }));
         const what = promo ? `promotional (${(decision.promotional && decision.promotional.signs || []).slice(0, 2).join('; ')})` : `the AI was ${Math.min(99, Math.round(q * 100))}% sure it is spam`;
-        const why = `spam learning (Settings → Sender lists → Spam learning, until ${dayOf(st.endsAt)}): ${what}; ${added.key} is on Spam senders now${this.cfg.mode === 'enforce' ? '' : ' (monitor mode: nothing is moved)'}`;
-        return { action: this.cfg.mode === 'enforce' ? 'move' : 'would-move', trigger: 'spam', why, learned: true, promotional: decision.promotional };
+        const why = `spam learning (Settings → Sender lists → Spam learning, until ${dayOf(st.endsAt)}): ${what}; ${monitor ? `monitor mode: nothing is moved, and ${key} would be added to Spam senders` : `${key} is on Spam senders now`}`;
+        return { action: monitor ? 'would-move' : 'move', trigger: 'spam', why, learned: true, promotional: decision.promotional };
     }
     async spamSenderList() {
         const all = (await this.store.getState('spamSenders')) || {};
@@ -1223,6 +1241,11 @@ class Service {
         all[key] = Object.assign({ by, at: this.now(), from, count: 0 }, had);
         if (Object.keys(all).length > 2000) return { error: 'The list is full (2,000 senders).', status: 409 };
         await this.store.setState('spamSenders', all);
+        // (0.6.66) An admin adding a sender again: it is no longer one an admin took off the list.
+        if (from !== 'learning') {
+            const removed = (await this.store.getState('spamSendersRemoved')) || {};
+            if (removed[key]) { const rest = Object.assign({}, removed); delete rest[key]; await this.store.setState('spamSendersRemoved', rest); }
+        }
         this._spamSenders = null;
         if (!had && from !== 'learning') await this.store.addEvent({ kind: 'settings', text: `${by} added ${key} to Spam senders${from === 'review' ? ' (answering Spam on an email)' : ''}: its verified mail goes straight to Spam, as spam.` });
         // (0.6.59) Spam learning adds many: it reads no list back.
@@ -1235,7 +1258,12 @@ class Service {
         delete all[k];
         await this.store.setState('spamSenders', all);
         this._spamSenders = null;
-        await this.store.addEvent({ kind: 'settings', text: `${by} removed ${k} from Spam senders: its mail is checked as usual.` });
+        // (0.6.66) Remembered, so Spam learning never adds it back (an admin adding it again takes it off this list).
+        const removed = Object.assign({}, (await this.store.getState('spamSendersRemoved')) || {}, { [k]: { by, at: this.now() } });
+        const keys = Object.keys(removed).sort((a, b) => removed[b].at - removed[a].at);
+        for (const x of keys.slice(2000)) delete removed[x];
+        await this.store.setState('spamSendersRemoved', removed);
+        await this.store.addEvent({ kind: 'settings', text: `${by} removed ${k} from Spam senders: its mail is checked as usual${(await this.spamLearningInfo()).active ? '; Spam learning won\'t add it again' : ''}.` });
         return { ok: true, list: await this.spamSenderList() };
     }
     // (0.6.52) Promotional mail (src/promotional.js), from a verified sender outside the organization the checks found nothing
@@ -2597,17 +2625,23 @@ class Service {
         const seen = new Set(st.seen || []);
         let cursor = since, done = 0, emails = 0;
         const found = { added: 0, marked: 0, notWatched: 0, notFound: 0, already: 0 };
+        // (0.6.66) Every message of an alert (one alert can list many people's reports of one campaign); an alert left
+        // half-read when the time runs out isn't marked read, and the next run reads it again (its messages already in
+        // Review count as 'already').
+        let outOfTime = false;
         for (const al of alerts) {
             if (Date.now() - started > budgetMs) break;
             const at = Date.parse(al.createTime) || now;
             if (al.deleted || seen.has(al.alertId)) { cursor = Math.max(cursor, at); continue; }
             try {
-                for (const m of ((al.data && al.data.messages) || []).slice(0, 50)) {
+                for (const m of ((al.data && al.data.messages) || [])) {
+                    if (Date.now() - started > budgetMs) { outOfTime = true; break; }
                     const r = await this.reportedEmail(String(m.recipient || '').toLowerCase(), String(m.messageId || ''), { at, alertId: al.alertId });
                     emails++;
                     if (found[r] !== undefined) found[r]++;
                 }
             } catch (e) { const p = alertsProblem(e, reader); failed = `${p.why} ${p.fix}`; break; }
+            if (outOfTime) break;
             seen.add(al.alertId); done++;
             cursor = Math.max(cursor, at);
         }
@@ -2626,9 +2660,17 @@ class Service {
         if (!user || !mid || !this.cfg.orgDomains.includes(user.split('@')[1] || '')) return 'notWatched';
         const u = await this.store.getUser(user);
         if (!u || !u.watched) return 'notWatched';   // only the mailboxes the service checks
-        const ids = (await this.gmail.search(user, `rfc822msgid:${mid}`, { max: 5, includeSpamTrash: true })).ids || [];
-        if (!ids.length) return 'notFound';
-        const id = ids[0], key = recordKey(user, id), now = this.now();
+        // (0.6.66) The Message-ID is the sender's own text: one with spaces, quotes or angle brackets inside isn't searched for
+        // (it could carry search words that find other emails), and only a message whose own Message-ID is exactly it counts.
+        if (mid.length > 300 || /[\s"<>()]/.test(mid)) return 'notFound';
+        const ids = (await this.gmail.search(user, `rfc822msgid:"${mid}"`, { max: 5, includeSpamTrash: true })).ids || [];
+        let id = null;
+        for (const x of ids) {
+            const hd = await this.gmail.headers(user, x).catch(() => null);
+            if (hd && String(hd.messageId || '').trim().replace(/^<|>$/g, '').toLowerCase() === mid.toLowerCase()) { id = x; break; }
+        }
+        if (!id) return 'notFound';
+        const key = recordKey(user, id), now = this.now();
         const userReported = { at: report.at || now, alertId: report.alertId || null };
         const before = await this.store.getRecord(key);
         if (before) {

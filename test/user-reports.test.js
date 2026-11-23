@@ -23,7 +23,8 @@ function make({ alerts = [], fail = null, dir = DIR } = {}) {
     const gmail = {
         labelId: async (u, n) => `L_${n}`, labels: async () => ['INBOX'], modify: async () => ({}),
         alerts: async (admin, opts) => { calls.alerts.push({ admin, opts }); if (fail) throw new Error(fail); return alerts; },
-        search: async (user, q, opts) => { calls.search.push({ user, q, opts }); const m = mails.get(`${user}|${q.replace(/^rfc822msgid:/, '')}`); return { ids: m ? [m.id] : [], next: null }; },
+        search: async (user, q, opts) => { calls.search.push({ user, q, opts }); const m = mails.get(`${user}|${q.replace(/^rfc822msgid:"?|"$/g, '')}`); return { ids: m ? [m.decoy || m.id, m.id].filter((x, i, a) => a.indexOf(x) === i) : [], next: null }; },
+        headers: async (user, id) => { const m = [...mails.values()].find(x => x.user === user && x.id === id); return { id, messageId: m ? `<${m.rfc}>` : '<someone-else@elsewhere.example>' }; },
         raw: async (user, id) => { const m = [...mails.values()].find(x => x.id === id && x.user === user); return { id, threadId: `t-${id}`, labelIds: m.labelIds, internalDate: Date.now(), raw: raw(user, m.rfc) }; }
     };
     const svc = new Service({ cfg: loadConfig(Object.assign({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: [PAT, SAM].join(','), MODE: 'enforce' }, dir ? { DIRECTORY_ADMIN: dir } : {})), store: new MemoryStore(), gmail, log: { error() {}, warn() {} } });
@@ -127,4 +128,30 @@ test('0.6.62: Google refusing the directory admin: the fix names the Alert Cente
     const t = await svc.testUserReports(ADMIN);
     assert.match(t.why, /spruce-directory@maple-schools\.example \(DIRECTORY_ADMIN\) isn't allowed to read the Alert Center/);
     assert.match(t.fix, /SPRUCE group reader\) → Privileges → Admin console privileges → Security → Alert Center → tick View access/);
+});
+
+test('0.6.66: a Message-ID with search words in it isn\'t searched; only an exact match counts; every message of a big alert is read', async () => {
+    const now = Date.now();
+    const many = Array.from({ length: 60 }, (_, i) => ({ recipient: PAT, messageId: `m${i}@paystub-madeup.example` }));
+    const svc = make({ alerts: [alert('big', now - 3600e3, [{ recipient: PAT, messageId: '<a@b.example> OR label:inbox' }, ...many])] });
+    await svc.store.putUser(PAT, { watched: true });
+    for (let i = 0; i < 60; i++) svc.mails.set(`${PAT}|m${i}@paystub-madeup.example`, { id: `g${i}`, user: PAT, rfc: `m${i}@paystub-madeup.example`, labelIds: ['SPAM'], decoy: i === 0 ? 'other' : null });
+    await svc.setUserReports(true, ADMIN);
+    const out = await svc.followUserReports({ budgetMs: 60000 });
+    assert.equal(out.found.added, 60, 'all 60 reports, not the first 50');
+    assert.equal(out.found.notFound, 1, 'the Message-ID with search words in it');
+    assert.ok(!svc.calls.search.some(c => /OR label/.test(c.q)), 'never searched for');
+    assert.ok(svc.calls.search.every(c => /^rfc822msgid:"[^"\s]+"$/.test(c.q)), 'quoted');
+    assert.ok(await svc.store.getRecord(`${PAT}|g0`), 'the exact match, not the first search result (a decoy)');
+    assert.equal(await svc.store.getRecord(`${PAT}|other`), null);
+    // Out of time halfway through an alert: it isn't marked read, and the next run finishes it.
+    const svc2 = make({ alerts: [alert('big2', now - 3600e3, many)] });
+    await svc2.store.putUser(PAT, { watched: true });
+    for (let i = 0; i < 60; i++) svc2.mails.set(`${PAT}|m${i}@paystub-madeup.example`, { id: `g${i}`, user: PAT, rfc: `m${i}@paystub-madeup.example`, labelIds: ['SPAM'] });
+    await svc2.setUserReports(true, ADMIN);
+    const half = await svc2.followUserReports({ budgetMs: -1 });
+    assert.equal(half.alerts, 0, 'not finished: not marked read');
+    const rest = await svc2.followUserReports({ budgetMs: 60000 });
+    assert.equal(rest.found.added + rest.found.already, 60);
+    assert.equal(rest.alerts, 1);
 });

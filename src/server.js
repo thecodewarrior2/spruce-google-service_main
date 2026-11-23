@@ -109,7 +109,7 @@ const POLICY_TRIES = 5, POLICY_LOCK_MS = 10 * 60 * 1000;
 // What a policy change is for, in Activity's words (a wrong project ID, 0.5.30).
 const POLICY_WHAT = { mode: 'the mode', aiThreshold: 'the AI move threshold', aiSuspicious: 'the AI suspicious line', aiScansInside: 'whether the AI reads inside mail',
     aiMovesInside: 'whether the Let the AI alone move staff email', safeBrowsing: 'Google Safe Browsing (on or off)', spamhaus: 'Spamhaus (on or off)', abusech: 'abuse.ch (on or off)', suspiciousLabel: 'the Suspicious label', recheck: 're-checking delivered mail', brakePerHour: 'the brake', timeZone: 'the time zone',
-    strictSpam: 'Straight to Spam', allowDomains: 'the allowlisted domains', allowAddresses: 'the allowlisted addresses', allowLinkDomains: 'the allowed link domains', releasesRepo: 'the release repository', modelRepo: 'the model repository', retentionDays: 'how long records are kept', watchScope: 'who is checked (the pilot or the whole domain)' };
+    strictSpam: 'Skip review', allowDomains: 'the allowlisted domains', allowAddresses: 'the allowlisted addresses', allowLinkDomains: 'the allowed link domains', releasesRepo: 'the release repository', modelRepo: 'the model repository', retentionDays: 'how long records are kept', watchScope: 'who is checked (the pilot or the whole domain)' };
 // The project ID a policy change must be confirmed with ('' when the dashboard doesn't know it).
 const expectedProject = (cfg) => cfg.project || (cfg.demo ? DEMO_PROJECT : '');
 
@@ -811,6 +811,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'POST /api/spam-learning': async (q, body, admin) => {
             if (body.stop) return service.stopSpamLearning(admin.email);
             if (body.agree !== true) return { error: 'Tick the box to agree: promotional mail will be moved to Spam. Nothing was changed.', status: 400 };
+            // (0.6.66) It can move all promotional mail for weeks: confirmed with the project ID, as every such setting is.
+            const bad = await projectCheck(admin, body, 'Spam learning (start)');
+            if (bad) return bad;
             return service.startSpamLearning(body.days, admin.email);
         },
         'POST /api/spam-senders': async (q, body, admin) => (body.remove ? service.removeSpamSender(String(body.key || ''), admin.email) : service.addSpamSender(String(body.sender || ''), admin.email, { from: 'page' })),

@@ -55,6 +55,14 @@ test('0.6.59: the fingerprint leaves out the name a greeting gives and a subject
     assert.equal(f('x', 'Pat, your invoice is ready'), f('x', 'Sam, your invoice is ready'), 'a subject\'s leading name');
     assert.notEqual(f('Dear Pat,\nYour invoice is attached.'), f('Dear Pat,\nYour invoice is attached. Wire the payment today.'), 'other words still count');
     assert.notEqual(f('Dear Pat,\nYour invoice is attached.'), f('Your invoice is attached, dear Pat, and overdue.'), 'only a greeting at the start of a line');
+    // (0.6.66) "To" and "Attention" begin ordinary sentences: what follows them still counts.
+    assert.notEqual(f('Hello,\nTo view your invoice, open the portal.'), f('Hello,\nTo confirm your password, open the portal.'), 'a To line');
+    assert.notEqual(f('Attention all staff, the office closes early.'), f('Attention payroll update required, the office closes early.'), 'an Attention line');
+    assert.notEqual(f('Dear valued customer of our bank today,\nX'), f('Dear friend,\nX'), 'only a name (up to three words) after a greeting');
+    assert.notEqual(f('x', 'Urgent action needed, now'), f('x', 'Reminder action needed, now'), 'a subject\'s leading name is one word');
+    // (0.6.66) The reader's own name is taken out as a whole word only ("sam" isn't taken out of "same").
+    const g = (user) => fingerprintOf({ senderAddress: 'billing@madeup-vendor.example', subject: 'Same day delivery', visibleText: 'Your order ships the same day.', links: [], attachmentFiles: [], people: { to: [] } }, user);
+    assert.equal(g('sam.testwood@maple-schools.example'), g('pat.fakewell@maple-schools.example'));
 });
 
 test('Mark safe on one copy: the waiting copies and every later identical copy answered the same way; a forged one isn\'t', async (t) => {

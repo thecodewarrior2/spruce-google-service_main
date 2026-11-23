@@ -123,13 +123,32 @@ test('0.6.59: Spam learning: for the days chosen, promotional mail goes to Spam 
     await svc.store.updateRecord(r.key, { state: 'moved', readHistoryId: '100' });
     await svc.userReleased(PAT, r.messageId, { at: '200' });
     assert.notEqual((await judge(svc, PAT)).trigger, 'spam', 'not moved as spam for the person who took it back');
+    // (0.6.66) An admin takes it off Spam senders: learning never adds it back.
+    await svc.removeSpamSender('em.bigstore.example', ADMIN);
+    const back = await judge(svc, SAM, { subject: 'Another sale' });
+    assert.notEqual(back.trigger, 'spam', 'not learned again after an admin removed it');
+    assert.equal((await svc.spamSenderList()).length, 0);
+    await svc.addSpamSender('em.bigstore.example', ADMIN);   // an admin adding it again: on the list as before
     // A forged copy, inside mail, and monitor mode.
     assert.notEqual((await judge(svc, SAM, { dmarc: 'fail', from: 'deals@em.otherstore.example', dkimDomain: 'otherstore.example' })).trigger, 'spam', 'a sender Gmail couldn\'t confirm isn\'t learned');
     const mon = make('monitor');
     await mon.startSpamLearning(3, ADMIN);
     const m = await judge(mon, PAT);
     assert.equal(m.action, 'would-move');
+    assert.match(m.why, /monitor mode: nothing is moved, and em\.bigstore\.example would be added to Spam senders/);
     assert.equal(mon.modified.length, 0, 'monitor mode moves nothing');
+    assert.deepEqual(await mon.spamSenderList(), [], '(0.6.66) and adds nothing to Spam senders');
+    assert.deepEqual([(await mon.spamLearningInfo()).learned, (await mon.spamLearningInfo()).wouldLearn], [0, 1]);
+    // (0.6.66) An email an admin marked safe (its remembered answer) isn't learned.
+    const safe = make();
+    await safe.startSpamLearning(3, ADMIN);
+    const first = await judge(safe, PAT, { from: 'deals@em.fourthstore.example', dkimDomain: 'fourthstore.example', subject: 'Same sale' });
+    await safe.store.setState('rememberedSafe', { [first.fingerprint || (await safe.store.getRecord(first.key)).fingerprint]: { sender: 'deals@em.fourthstore.example', label: 'x', by: ADMIN, at: Date.now(), last: Date.now(), hits: 0 } });
+    await safe.removeSpamSender('em.fourthstore.example', ADMIN);
+    await safe.store.setState('spamSendersRemoved', {});
+    safe._remembered = null;
+    const again = await judge(safe, SAM, { from: 'deals@em.fourthstore.example', dkimDomain: 'fourthstore.example', subject: 'Same sale' });
+    assert.notEqual(again.trigger, 'spam', 'an identical email an admin marked safe isn\'t learned');
     // Stopped: when it last ran is kept; the senders learned stay.
     const stopped = await svc.stopSpamLearning(ADMIN);
     assert.equal(stopped.info.active, false);
@@ -137,4 +156,25 @@ test('0.6.59: Spam learning: for the days chosen, promotional mail goes to Spam 
     assert.equal(stopped.info.stoppedBy, ADMIN);
     assert.equal((await svc.stopSpamLearning(ADMIN)).status, 409);
     assert.equal((await judge(svc, SAM, { from: 'deals@em.thirdstore.example', dkimDomain: 'thirdstore.example' })).action, 'promo', 'after it ends, promotional mail is promotional again');
+});
+
+test('0.6.66: starting Spam learning on the dashboard needs the agreement and the project ID; stopping it doesn\'t', async () => {
+    const http = require('http');
+    const { createApp } = require('../src/server');
+    const cfg = loadConfig({ DEMO: '1', MODE: 'monitor', ORG_DOMAINS: ORG });
+    const store = new MemoryStore();
+    const svc = new Service({ cfg, store, gmail: { labelId: async () => 'L', modify: async () => ({}) }, log: { error() {}, warn() {} } });
+    const srv = http.createServer(createApp({ cfg, store, service: svc }));
+    await new Promise(r => srv.listen(0, r));
+    const post = async (body) => { const res = await fetch(`http://127.0.0.1:${srv.address().port}/api/spam-learning`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'spruce-dashboard' }, body: JSON.stringify(body) }); return { status: res.status, body: await res.json() }; };
+    try {
+        assert.equal((await post({ days: 3, agree: true })).status, 403, 'no project ID');
+        assert.equal((await post({ days: 3, agree: true, projectId: 'another-project' })).status, 403, 'a wrong one');
+        assert.equal((await svc.spamLearningInfo()).active, false, 'nothing started');
+        assert.equal((await post({ days: 3, projectId: 'demo-project' })).status, 400, 'no agreement');
+        const ok = await post({ days: 3, agree: true, projectId: 'demo-project' });
+        assert.equal(ok.status, 200, JSON.stringify(ok.body));
+        assert.equal(ok.body.info.active, true);
+        assert.equal((await post({ stop: true })).status, 200, 'stopping needs neither');
+    } finally { await new Promise(r => srv.close(r)); }
 });

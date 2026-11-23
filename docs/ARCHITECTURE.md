@@ -76,9 +76,17 @@ worker ──▶ security.cloudflare-dns.com    host names (blocked = 0.0.0.0)
 8. **The policy decides** (`src/policy.js`, `decide`): allowlisted and DMARC passing, nothing; the rules
    flagged it, or the AI scored it at the move threshold (90%; from outside, or inside with "AI alone moves
    inside mail"), move; a rules score of 3 or an AI score from the suspicious line (65%), suspicious; in
-   monitor mode a move is recorded as "would move".
+   monitor mode a move is recorded as "would move". (0.6.59; 0.6.65) Settings → Policy → Skip review (`strictWhy`,
+   setting `strictSpam`): an outside email with a chosen sign (forged headers, spam headers, the sender on a threat
+   list, a failed or missing DMARC check, a dangerous link; `result.strictSigns` from `analyze`) is moved with trigger
+   `rules` and never waits for review; never a Trusted sender Gmail confirmed or mail from inside. Then, in `judge`:
+   Spam senders, promotional mail, and (0.6.59) Spam learning (`learnSpam`, below).
 9. **The brakes** (`brakes`, below) may hold a move: an admin's decision on the campaign, the campaign
-   pause on weak evidence, the domain-wide brake.
+   pause on weak evidence (not for a sender an admin put on Spam senders, 0.6.63), the domain-wide brake. (0.6.63)
+   Spam (trigger `spam`) has a brake of its own instead: its moves count against `spamBrakeLimit()`
+   (`SPAM_BRAKE_PER_HOUR`, else the brake's number) in their own hourly counter (`moveCounts` bucket `spam|hour|resumed`),
+   never the domain-wide one; over it, state `spamBrake` holds only spam (`held: 'spam-brake'`) until an admin resumes
+   it (`resumeSpam`, `POST /api/resume` with `spam`). The domain-wide brake, on, still holds spam too.
 10. **It is carried out:** `messages.modify` adds `SPAM` and `SPRUCE/Moved` and takes `INBOX` off; in
     monitor mode `MONITOR_LABEL` if set; for a suspicious email, the Suspicious label when that setting is on.
 11. **It is recorded** (`records/{user|id}`), only when something happened (moved, would move, suspicious):
@@ -140,7 +148,13 @@ the worker's 120-second request time. In order:
 4. **Re-checks:** suspicious mail an hour old (looked for up to 6 hours after it arrived) and a day old (up to
    30 hours) is queued (0.6.7), and (0.5.51) after an update that changes how email is checked, the next of the
    recent mail still in the Inbox; the queue is checked for up to 40 seconds (the rest the next hour).
-5. **Link clicks** (when on): Gmail's logs for the re-checked mail, up to 15 seconds.
+5. **Link clicks** (when on): Gmail's logs for the re-checked mail, up to 15 seconds, read as `DIRECTORY_ADMIN` (0.6.62).
+   (0.6.60) **User reports** (when on, `followUserReports`): the Alert Center's new "User reported phishing" alerts
+   (`apps.alerts`, as `DIRECTORY_ADMIN`), oldest first from the last one read, up to 15 seconds; each reported email of a
+   watched mailbox is found by its exact Message-ID (Spam and Trash included; 0.6.66: a Message-ID with spaces or quotes
+   isn't searched) and its record marked `userReported`, or, for an email the checks let through, read, checked and
+   recorded (`state: 'reported'` when out of the Inbox). Review → Reported lists them (`reportedUnreviewed`); nothing is
+   moved. An alert is marked read only once all its messages are done.
 6. **The look-alike watch:** the next 80 look-alike names, up to 12 seconds (a pass a day).
 7. **Updates:** an update from the dashboard that failed or stalled, an approved version that needs a manual
    install; each alerted once.
@@ -235,7 +249,24 @@ fingerprint is remembered and Gmail confirmed the sender, or its campaign was di
 strong (`result.strong`), no dangerous link and no Spam senders entry is involved: recorded as `flag` with
 `falseAlarm: true`, `markedBy` the one who answered and `autoAnswered: { kind: 'remembered' | 'campaign' }`; never moved,
 no Suspicious label, counted as `autoAnswered`. Undo of the answer forgets it. `GET /api/remembered` (moderators too) and
-`POST /api/remembered` (admins: forget) back Settings → Sender lists → Remembered answers.
+`POST /api/remembered` (admins: forget) back Settings → Sender lists → Remembered answers. (0.6.59) The answer keeps `was`
+(what the service had taken the email for). The fingerprint also leaves out the name a greeting gives at the start of the
+text or a line ("Dear Pat,"; 0.6.66: only after dear, hi, hello, hey, greetings or good morning/afternoon/evening/day,
+and only a form of address and one to three words) and a subject's leading "Name,"; the reader's own names are taken out
+as whole words only (0.6.66).
+
+## Spam learning
+
+(0.6.59, `learnSpam`; Settings → Sender lists → Spam learning, `GET/POST /api/spam-learning`; starting it needs the
+agreement and, since 0.6.66, the project ID.) State `spamLearning`: { days, startedAt, endsAt, by, stoppedAt, stoppedBy }.
+While it runs, promotional mail and mail the AI is at least 99% sure is spam, from a verified outside sender, are moved as
+spam (trigger `spam`) and the sender is added to Spam senders (`from: 'learning'`); the senders a run learned are kept in
+state `spamLearned` (sender → { at, monitor }), apart from the run, so counting never rewrites a stop. Never mail from
+inside, a Trusted sender, a platform's notification, a sender the person (or 3 people) took back out of Spam
+(`spamKept`), an email an admin marked safe (its remembered answer, 0.6.66), or a sender an admin took off Spam senders
+(state `spamSendersRemoved`, 0.6.66; an admin adding it again clears that). In monitor mode (0.6.66) nothing is added to
+Spam senders: `spamLearned` records the senders it would have added (`monitor: true`). Whether the run is still on is read
+fresh before each sender is learned, so Stop now applies at once.
 
 ## Promotional mail
 

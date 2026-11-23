@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.66: fixes from a full code and security review
+
+- **Remembered answers could mark a different email safe.** The fingerprint's greeting rule (0.6.59) also took out the
+  words after a line starting "To", "Attention" or "Attn", so "To view your invoice," and "To confirm your password," left
+  the same text behind: a lure from a sender Gmail confirmed could share the fingerprint of an email an admin marked safe
+  and be answered safe automatically. Now only a greeting word (dear, hi, hello, hey, greetings, good morning…) counts, and
+  only a name after it (a form of address and one to three words); a subject's leading name is one word. The reader's own
+  names are taken out as whole words only ("sam" was taken out of "same", so one email to two people could differ).
+- **Spam learning:**
+  - **In monitor mode it no longer adds senders to Spam senders.** Only the moves were skipped, so a monitor-mode trial
+    filled the list and everything it learned went straight to Spam the day enforce mode was turned on. Now the card
+    counts the senders it would have added, and none is added.
+  - **It no longer overrides an admin:** an email an admin marked safe (a remembered answer) isn't learned, and a sender an
+    admin took off Spam senders isn't added back (an admin adding it again clears that).
+  - **Starting it needs the project ID**, as every setting that moves mail does (the agreement as before).
+  - **Stop now applies at once and stays stopped:** the run is read again before each sender is learned (it was cached for
+    a minute), and the count of senders learned is kept apart from the run, so a count written at the same moment can't
+    undo the stop.
+- **User reports:** the reported email's Message-ID (the sender's own text) is no longer put into a Gmail search as is: one
+  with spaces or quotes isn't searched (it could carry search words that find other emails), and only a message whose own
+  Message-ID matches exactly counts. Every message of an alert is read (only the first 50 were, and the rest were lost); an
+  alert left half-read when the time runs out is read again at the next run.
+- docs/ARCHITECTURE.md describes Skip review, spam's own brake, Spam learning and User reports; Activity says Skip review
+  (it still said Straight to Spam).
+- The checks level is raised to 51 (the fingerprint and Spam learning). No installation change.
+
 ## 0.6.65: Skip review, its own section of the Policy page
 
 - **Settings → Policy → Skip review** replaces the Straight to Spam row: one row per sign, each saying what it is and what

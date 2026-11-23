@@ -21,16 +21,20 @@ const MAX_REMEMBERED = 3000;                 // the most kept (the least recentl
 const SHARE_HOSTS = /(^|\.)(docs\.google\.com|drive\.google\.com|sites\.google\.com|forms\.gle|goo\.gl|sharepoint\.com|onedrive\.live\.com|1drv\.ms|forms\.office\.com|forms\.microsoft\.com|dropbox\.com|dropboxusercontent\.com|box\.com|docusign\.net|docusign\.com|wetransfer\.com|we\.tl|jotform\.com|typeform\.com|canva\.com|notion\.site|bit\.ly|tinyurl\.com|t\.co|ow\.ly|rebrand\.ly|is\.gd|cutt\.ly|shorturl\.at)$/i;
 
 // (0.6.59) The name a greeting gives ("Dear Pat," "Hi Sam Madeup:" "Good morning Ms. Samplefield,"), at the start of the
-// text or of a line, up to the comma, colon or line end: copies of one email to different people greet each by name,
-// and the To line doesn't always carry it (no display name, or a nickname). The greeting word itself stays.
-const GREETING = /(^|\n)([ \t]*(?:dear|hi|hello|hey|hiya|greetings|good (?:morning|afternoon|evening|day)|attention|attn|to)\b)[ \t]+[^\n,:;!?]{1,40}(?=[,:;!?]|\n|$)/gu;
-// A subject that starts with the reader's name and a comma ("Pat, your invoice is ready"): the name is left out.
-const SUBJECT_NAME = /^\s*[\p{L}'’.-]{2,20}(?:\s+[\p{L}'’.-]{2,20})?\s*,\s*/u;
+// text or of a line: copies of one email to different people greet each by name, and the To line doesn't always carry it
+// (no display name, or a nickname). The greeting word itself stays. (0.6.66) Only a greeting word (not "To" or
+// "Attention", which begin ordinary sentences), and only a name: an optional form of address and one to three words of
+// letters, then the comma, colon, exclamation mark or line end. Before, "To view your invoice," and "To confirm your
+// password," left the same words behind, so two different emails could share a fingerprint.
+const GREETING = /(^|\n)([ \t]*(?:dear|hi|hello|hey|hiya|greetings|good (?:morning|afternoon|evening|day)))[ \t]+(?:(?:mr|mrs|ms|mx|dr|miss)\.?[ \t]+)?[\p{L}'’-]+(?:[ \t]+[\p{L}'’-]+){0,2}(?=[ \t]*(?:[,:;!]|\n|$))/gu;
+// A subject that starts with the reader's name and a comma ("Pat, your invoice is ready"): the one name is left out.
+const SUBJECT_NAME = /^\s*[\p{L}'’-]{2,20}\s*,\s*(?=\S)/u;
 
 function words(t, drop, { subject = false } = {}) {
     let s = String(t || '').toLowerCase().normalize('NFKC');
     s = subject ? s.replace(/^((re|fw|fwd)\s*:\s*)+/g, '').replace(SUBJECT_NAME, '') : s.replace(GREETING, '$1$2 ');
-    for (const d of drop) if (d.length >= 3) s = s.split(d).join(' ');
+    // (0.6.66) The reader's names as whole words only: "sam" taken out of "same" made one email to Pat and to Sam differ.
+    for (const d of drop) if (d.length >= 3) s = s.replace(new RegExp(`(?<![\\p{L}\\p{N}])${d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'gu'), ' ');
     return s.replace(/^((re|fw|fwd)\s*:\s*)+/g, '').replace(/[0-9]+/g, ' ').replace(/[^\p{L}]+/gu, ' ').trim();
 }
 

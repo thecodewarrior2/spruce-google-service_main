@@ -1526,14 +1526,14 @@
         let info = null;
         try { info = (await api('/api/spam-learning')).info; } catch (e) { return null; }
         const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Spam learning' }),
-            h('p', { class: 'sub', text: 'For the days you choose, promotional mail (Gmail\'s Promotions tab, a one-click unsubscribe, the AI\'s spam answer) and mail the AI is at least 99% sure is spam, from senders Gmail confirms (DMARC) outside your organization, go to Spam, and each sender is added to Spam senders ("by Spam learning"), so its later mail goes there too. A sender stays trusted only when someone takes its mail back out of Spam: for that person at once, for everyone once 3 people did. Never mail from inside, Trusted senders, or a platform\'s notification. Monitor mode: recorded as "would move", nothing moved.' }));
+            h('p', { class: 'sub', text: 'For the days you choose, promotional mail (Gmail\'s Promotions tab, a one-click unsubscribe, the AI\'s spam answer) and mail the AI is at least 99% sure is spam, from senders Gmail confirms (DMARC) outside your organization, go to Spam, and each sender is added to Spam senders ("by Spam learning"), so its later mail goes there too. A sender stays trusted only when someone takes its mail back out of Spam: for that person at once, for everyone once 3 people did. Never mail from inside, Trusted senders, a platform\'s notification, an email an admin marked safe, or a sender an admin took off Spam senders. Monitor mode: recorded as "would move", nothing moved, and nothing added to Spam senders (the card counts what would have been).' }));
         const body = h('div');
         card.append(body);
         const draw = (i) => {
             body.textContent = '';
             const status = !i || !i.startedAt ? 'Never run.'
-                : i.active ? `Running: started ${dayOf(i.startedAt)} by ${i.by}, ends ${dayOf(i.endsAt)} (${num(i.days)} day${i.days === 1 ? '' : 's'}). ${num(i.learned)} sender${i.learned === 1 ? '' : 's'} learned so far.`
-                : `Last ran ${dayOf(i.startedAt)} to ${dayOf(i.endedAt)}${i.stoppedBy ? ` (stopped early by ${i.stoppedBy})` : ''}, started by ${i.by}: ${num(i.learned)} sender${i.learned === 1 ? '' : 's'} learned.`;
+                : i.active ? `Running: started ${dayOf(i.startedAt)} by ${i.by}, ends ${dayOf(i.endsAt)} (${num(i.days)} day${i.days === 1 ? '' : 's'}). ${num(i.learned)} sender${i.learned === 1 ? '' : 's'} learned so far${i.wouldLearn ? `; in monitor mode, ${num(i.wouldLearn)} more would have been (not added to Spam senders)` : ''}.`
+                : `Last ran ${dayOf(i.startedAt)} to ${dayOf(i.endedAt)}${i.stoppedBy ? ` (stopped early by ${i.stoppedBy})` : ''}, started by ${i.by}: ${num(i.learned)} sender${i.learned === 1 ? '' : 's'} learned${i.wouldLearn ? `; in monitor mode, ${num(i.wouldLearn)} more would have been (not added)` : ''}.`;
             body.append(h('p', {}, h('span', { class: `pol-pill ${i && i.active ? 'on' : 'off'}`, text: i && i.active ? 'On' : 'Off' }), ' ', status));
             if (isModerator()) return;
             if (i && i.active) {
@@ -1545,15 +1545,19 @@
             }
             const days = h('input', { type: 'number', min: 1, max: (i && i.maxDays) || 30, step: 1, value: '7', class: 'num-input', 'aria-label': 'Days to run' });
             const agree = h('input', { type: 'checkbox' });
+            // (0.6.66) Confirmed with the project ID, as every setting that moves mail is.
+            const project = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', placeholder: 'project-id', 'aria-label': 'Google Cloud project ID' });
             const start = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Start');
-            agree.addEventListener('change', () => { start.disabled = !agree.checked; });
+            const ready = () => { start.disabled = !agree.checked || !project.value.trim(); };
+            agree.addEventListener('change', ready); project.addEventListener('input', ready);
             start.addEventListener('click', async () => {
                 start.disabled = true;
-                try { const out = await api('/api/spam-learning', { method: 'POST', body: { days: Number(days.value), agree: agree.checked } }); toast(`Spam learning runs until ${dayOf(out.info.endsAt)}.`); draw(out.info); }
-                catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); start.disabled = false; }
+                try { const out = await api('/api/spam-learning', { method: 'POST', body: { days: Number(days.value), agree: agree.checked, projectId: project.value } }); toast(`Spam learning runs until ${dayOf(out.info.endsAt)}.`); draw(out.info); }
+                catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); ready(); }
             });
             body.append(h('div', { class: 'inline-form' }, h('label', { class: 'inline' }, h('span', { text: 'Run for ' }), days, h('span', { text: ` days (1 to ${(i && i.maxDays) || 30})` }))),
-                h('label', { class: 'choice' }, agree, h('span', { text: 'I agree: promotional mail, including newsletters people signed up for, will be moved to Spam until they take it back out.' })), start);
+                h('label', { class: 'choice' }, agree, h('span', { text: 'I agree: promotional mail, including newsletters people signed up for, will be moved to Spam until they take it back out.' })),
+                h('div', { class: 'policy-form sb-form' }, h('label', { class: 'project' }, h('span', { text: 'Google Cloud project ID, to confirm' }), project), h('div', { class: 'actions' }, start)));
         };
         draw(info);
         return card;

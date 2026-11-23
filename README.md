@@ -216,7 +216,9 @@ spam, from senders Gmail confirms (DMARC) outside the organization, go to Spam (
 sender goes on Spam senders ("by Spam learning"). A sender is trusted again only when someone takes its mail back out
 of Spam: for that person at once, for everyone once 3 people did. The card shows when it last ran (start and end) and
 how many senders it learned; Stop now ends it early, and the senders learned stay on Spam senders until removed.
-Never mail from inside, a Trusted sender or a platform's notification.
+Never mail from inside, a Trusted sender, a platform's notification, (0.6.66) an email an admin marked safe, or a sender an
+admin took off Spam senders (it isn't added back). Starting it needs the agreement and (0.6.66) the project ID. In monitor
+mode (0.6.66) it adds nothing to Spam senders: the card counts the senders it would have added.
 
 **User reports** (0.6.60; Settings → User reports, off by default): when someone clicks Gmail's own **Report phishing**,
 the email goes to **Review → Reported** within the hour (read from Google's Alert Center as the directory admin, `DIRECTORY_ADMIN`, whose role needs the Alert Center privilege; one more scope,
