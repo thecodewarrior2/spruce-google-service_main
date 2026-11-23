@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.70: Review drops emails answered on other pages; re-checks on Today; a veil while the dashboard rests
+
+- **Fixed: an email answered on its own page stayed in Review.** Review reads its list once and keeps it while it is
+  answered, so an answer given on an email's own page (which Threats → Re-checked and Mail open), on Mail's selection or
+  in a campaign's box never left the kept list: back on Review, the email was still there until Look again. Now every
+  answer leaves Review's lists at once, with the other emails it covered (a Spam answer's same address, which had the
+  same problem inside Review too), and an Undo has Review read its lists again. Coming back to a kept list, Review also
+  checks it against the service, so an email another admin (or another tab) answered leaves it too.
+- **Today: "Re-checking delivered mail".** While delivered mail waits to be checked again (after an update that changes
+  the checks, a phishing list's new entries, a look-alike, suspicious mail an hour and a day old), a card shows how many
+  emails were checked of how many (a progress bar), in how many mailboxes, how many mailboxes still wait, why they
+  were queued, about how many hourly runs are left, and what was found; for a day after, when it finished. Mailboxes
+  are counted by a short hash: no address is kept for it.
+- **The re-check queue stays well inside Firestore's 1 MiB per document:** each entry's site is cut to 100 characters,
+  and the queue stops taking entries at 700 KB (it also stops at 3,000, as before). Before, a list's download that
+  found 3,000 emails linking to long addresses could make the queue too big to save.
+- **A veil while the dashboard rests:** after 15 minutes with no click or key the dashboard stops fetching (0.6.7); now
+  the page is covered by a note saying so and when what is shown was read, so old numbers aren't taken for live ones.
+  A click or a key brings it up to date.
+- Nothing about how email is judged changes (the checks level stays the same). No installation change.
+
 ## 0.6.69: phish-tiny 0.27.0
 
 - **The AI model is phish-tiny 0.27.0** (TinyPhishLLM `46cc244`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.26.0),

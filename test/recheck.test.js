@@ -429,3 +429,41 @@ test('0.5.51: an admin marks a look-alike a threat: the delivered mail from it i
     assert.equal((await t.svc.markLookalike(LOOK, 'threat', `it@${ORG}`)).recheck, null);
 });
 const RECHECK_WORSE = (a, b) => ({ none: 0, flag: 1, 'would-move': 2, move: 3 })[b.action] > ({ none: 0, flag: 1, 'would-move': 2, move: 3 })[a ? a.action : 'none'];
+
+test('0.6.70: the queue stays well under one Firestore document; Today sees how far the re-checks got, in emails and mailboxes', async () => {
+    const svc = new Service({ cfg: loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: `a@${ORG}`, MODE: 'monitor', RECHECK: 'true' }), store: new MemoryStore(),
+        gmail: { labelId: async () => 'L', modify: async () => ({}), labels: async () => ['INBOX'] }, log: silent });
+    // A long site is cut short; the queue stops taking entries before 700 KB.
+    const long = `https://${'x'.repeat(300)}.example/`;
+    assert.equal(await svc.queueRechecks([{ user: `a@${ORG}`, id: 'm1', source: 'lists', site: long, list: 'Phishing Army' }]), 1);
+    assert.equal((await svc.store.getState('recheckQueue'))[0].site.length, 100);
+    // (3,000 entries with short sites fit; entries with other long fields are stopped by the size)
+    const many = Array.from({ length: 2999 }, (_, i) => ({ user: `reader${i % 400}@${ORG}`, id: `n${i}`, source: 'lists', site: long, list: `Phishing Army ${'y'.repeat(200)}` }));
+    await svc.queueRechecks(many);
+    const q = await svc.store.getState('recheckQueue');
+    assert.ok(JSON.stringify(q).length < 720 * 1024, `the queue is ${JSON.stringify(q).length} bytes`);
+    assert.ok(q.length < 3000, 'stopped by its size, not its count');
+    // Progress: two runs, then the queue is empty and the batch ends; a new batch counts again from 0.
+    await svc.store.setState('recheckQueue', Array.from({ length: 30 }, (_, i) => ({ user: `reader${i % 4}@${ORG}`, id: `p${i}`, source: i < 20 ? 'update' : 'later' })));
+    await svc.store.setState('updateRecheck', { version: '0.6.70', queued: 20, max: 5000, startedAt: 1, doneAt: null });
+    let calls = 0;
+    svc.recheckMessage = async (item) => { calls++; return { item, outcome: calls === 3 ? 'would-move' : 'unchanged' }; };
+    let st = await svc.recheckStatus();
+    assert.equal(st.queued, 30); assert.equal(st.queuedMailboxes, 4); assert.deepEqual(st.bySource, { update: 20, later: 10 });
+    assert.equal(st.sweep.version, '0.6.70'); assert.equal(st.progress, null);
+    const realNow = Date.now;
+    let t = 0; Date.now = () => (t += 30 * 1000);       // each batch of 12 takes the run's 40 s: one batch, then the next run
+    try { await svc.runRechecks({ budgetMs: 40 * 1000 }); } finally { Date.now = realNow; }
+    st = await svc.recheckStatus();
+    assert.ok(st.progress.checked >= 12 && st.queued === 30 - st.progress.checked && !st.progress.endedAt, 'under way');
+    assert.equal(st.progress.lastRun.checked, st.progress.checked);
+    assert.equal(st.progress.wouldMove, 1);
+    await svc.runRechecks({ budgetMs: 60 * 1000 });
+    st = await svc.recheckStatus();
+    assert.equal(st.queued, 0); assert.equal(st.progress.checked, 30); assert.equal(st.progress.mailboxes, 4); assert.ok(st.progress.endedAt, 'finished');
+    assert.ok(!JSON.stringify(await svc.store.getState('recheckProgress')).includes(ORG), 'no mailbox kept readable');
+    await svc.store.setState('recheckQueue', [{ user: `a@${ORG}`, id: 'z1', source: 'lists' }]);
+    await svc.runRechecks({ budgetMs: 60 * 1000 });
+    st = await svc.recheckStatus();
+    assert.equal(st.progress.checked, 1, 'a new batch starts a new count');
+});

@@ -241,6 +241,12 @@ async function buildDemo({ now = Date.now(), cfg }) {
         'youtube.com': { name: 'Google', state: 'owned', at: now - 5 * DAY, how: 'its name servers are Google\'s (ns1.google.com)' },
         'zoom.com': { name: 'Zoom', state: 'likely', at: now - DAY, how: 'registered through MarkMonitor Inc., a corporate registrar; registered 27 years ago' } });
     await store.setState('confirmedDomains', { 'amzn.eu': { name: 'Amazon', by: 'it.director@maple-schools.example', at: now - 4 * DAY, note: 'EURid WHOIS page: Amazon Europe Core S.à r.l., through Com Laude' } });
+    // (0.6.70) Today's "Re-checking delivered mail": an update's re-check under way (made up; the demo runs no re-checks).
+    await store.setState('updateRecheck', { level: 0, version: '0.6.70', since: now - 26 * H, until: now - 2 * H, boundary: [], queued: 1840, max: 5000, startedAt: now - 2 * H, doneAt: null });
+    await store.setState('recheckQueue', Array.from({ length: 1240 }, (_, i) => ({ queuedAt: now - 2 * H, user: staff[i % staff.length], id: `demo-recheck-${i}`, receivedAt: now - 3 * H - i * 60000,
+        source: i < 1180 ? 'update' : i < 1225 ? 'later' : 'lists', version: '0.6.70' })));
+    await store.setState('recheckProgress', { startedAt: now - 2 * H, checked: 640, moved: 0, wouldMove: 2, suspicious: 5, notInInbox: 31, errors: 0,
+        mailboxes: Array.from({ length: 41 }, (_, i) => `demo${i}`), lastRun: { at: now - 40 * 60 * 1000, checked: 330 }, endedAt: null });
     await store.setState('spamRescued', { 'coupon-blast.example': { users: ['demo-a', 'demo-b', 'demo-c', 'demo-d'], first: now - 12 * DAY, last: now - 2 * DAY, shared: true, keep: false } });
     // (the colleague-name check read the demo directory while the made-up mail was judged: as of now)
     const cn = await store.getState('colleagueNames');

@@ -524,6 +524,9 @@
             h('div', { class: 'kpi-strip' },
                 h('span', {}, h('b', { text: num(d.mode === 'enforce' ? sm.wouldMove : sm.moved) }), ` ${d.mode === 'enforce' ? 'recorded, not moved (monitor phase or brake)' : 'moved'}${d.mode !== 'enforce' && sm.moved ? ` · ${movedBack}` : ''}`),
                 h('span', {}, h('b', { text: num(sm.flagged) }), ' suspicious only, below the move rules')));
+        // (0.6.70) Re-checking delivered mail: while it runs (or for a day after), how many emails and mailboxes, how far it got.
+        const rc = recheckCard(d.recheck, d.mode);
+        if (rc) out.push(rc);
         // Trend (0.5.45): the emails checked behind, on the same scale; Zoom in fits the axis to the moved ones.
         let zoom = false;
         try { zoom = localStorage.getItem('spruce.trendZoom') === 'on'; } catch (e) { /* not kept */ }
@@ -562,14 +565,56 @@
                 d.alerts.length ? h('ul', { class: 'events' }, d.alerts.map(a => h('li', {}, h('time', { text: when(a.at) }), a.text))) : h('div', { class: 'empty', text: 'Nothing new.' }))));
         return out;
     }
+    // (0.6.70) Today's "Re-checking delivered mail" card (GET /api/overview recheck; pipeline.js recheckStatus): shown while
+    // emails wait to be checked again, and for a day after the last batch finished.
+    const RECHECK_WHY = { update: 'an update changed how email is checked', lists: 'the phishing lists added sites or senders', lookalike: 'look-alike domains of yours',
+        later: 'suspicious emails an hour and a day old' };
+    function recheckCard(r, mode) {
+        if (!r || !r.on) return null;
+        const p = r.progress, now = Date.now();
+        const running = r.queued > 0 || (p && !p.endedAt);
+        if (!running && !(p && p.endedAt && now - p.endedAt < 24 * 3600 * 1000)) return null;
+        const cur = p && !p.endedAt ? p : null;      // the batch under way (a new one hasn't run yet: nothing checked)
+        const done = running ? (cur ? cur.checked : 0) : p.checked, total = done + (running ? r.queued : 0);
+        const share = total ? Math.min(1, done / total) : 1;
+        const found = (x) => {
+            const bits = [];
+            if (x.moved) bits.push(`${num(x.moved)} moved to Spam`);
+            if (x.wouldMove) bits.push(`${num(x.wouldMove)} ${mode === 'enforce' ? 'left in the Inbox by a brake' : 'would be moved'}`);
+            if (x.suspicious) bits.push(`${num(x.suspicious)} suspicious`);
+            return bits.length ? `Found: ${bits.join(', ')}.` : 'Nothing new found so far.';
+        };
+        const why = Object.entries(r.bySource || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${num(n)} because ${k === 'update' && r.sweep ? `version ${r.sweep.version} changed how email is checked` : RECHECK_WHY[k] || k}`);
+        const perRun = cur && cur.lastRun && cur.lastRun.checked ? cur.lastRun.checked : 0;
+        const runsLeft = perRun ? Math.ceil(r.queued / perRun) : 0;
+        const sweepOpen = r.sweep && !r.sweep.doneAt;
+        const body = running ? [
+            h('div', { class: 'recheck-line' }, h('b', { text: `${num(done)} of ${num(total)} emails checked (${pct(share)})` }),
+                ` · ${num(cur ? cur.mailboxes : 0)} mailbox${cur && cur.mailboxes === 1 ? '' : 'es'} done, ${num(r.queuedMailboxes)} waiting`),
+            h('progress', { class: 'recheck-bar', max: String(Math.max(1, total)), value: String(done), 'aria-label': `Re-checks done: ${pct(share)}` }),
+            h('div', { class: 'small muted' }, why.length ? `Waiting: ${why.join('; ')}. ` : '',
+                runsLeft ? `About ${num(perRun)} are checked each hourly run: ${runsLeft === 1 ? 'the rest in the next run' : `about ${num(runsLeft)} more runs`}. ` : 'They are checked in the hourly runs. ',
+                sweepOpen ? `More of the mail delivered before the update is added as the queue has room (up to ${num(r.sweep.max)}; ${num(r.sweep.queued)} so far). ` : '',
+                cur ? found(cur) : '')
+        ] : [
+            h('div', { class: 'recheck-line' }, h('b', { text: `Finished ${when(p.endedAt)}: ${num(p.checked)} emails in ${num(p.mailboxes)} mailbox${p.mailboxes === 1 ? '' : 'es'}.` })),
+            h('div', { class: 'small muted', text: found(p) })
+        ];
+        return h('section', { class: 'card recheck-status', 'aria-labelledby': 'recheck-status-title' },
+            h('div', { class: 'card-head' }, h('h2', { id: 'recheck-status-title', text: running ? 'Re-checking delivered mail' : 'Last re-check of delivered mail' }),
+                h('a', { href: '#/rechecked', text: 'What was found' })),
+            body);
+    }
     // A button's click handler that posts to the service (asking first when ask is set), says the
     // outcome, and redraws the page.
+    // (0.6.70) Posts that answer or move emails: Review reads its kept lists again after them.
+    const REVIEW_CHANGES = /^\/api\/(release|mark|unclear|undo|bulk|campaign\/|promotional|remembered|promotional-kept|spam-senders|allow)/;
     function postButton(path, body, done, ask) {
         return async (e) => {
             if (ask && !window.confirm(ask)) return;
             const b = e.currentTarget;
             b.disabled = true; acting++; busyStart();
-            try { const out = await api(path, { method: 'POST', body: body() }); toast(done(out)); render(); pendingAt = 0; refreshPending(); }
+            try { const out = await api(path, { method: 'POST', body: body() }); if (REVIEW_CHANGES.test(path)) forgetReviewLists(); toast(done(out)); render(); pendingAt = 0; refreshPending(); }
             catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); b.disabled = false; }
             finally { acting--; busyEnd(); }
         };
@@ -595,6 +640,7 @@
         const answerAll = (action) => run('Answering every copy…', async () => {
             if (!window.confirm(`Mark every copy of "${c.label}" ${ANSWER[action].label}?${action === 'spam' && enforce ? ' Copies in the Inbox are moved to the Spam folder.' : ''} You can undo it for an hour.`)) return;
             const o = await api('/api/campaign/answer', { method: 'POST', body: { key, action, addSender: action === 'spam' && spamAddSender && !isModerator() } });
+            forgetAnswered((o.keys || []).concat((o.sameSender && o.sameSender.keys) || []));
             toast(answeredText(action, o, Math.max(2, o.done || 0)), { undo: undoKeys((o.keys || []).concat((o.sameSender && o.sameSender.keys) || [])) });
             render();
         });
@@ -603,6 +649,7 @@
             if (!window.confirm(back ? `Mark every copy of "${c.label}" safe (not phishing or spam)?${enforce ? ' Copies in the Spam folder go back to the Inbox,' : ''} and later copies aren't moved.`
                 : `Mark every copy of "${c.label}" Phishing?${enforce ? ' Every copy is moved to the Spam folder,' : ''} and later copies are treated the same${search.checked ? '. Every watched mailbox is also searched for copies not recorded' : ''}.`)) return;
             const o = await api(back ? '/api/campaign/release' : '/api/campaign/confirm', { method: 'POST', body: back ? { key } : { key, search: search.checked } });
+            forgetReviewLists();   // (0.6.70) every copy answered: Review reads its lists again
             toast(back ? `Marked safe: every copy${o.released ? `, ${num(o.released)} moved back to the Inbox` : ''}.`
                 : `Marked Phishing: every copy${o.moved && !o.moved.monitor && o.moved.moved ? `, ${num(o.moved.moved)} moved to the Spam folder` : ''}${found(o.found)}.`);
             render();
@@ -1972,7 +2019,7 @@
         window.addEventListener(ev, () => {
             const was = away();
             lastInput = Date.now();
-            if (was && live && !document.hidden) { showLive(); refreshPending(); if (!inUse() && !/^#\/?(check|review)/.test(currentHash())) render({ quiet: true }); }
+            if (was && live && !document.hidden) { wakeVeil(); showLive(); refreshPending(); if (!inUse() && !/^#\/?(check|review)/.test(currentHash())) render({ quiet: true }).finally(hideVeil); else hideVeil(); }
         }, { passive: true, capture: true });
     }
     try { live = localStorage.getItem('spruce.live') !== 'off'; } catch (e) { /* storage blocked */ }
@@ -1997,10 +2044,34 @@
         b.setAttribute('aria-pressed', String(live));
     }
     function liveDone(err) { liveError = err; updatedAt = Date.now(); showLive(); }
+    // (0.6.70) While the dashboard rests (no click or key for IDLE_MS: nothing is fetched), a veil over the page says so, and
+    // that a click or a key brings it up to date; then "Bringing it up to date…" until the page is read again. The page
+    // under it is the one last read, so its numbers can't be taken for live ones.
+    let veil = null;
+    function veilEl() {
+        if (!veil) {
+            veil = h('div', { class: 'away-veil', role: 'status', 'aria-live': 'polite', hidden: true },
+                h('div', { class: 'away-box' }, h('div', { class: 'away-icon', 'aria-hidden': 'true', text: '☾' }), h('b', { class: 'away-title' }), h('div', { class: 'away-text small' })));
+            document.body.append(veil);
+        }
+        return veil;
+    }
+    function showVeil(title, text) {
+        const v = veilEl();
+        v.querySelector('.away-title').textContent = title;
+        v.querySelector('.away-text').textContent = text;
+        v.hidden = false;
+    }
+    function sleepVeil() {
+        if (!live || document.hidden || MEMORY) return;
+        showVeil('Resting while you are away', `Nothing was clicked or typed for ${Math.round(IDLE_MS / 60000)} minutes, so the dashboard stopped updating: it doesn't use the service while no one is looking. What you see is from ${clock(updatedAt || Date.now())}. Click anywhere or press a key to bring it up to date.`);
+    }
+    function wakeVeil() { if (veil && !veil.hidden) showVeil('Bringing it up to date…', 'Reading the latest from the service.'); }
+    function hideVeil() { if (veil) veil.hidden = true; }
     function liveTick() {
         // (not on Check an email, whose answer isn't fetched again, nor on Review, which keeps its list while it is
         // answered; the badges and the brake banner still update there)
-        if (away()) { showLive(); return; }
+        if (away()) { showLive(); sleepVeil(); return; }
         if (!document.hidden) refreshPending();
         const every = STILL_PAGES.test(currentHash()) ? STILL_MS : LIVE_MS;
         if (live && !document.hidden && Date.now() - updatedAt >= every && !inUse() && !/^#\/?(check|review)/.test(currentHash())) render({ quiet: true });
@@ -2062,6 +2133,34 @@
     // queue, never used for retraining), N skip (stays in the queue, undecided), R re-scan. Several items can be
     // ticked and answered together. In enforce mode, Phishing also moves an email still in the Inbox to Spam.
     let reviewStates = {}, reviewKeys = null;
+    // (0.6.70) Emails answered anywhere (an email's own page, which Re-checked and Messages open; Mail's selection; a
+    // campaign's box; a Spam answer's other emails from the same address) leave Review's kept lists at once. Before, Review
+    // kept showing them until Look again: it reads its list once and keeps it while it is answered.
+    function forgetAnswered(keys) {
+        const gone = new Set(keys || []);
+        if (!gone.size) return;
+        for (const st of Object.values(reviewStates)) {
+            if (!st) continue;
+            if (st.companies) {
+                st.companies = st.companies.map(c => (c.keys.some(k => gone.has(k)) ? Object.assign({}, c, { keys: c.keys.filter(k => !gone.has(k)) }) : c)).filter(c => c.keys.length);
+                continue;
+            }
+            if (!st.groups) continue;
+            const openGroup = st.groups[st.open];
+            const kept = [];
+            for (const g of st.groups) {
+                if (!g.keys.some(k => gone.has(k))) { kept.push(g); continue; }
+                const left = g.keys.filter(k => !gone.has(k));
+                if (st.picked) st.picked.delete(g);
+                if (left.length) { g.count = Math.max(left.length, (g.count || g.keys.length) - (g.keys.length - left.length)); g.keys = left; kept.push(g); }
+            }
+            st.groups = kept;
+            const at = kept.indexOf(openGroup);
+            st.open = at >= 0 ? at : Math.min(Math.max(st.open, 0), kept.length - 1);
+        }
+    }
+    // An answer taken back (Undo): Review's kept lists are read again, so the email is back where it waits.
+    const forgetReviewLists = () => { reviewStates = {}; };
     // (0.6.39) R only where the Check again button is shown (not in the demo's clickable mockup).
     const canRescanReview = (g) => !!(g && g.keys && g.keys[0]) && !MEMORY;
     const QUEUES = {
@@ -2106,7 +2205,7 @@
     }
     // Answers emails (one: its own call, so Activity names it; several: in batches of 500), asking first when it is many
     // or moves several back to the Inbox. Returns { text, keys } for the message and its Undo, or null when cancelled.
-    async function answerKeys(keys, action, { addSender = action === 'spam' && spamAddSender && !isModerator() } = {}) {
+    async function answerKeys(keys, action, { addSender = action === 'spam' && spamAddSender && !isModerator(), forget = true } = {}) {
         const n = keys.length;
         if (!n) return null;
         const enforce = currentMode === 'enforce';
@@ -2132,12 +2231,16 @@
             }
             } finally { if (ticket) busyEnd(ticket); }
         }
-        return { text: answeredText(action, o, n), keys: keys.concat((o.sameSender && o.sameSender.keys) || []) };
+        const done = { text: answeredText(action, o, n), keys: keys.concat((o.sameSender && o.sameSender.keys) || []) };
+        if (forget) forgetAnswered(done.keys);
+        return done;
     }
     // Undo, in batches of 500.
     const undoKeys = (keys) => async () => {
-        if (keys.length === 1) return api('/api/undo', { method: 'POST', body: { key: keys[0] } });
-        for (let i = 0; i < keys.length; i += 500) await api('/api/undo', { method: 'POST', body: { keys: keys.slice(i, i + 500) } });
+        try {
+            if (keys.length === 1) return await api('/api/undo', { method: 'POST', body: { key: keys[0] } });
+            for (let i = 0; i < keys.length; i += 500) await api('/api/undo', { method: 'POST', body: { keys: keys.slice(i, i + 500) } });
+        } finally { forgetReviewLists(); }
     };
     // (0.6.42) A sign as a heat box, like a heat index: its points inside (the AI's score for the AI), its color how strong
     // it is: pale yellow (weak) to red (strong) for phishing or spam, pale to deep blue for safe.
@@ -2166,7 +2269,7 @@
     // Answers every copy of the items given (one copy: its own endpoint, so Activity names it; more: in batches of 500).
     async function answerGroups(st, groups, action) {
         const keys = groups.flatMap(g => g.keys);
-        const done = await answerKeys(keys, action);
+        const done = await answerKeys(keys, action, { forget: false });
         if (!done) return null;
         const openGroup = st.groups[st.open];
         st.groups = st.groups.filter(g => !groups.includes(g));
@@ -2175,6 +2278,8 @@
         // The item that was open stays open unless it was answered; then the next one opens.
         if (openGroup && !groups.includes(openGroup)) st.open = st.groups.indexOf(openGroup);
         else st.open = Math.min(st.open, st.groups.length - 1);
+        // (0.6.70) And the other emails the answer covered (a Spam answer's same address), here and in the other tabs.
+        forgetAnswered(done.keys);
         return done;
     }
     // The tabs above Review's lists, each with how many emails it holds (left: the queue's count).
@@ -2260,9 +2365,10 @@
             const d = await api(`/api/review?${q({ days: String(days), queue })}`);
             const groups = d.groups || (d.keys || []).map(k => ({ keys: [k], users: [], senders: [], count: 1 }));
             st = reviewStates[queue] = { queue, groups, open: groups.length ? 0 : -1, done: 0, days, counts: d.counts || {}, mode: d.mode, picked: new Set(), shown: 100 };
-            for (const [k, other] of Object.entries(reviewStates)) if (k !== queue && other.days === days && d.counts) other.counts = d.counts;
+            for (const [k, other] of Object.entries(reviewStates)) if (k !== queue && other && other.days === days && d.counts) other.counts = d.counts;
             if (params.get('restart')) { if (MEMORY) memRoute = plain; else history.replaceState(null, '', plain); }
         }
+        else if (Date.now() - reviewSyncedAt > 5000) setTimeout(reviewArrived, 0);   // (0.6.70) a kept list: checked against the service
         reviewKeys = null;
         const emails = (o) => (o.companies || o.groups).reduce((a, g) => a + g.keys.length, 0);
         const left = (k) => { const o = reviewStates[k]; return o && o.days === days && (o.companies || o.groups) ? emails(o) : (st.counts[k] || 0); };
@@ -3097,6 +3203,7 @@
     }
     // (0.6.40) New emails to review while Review is open: an empty queue reads them at once (no "Look again"), and a queue
     // being answered gets them added at its end, without moving the email open now.
+    let reviewSyncedAt = 0;
     async function reviewArrived() {
         const m = /^#\/?review(?:\?(.*))?$/.exec(currentHash());
         if (!m || acting > 0 || popupOpen()) return;
@@ -3105,11 +3212,23 @@
         const st = reviewStates[queue];
         if (!st || st.days !== days || !st.groups.length) { reviewStates[queue] = null; render({ quiet: true }); return; }
         try {
+            reviewSyncedAt = Date.now();
             const d = await api(`/api/review?${q({ days: String(days), queue })}`);
+            if (reviewStates[queue] !== st || acting) return;
+            // (0.6.70) Emails answered meanwhile somewhere else (another tab, another admin) leave the list; only when the
+            // answer holds the whole queue (the service sends at most 1,000 emails).
+            let gone = 0;
+            if (Array.isArray(d.keys) && (d.total || 0) <= d.keys.length) {
+                const still = new Set(d.keys), answered = st.groups.flatMap(g => g.keys).filter(k => !still.has(k));
+                gone = answered.length;
+                forgetAnswered(answered);
+            }
             const have = new Set(st.groups.flatMap(g => g.keys));
             const fresh = (d.groups || []).filter(g => !g.keys.some(k => have.has(k)));
             st.counts = d.counts || st.counts;
-            if (fresh.length && reviewStates[queue] === st && !acting) { st.groups.push(...fresh); render({ quiet: true }); }
+            if (fresh.length) st.groups.push(...fresh);
+            if (st.open < 0 && st.groups.length) st.open = 0;
+            if (fresh.length || gone) render({ quiet: true });
         } catch (e) { /* the next tick tries again */ }
     }
     async function refreshPending() {

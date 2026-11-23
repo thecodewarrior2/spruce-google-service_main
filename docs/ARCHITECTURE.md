@@ -209,6 +209,18 @@ only the dashboard, wording or documentation keeps the level and re-checks nothi
 admin decided on, is never moved. Threats → Re-checked lists them with who got each copy and whether they opened
 it; with Link clicks on, Gmail's logs (Admin SDK Reports API) add who clicked a link in it.
 
+(0.6.70.) **What limits the re-checks.** The queue (`state/recheckQueue`) holds at most 3,000 emails and stays under
+700 KB, well inside Firestore's 1 MiB per document (each entry's site is cut to 100 characters); an email already
+queued isn't queued twice. A list's download finds at most 3,000 emails, of the last `RECHECK_DAYS`; an update's
+sweep at most `RECHECK_AFTER_UPDATE_MAX`, 1,500 an hour. Each hourly run checks 12 at a time for at most 40
+seconds (the rest at the next run), an email at most 3 tries. Mail an admin answered, one its reader moved, and
+one no longer in the Inbox are never judged again; moves go through the brakes. A re-scan from the dashboard: one
+email at a time, not again within 30 s; the lists' Re-check at most once a minute. The Sender lists (Trusted, Spam,
+Brand senders) aren't re-checks: they apply to mail as it arrives. **Today** shows the re-checks under way
+(`state/recheckProgress`, kept by `runRechecks`: since the queue last started filling, the emails checked, the
+mailboxes, counted by a short hash and never kept readable, and what was found; ended when the queue is empty),
+with what still waits and why, and for a day after they finish (`recheckStatus`, read at most every 15 s).
+
 ## The look-alike watch
 
 `src/lookalike.js` (0.5.36) makes a fixed list of look-alikes of `ORG_DOMAINS`: letters left out, doubled,

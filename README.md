@@ -341,7 +341,8 @@ when it last updated, and **Pause updates** stops it. Since 0.6.7:
 - Pages that rarely change (Help, the Settings pages except Mailboxes, About, Update) are fetched again every
   5 minutes instead.
 - After 15 minutes with no key, click, touch or scroll, nothing is fetched: the bar says "Updates paused while you
-  are away", and updating starts again at your next key or click.
+  are away", and (0.6.70) a veil over the page says the dashboard is resting and when what you see was read.
+  Updating starts again at your next key or click ("Bringing it up to date…" until the page is read again).
 - Service status is checked at most once a minute, shared by every open dashboard.
 - Large answers are sent compressed.
 

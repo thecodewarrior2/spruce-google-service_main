@@ -936,3 +936,15 @@ dialog.popup .popup-body > .card > h2:first-child { display: none; }
 .company-add { flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .company-add .project-input.wide { flex: 1 1 320px; }
 .company-add select { font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--text); }
+
+/* (0.6.70) Today: re-checking delivered mail */
+.recheck-status .recheck-line { margin: 4px 0 8px; }
+.recheck-bar { display: block; width: 100%; height: 10px; margin: 0 0 8px; accent-color: var(--accent); }
+
+/* (0.6.70) The veil while the dashboard rests (no click or key for 15 minutes) */
+.away-veil { position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: color-mix(in srgb, var(--page) 72%, transparent); backdrop-filter: blur(2px); cursor: pointer; }
+.away-veil[hidden] { display: none; }
+.away-box { max-width: 420px; padding: 20px 24px; border-radius: 12px; background: var(--raised); border: 1px solid var(--border);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); text-align: center; display: grid; gap: 8px; }
+.away-icon { font-size: 28px; line-height: 1; }

@@ -510,7 +510,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                      // New look-alikes of your domain an admin hasn't marked (0.5.36): the overview's banner.
                      lookalikes: Object.values(((await store.getState('lookalikeWatch')) || {}).found || {}).filter(e => e.status === 'new' && !e.gone).map(e => e.domain),
                      // (0.6.30) Allow-list domains the 30-day check flagged: the overview's banner.
-                     allowReview: Object.entries(((await store.getState('allowWatch')) || {}).domains || {}).filter(([, v]) => v && v.review).map(([d, v]) => ({ domain: d, suspended: !!v.review.suspended })) };
+                     allowReview: Object.entries(((await store.getState('allowWatch')) || {}).domains || {}).filter(([, v]) => v && v.review).map(([d, v]) => ({ domain: d, suspended: !!v.review.suspended })),
+                     // (0.6.70) Re-checking delivered mail: what waits and how far it got (pipeline.js recheckStatus), read at most every 15 s.
+                     recheck: service.recheckStatus ? await shortLived('recheck-status', 15000, () => service.recheckStatus()) : null };
         },
         // Settings → Phishing training (0.5.44): the rules (never a secret value: only whether one is set) and link
         // domains, what matched lately, the last 7 days' count; changes with the project ID.

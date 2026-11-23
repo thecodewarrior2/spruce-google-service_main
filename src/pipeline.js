@@ -51,6 +51,9 @@ const MAX_TRIES = 3;   // tries per message before it is left unchecked (and an 
 // Re-checking delivered mail (0.5.35): queued emails at most, found per list download at most, checked
 // at once, and the hourly run's time for them.
 const RECHECK_QUEUE_MAX = 3000, RECHECK_FIND_MAX = 3000, RECHECK_PARALLEL = 12, RECHECK_BUDGET_MS = 40 * 1000;
+// (0.6.70) The queue is one Firestore document (1 MiB at most): each entry's site is kept short, and the queue stops taking
+// entries well before the limit. And the progress of the re-checks under way (Today): mailboxes counted by a short hash.
+const RECHECK_SITE_CHARS = 100, RECHECK_QUEUE_BYTES = 700 * 1024, RECHECK_MAILBOXES_KEPT = 20000;
 // How far each action goes: a re-check records an email again only when it now goes further than before.
 const RECHECK_RANK = { none: 0, flag: 1, 'would-move': 2, move: 3 };
 // After an update that changes the checks (0.5.51): emails queued per hourly run at most (as the queue has room).
@@ -2304,11 +2307,14 @@ class Service {
         if (!items || !items.length) return 0;
         const q = (await this.store.getState('recheckQueue')) || [];
         const have = new Set(q.map(x => `${x.user}|${x.id}`));
-        let n = 0;
+        let n = 0, bytes = q.reduce((a, x) => a + JSON.stringify(x).length + 8, 0);
         for (const it of items) {
             const k = `${it.user}|${it.id}`;
             if (have.has(k) || q.length >= RECHECK_QUEUE_MAX) continue;
-            have.add(k); q.push(Object.assign({ queuedAt: this.now() }, it)); n++;
+            const entry = Object.assign({ queuedAt: this.now() }, it, typeof it.site === 'string' ? { site: it.site.slice(0, RECHECK_SITE_CHARS) } : {});
+            const size = JSON.stringify(entry).length + 8;
+            if (bytes + size > RECHECK_QUEUE_BYTES) break;
+            bytes += size; have.add(k); q.push(entry); n++;
         }
         if (n) await this.store.setState('recheckQueue', q);
         return n;
@@ -2410,7 +2416,48 @@ class Service {
         await this.store.setState('recheckQueue', queue.concat(retry).slice(0, RECHECK_QUEUE_MAX));
         await this.recheckReport(results);
         const count = (o) => results.filter(r => r.outcome === o).length;
+        try { await this.recheckProgressAdd(results, queue.length + retry.length); } catch (e) { this.log.error('re-check progress:', e); }
         return { checked: results.length, left: queue.length + retry.length, moved: count('moved'), wouldMove: count('would-move') + count('held'), notInInbox: count('not-in-inbox'), suspicious: count('flag') };
+    }
+
+    // (0.6.70) The re-checks under way, for Today (state/recheckProgress): since the queue last started filling, how many
+    // emails were checked, in how many mailboxes (counted by a short hash, never kept readable), what was found, the last
+    // run; ended when the queue is empty. A new batch after that starts a new count.
+    async recheckProgressAdd(results, left) {
+        const now = this.now();
+        let p = await this.store.getState('recheckProgress');
+        if (!p || p.endedAt) p = { startedAt: now, checked: 0, moved: 0, wouldMove: 0, suspicious: 0, notInInbox: 0, errors: 0, mailboxes: [], endedAt: null };
+        const boxes = new Set(p.mailboxes || []);
+        for (const r of results) {
+            const o = r.outcome;
+            p.checked++;
+            if (o === 'moved') p.moved++;
+            else if (o === 'would-move' || o === 'held') p.wouldMove++;
+            else if (o === 'flag') p.suspicious++;
+            else if (o === 'not-in-inbox') p.notInInbox++;
+            else if (o === 'error') p.errors++;
+            const user = r.item && r.item.user;
+            if (user && boxes.size < RECHECK_MAILBOXES_KEPT) boxes.add(crypto.createHash('sha256').update(`spruce-box|${user}`).digest('hex').slice(0, 10));
+        }
+        p.mailboxes = [...boxes];
+        p.lastRun = { at: now, checked: results.length };
+        if (!left) p.endedAt = now;
+        await this.store.setState('recheckProgress', p);
+        return p;
+    }
+    // (0.6.70) Today's "Re-checking delivered mail": what waits (emails, mailboxes, why), what was done (above), and the
+    // update sweep. Nothing readable about a mailbox or an email.
+    async recheckStatus() {
+        const [queue, p, sw] = await Promise.all([this.store.getState('recheckQueue'), this.store.getState('recheckProgress'), this.store.getState('updateRecheck')]);
+        const q = queue || [];
+        const bySource = {};
+        for (const it of q) bySource[it.source || 'lists'] = (bySource[it.source || 'lists'] || 0) + 1;
+        const waiting = new Set(q.map(it => it.user));
+        const progress = p ? { startedAt: p.startedAt, endedAt: p.endedAt || null, checked: p.checked || 0, moved: p.moved || 0, wouldMove: p.wouldMove || 0, suspicious: p.suspicious || 0,
+            notInInbox: p.notInInbox || 0, errors: p.errors || 0, mailboxes: (p.mailboxes || []).length, lastRun: p.lastRun || null } : null;
+        return { on: !!this.cfg.recheck, queued: q.length, queuedMailboxes: waiting.size, bySource, progress,
+            sweep: sw && sw.version ? { version: sw.version, queued: sw.queued || 0, max: sw.max || 0, startedAt: sw.startedAt || null, doneAt: sw.doneAt || null } : null,
+            queueMax: RECHECK_QUEUE_MAX, perRun: RECHECK_PARALLEL };
     }
 
     // (0.6.67) What the checks are given for an email read again from a mailbox (a re-check, a reader's report): the same as
