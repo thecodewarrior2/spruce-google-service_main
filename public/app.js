@@ -461,21 +461,18 @@
         const need = [];
         const item = (tone, title, body, actions) => need.push({ tone, title, body, actions });
         const link = (href, text) => h('a', { class: 'btn', href, text });
-        if (d.brake) {
-            const held = d.brake.held || 0;
-            const resume = (moveHeld) => postButton('/api/resume', () => ({ moveHeld }), (o) => (moveHeld && o.held && !o.held.monitor ? `Moving resumed: ${num(o.held.moved)} moved to Spam${o.held.left ? `; ${num(o.held.left)} to go, press again` : ''}.` : 'Moving resumed.'),
-                moveHeld ? `Resume moving, and move the ${num(held)} emails the brake left in the Inbox to Spam now?` : 'Resume moving, and leave those emails in the Inbox?');
-            item('critical', 'Moving is paused (brake).', `${num(d.brake.moves)} emails were moved within an hour (the limit is ${num(d.brake.limit || d.brake.moves)}). Since then, ${num(held)} emails that would have been moved were left in the Inbox, like any other email; resuming can move them now${isModerator() ? ' (an administrator resumes it)' : ''}.`,
+        // A brake that is on (the domain-wide one; (0.6.63) spam's own, which stops only spam), with its two Resume buttons.
+        const brakeItem = (b, spam) => {
+            const held = b.held || 0, what = spam ? 'Moving spam' : 'Moving', mail = spam ? 'spam emails' : 'emails';
+            const resume = (moveHeld) => postButton('/api/resume', () => ({ moveHeld, spam }), (o) => (moveHeld && o.held && !o.held.monitor ? `${what} resumed: ${num(o.held.moved)} moved to Spam${o.held.left ? `; ${num(o.held.left)} to go, press again` : ''}.` : `${what} resumed.`),
+                moveHeld ? `Resume ${what.toLowerCase()}, and move the ${num(held)} ${mail} the brake left in the Inbox to Spam now?` : `Resume ${what.toLowerCase()}, and leave those emails in the Inbox?`);
+            item(spam ? 'warning' : 'critical', spam ? 'Moving spam is paused (spam brake).' : 'Moving is paused (brake).',
+                spam ? `${num(b.moves)} emails were moved as spam within an hour (spam's own limit is ${num(b.limit || b.moves)}). Phishing is still moved as usual. Since then, ${num(held)} spam emails were left in the Inbox; resuming can move them now${isModerator() ? ' (an administrator resumes it)' : ''}.`
+                    : `${num(b.moves)} emails were moved within an hour (the limit is ${num(b.limit || b.moves)}). Since then, ${num(held)} emails that would have been moved were left in the Inbox, like any other email; resuming can move them now${isModerator() ? ' (an administrator resumes it)' : ''}.`,
                 isModerator() ? null : [h('button', { class: 'btn primary', type: 'button', onclick: resume(true) }, `Resume, and move those ${num(held)} to Spam`), h('button', { class: 'btn', type: 'button', onclick: resume(false) }, 'Resume, and leave them in the Inbox')]);
-        }
-        // (0.6.63) Spam's own brake: only spam stopped; phishing is still moved.
-        if (d.spamBrake) {
-            const held = d.spamBrake.held || 0;
-            const resume = (moveHeld) => postButton('/api/resume', () => ({ spam: true, moveHeld }), (o) => (moveHeld && o.held && !o.held.monitor ? `Moving spam resumed: ${num(o.held.moved)} moved to Spam${o.held.left ? `; ${num(o.held.left)} to go, press again` : ''}.` : 'Moving spam resumed.'),
-                moveHeld ? `Resume moving spam, and move the ${num(held)} spam emails its brake left in the Inbox to Spam now?` : 'Resume moving spam, and leave those emails in the Inbox?');
-            item('warning', 'Moving spam is paused (spam brake).', `${num(d.spamBrake.moves)} emails were moved as spam within an hour (spam's own limit is ${num(d.spamBrake.limit || d.spamBrake.moves)}). Phishing is still moved as usual. Since then, ${num(held)} spam emails were left in the Inbox; resuming can move them now${isModerator() ? ' (an administrator resumes it)' : ''}.`,
-                isModerator() ? null : [h('button', { class: 'btn primary', type: 'button', onclick: resume(true) }, `Resume, and move those ${num(held)} to Spam`), h('button', { class: 'btn', type: 'button', onclick: resume(false) }, 'Resume, and leave them in the Inbox')]);
-        }
+        };
+        if (d.brake) brakeItem(d.brake, false);
+        if (d.spamBrake) brakeItem(d.spamBrake, true);
         if (d.heldCampaigns && d.heldCampaigns.length) item('warning', `Moving is paused for ${d.heldCampaigns.length} campaign${d.heldCampaigns.length === 1 ? '' : 's'}, waiting for your decision.`,
             ['Many copies were moved on evidence nothing outside the email confirms, so its other copies are left in the Inbox, like any email not moved. Open one to confirm it as phishing (every copy is moved to Spam) or dismiss it as a false alarm (the moved ones go back to the Inbox).',
                 h('ul', { class: 'held-list' }, d.heldCampaigns.slice(0, 5).map(c => h('li', {}, h('a', { href: `#/messages?${q({ campaign: c.campaign })}`, text: c.label }), ` (${num(c.held)} left in the Inbox)`)))], null);
@@ -1282,8 +1279,8 @@
           what: 'A link in it is on a phishing list, blocked by Google Safe Browsing (when it is on), or flagged dangerous by the link checks.',
           warn: 'A real newsletter whose click tracker was listed by mistake goes to Spam too (Settings → Sender lists → Link sites can let a tracker through).' }
     ];
-    const SKIP_OLD = { 'forged-id': ['forged-headers'], listed: ['sender-listed', 'dangerous-links'] };
-    const skipList = (v) => { const all = new Set((v || []).flatMap(x => SKIP_OLD[x] || [x])); return SKIP_ITEMS.map(x => x.k).filter(k => all.has(k)); };
+    // (the server sends the list in today's names, in this order: policy.js strictKinds)
+    const skipList = (v) => SKIP_ITEMS.map(x => x.k).filter(k => (v || []).includes(k));
     function skipReviewCard(d) {
         const P = d.policy || {};
         const on = skipList((P.strictSpam || {}).value !== undefined ? P.strictSpam.value : d.strictSpam);
@@ -1545,19 +1542,11 @@
             }
             const days = h('input', { type: 'number', min: 1, max: (i && i.maxDays) || 30, step: 1, value: '7', class: 'num-input', 'aria-label': 'Days to run' });
             const agree = h('input', { type: 'checkbox' });
-            // (0.6.66) Confirmed with the project ID, as every setting that moves mail is.
-            const project = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', placeholder: 'project-id', 'aria-label': 'Google Cloud project ID' });
-            const start = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Start');
-            const ready = () => { start.disabled = !agree.checked || !project.value.trim(); };
-            agree.addEventListener('change', ready); project.addEventListener('input', ready);
-            start.addEventListener('click', async () => {
-                start.disabled = true;
-                try { const out = await api('/api/spam-learning', { method: 'POST', body: { days: Number(days.value), agree: agree.checked, projectId: project.value } }); toast(`Spam learning runs until ${dayOf(out.info.endsAt)}.`); draw(out.info); }
-                catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); ready(); }
-            });
+            // (0.6.66; confirmForm since 0.6.67) Confirmed with the project ID, as every setting that moves mail is; the server
+            // also refuses it without the agreement.
             body.append(h('div', { class: 'inline-form' }, h('label', { class: 'inline' }, h('span', { text: 'Run for ' }), days, h('span', { text: ` days (1 to ${(i && i.maxDays) || 30})` }))),
-                h('label', { class: 'choice' }, agree, h('span', { text: 'I agree: promotional mail, including newsletters people signed up for, will be moved to Spam until they take it back out.' })),
-                h('div', { class: 'policy-form sb-form' }, h('label', { class: 'project' }, h('span', { text: 'Google Cloud project ID, to confirm' }), project), h('div', { class: 'actions' }, start)));
+                confirmForm('Start', '/api/spam-learning', () => ({ days: Number(days.value), agree: agree.checked }), (out) => `Spam learning runs until ${dayOf(out.info.endsAt)}.`,
+                    h('label', { class: 'choice' }, agree, h('span', { text: 'I agree: promotional mail, including newsletters people signed up for, will be moved to Spam until they take it back out.' }))));
         };
         draw(info);
         return card;
@@ -2897,7 +2886,7 @@
         // (0.5.73) Not a sender: link sites a phishing list's listing of the whole domain doesn't flag.
         { key: 'allowLinkDomains', label: 'Link domains', show: (v) => entries(v, 'None. Every phishing list counts for every link.') }
     ];
-    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', strictSpam: 'STRICT_SPAM', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', allowLinkDomains: 'ALLOW_LINK_DOMAINS', retentionDays: 'RETENTION_DAYS' };
+    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', allowLinkDomains: 'ALLOW_LINK_DOMAINS', retentionDays: 'RETENTION_DAYS' };
     function policyCard(d, ROWS, title, sub) {
         const P = d.policy || {};
         let openKey = null;
@@ -2911,7 +2900,6 @@
             if (p.replaced) return `From settings.env (${ENV_NAME[key]}). It replaced ${short(key, p.replaced.value)}, set here by ${p.replaced.by}.`;
             // (install.sh doesn't pass these: off, or for recheck on, unless changed here or set in the services' environment)
             if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel') return p.env ? `On in the services' environment (${ENV_NAME[key]}).` : `Off: the default (${ENV_NAME[key]}).`;
-            if (key === 'strictSpam') return (p.env || []).length ? `From the services' environment (${ENV_NAME[key]}).` : `Off: the default (${ENV_NAME[key]}).`;
             if (key === 'recheck') return p.env ? `On: the default (${ENV_NAME[key]}).` : `Off in the services' environment (${ENV_NAME[key]}=false).`;
             if (key === 'allowLinkDomains') return (p.env || []).length ? `From the services' environment (${ENV_NAME[key]}).` : 'None: the default. Added here.';
             return `From settings.env (${ENV_NAME[key]}).`;

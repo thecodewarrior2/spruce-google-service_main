@@ -119,7 +119,7 @@ test('the domain-wide brake: half the watched mailboxes (at least 100) by defaul
     const svcOnly = await setup({});
     await svcOnly.store.setState('watchedCount', 7000);
     assert.equal(await svcOnly.svc.brakeLimit(), 3500, '7,000 mailboxes: 3,500 an hour');
-    await svcOnly.store.setState('watchedCount', 40);
+    await svcOnly.store.setState('watchedCount', 40); svcOnly.svc._watchedCount = null;   // (0.6.67: read at most once a minute)
     assert.equal(await svcOnly.svc.brakeLimit(), 100, 'never under 100');
     // Strong copies to 12 mailboxes with a limit of 8, judged all at once: exactly 8 moved.
     const list = users(12);

@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.67: an efficiency and clean-up pass
+
+- **Fewer Firestore reads where it adds up:**
+  - **Spam learning:** a promotional email from a sender the run already learned costs no extra reads (the senders are
+    remembered per instance; the run is read again only before a new sender is learned; an admin's removals are cached
+    for a minute). Before, every promotional email made about five reads for the whole run.
+  - **Spam's brake:** its three reads are made at once, and the watched-mailbox count behind the automatic limit is read
+    at most once a minute (both brakes).
+  - **Review and the pending count** (every page load, and every 25 seconds per open dashboard): the Sender lists check
+    is built at most every 15 seconds (it was two reads per request), and again at once when Spam senders changes.
+  - **Spam senders:** a sender added keeps the cached list instead of dropping it; a learned sender's "taken back by
+    several people" check no longer repeats the per-person read made just before.
+- **Less work per email:** the remembered-answer fingerprint is worked out only for mail that is recorded or that Spam
+  learning looks at (most mail is clean and never needs it), with one pattern for the reader's names instead of one per
+  name.
+- **User reports:** each alert's messages are looked up five at a time, and each recipient once per run, so a campaign many
+  people reported reaches Review in one hourly run instead of several.
+- **Fixed on the way:**
+  - A Skip review change saved by 0.6.59-0.6.64 (with the old names) was ignored when settings.env also set `STRICT_SPAM`;
+    stored rows are now read in today's names, once.
+  - Emails their readers reported (Review → Reported) were still picked up by the later re-checks: one "already decided"
+    check now serves every re-check.
+  - The Link clicks fix still said to "type a super admin's address", which 0.6.62 removed.
+- **One mechanism instead of copies:** the two brakes (domain-wide and spam's) share their steps, resume and Today banner;
+  Link clicks and User reports share their explanation of Google's refusals; the re-check and report paths share what the
+  checks are given (the report path had missed the thread size); Skip review is a case of the policy's usual ending, not a
+  copy of it; Link clicks and User reports no longer store their own copy of DIRECTORY_ADMIN; the Spam learning card uses
+  the dashboard's usual confirmation form.
+- The checks level is raised to 52 (the stored Skip review fix, the re-check change). No installation change.
+
 ## 0.6.66: fixes from a full code and security review
 
 - **Remembered answers could mark a different email safe.** The fingerprint's greeting rule (0.6.59) also took out the

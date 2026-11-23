@@ -30,11 +30,19 @@ const GREETING = /(^|\n)([ \t]*(?:dear|hi|hello|hey|hiya|greetings|good (?:morni
 // A subject that starts with the reader's name and a comma ("Pat, your invoice is ready"): the one name is left out.
 const SUBJECT_NAME = /^\s*[\p{L}'’-]{2,20}\s*,\s*(?=\S)/u;
 
+// The reader's names (each at least 3 letters) as one whole-word pattern, longest first, or null.
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function dropPattern(names) {
+    const list = [...new Set(names.filter(n => n && n.length >= 3))].sort((a, b) => b.length - a.length);
+    return list.length ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${list.map(escapeRe).join('|')})(?![\\p{L}\\p{N}])`, 'gu') : null;
+}
+
 function words(t, drop, { subject = false } = {}) {
     let s = String(t || '').toLowerCase().normalize('NFKC');
     s = subject ? s.replace(/^((re|fw|fwd)\s*:\s*)+/g, '').replace(SUBJECT_NAME, '') : s.replace(GREETING, '$1$2 ');
     // (0.6.66) The reader's names as whole words only: "sam" taken out of "same" made one email to Pat and to Sam differ.
-    for (const d of drop) if (d.length >= 3) s = s.replace(new RegExp(`(?<![\\p{L}\\p{N}])${d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'gu'), ' ');
+    // (0.6.67) One pattern for all of them, built once per email (dropPattern), not one per name.
+    if (drop) s = s.replace(drop, ' ');
     return s.replace(/^((re|fw|fwd)\s*:\s*)+/g, '').replace(/[0-9]+/g, ' ').replace(/[^\p{L}]+/gu, ' ').trim();
 }
 
@@ -57,7 +65,7 @@ function linkKey(href) {
 function fingerprintOf(facts, user) {
     const local = String(user || '').split('@')[0].toLowerCase();
     const named = ((facts.people && facts.people.to) || []).flatMap(p => String(p.name || '').toLowerCase().split(/\s+/));
-    const drop = [local, ...local.split(/[._-]+/), ...named].filter(Boolean).sort((a, b) => b.length - a.length);
+    const drop = dropPattern([local, ...local.split(/[._-]+/), ...named]);
     const links = [...new Set((facts.links || []).map(l => linkKey(l.href || l.url || '')).filter(Boolean))].sort();
     const files = (facts.attachmentFiles || []).filter(a => !a.inline).map(a => (a.content ? crypto.createHash('sha256').update(a.content).digest('hex') : `${a.type}|${a.size}`)).sort();
     const parts = [String(facts.senderAddress || '').toLowerCase(), words(facts.subject, drop, { subject: true }), words(facts.visibleText, drop).slice(0, 50000), links, files];

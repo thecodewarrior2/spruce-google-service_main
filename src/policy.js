@@ -110,7 +110,9 @@ function strictKinds(list) {
 const HEADER_WORDS = { 'forged-message-id': 'a forged message ID', 'forged-received': 'Received lines copied from other emails', 'duplicate-headers': 'repeated headers',
     'spam-flag': 'a mail system on the way marked it spam', placeholders: 'a bulk mailer\'s unfilled placeholders', 'local-tool': 'a home-made bulk-mail tool' };
 function strictWhy(result, cfg) {
-    const on = strictKinds(cfg.strictSpam);
+    // cfg.strictSpam is in today's names already (config.js, pipeline.js policyValue and refreshPolicy); a list
+    // from elsewhere (a test, a caller) is read the same way.
+    const on = Array.isArray(cfg.strictSpam) && cfg.strictSpam.every(k => STRICT_KINDS.includes(k)) ? cfg.strictSpam : strictKinds(cfg.strictSpam);
     const s = result && result.strictSigns;
     if (!on.length || !s || result.inside || result.status === 'trusted') return null;
     const why = [];
@@ -142,22 +144,16 @@ function decide(result, cfg, state = {}) {
     const spamMove = !ruleMove && !aiMove && cfg.moveOnRules && !!spamWhy && !result.inside;
     // (0.6.59) Skip review (strictWhy; Straight to Spam before 0.6.65): moved by the policy's own choice, counted with the rules (trigger 'rules').
     const strict = !ruleMove && !aiMove && !spamMove ? strictWhy(result, cfg) : null;
-    if (strict) {
-        const why = noted(`straight to Spam, skipping review (Settings → Policy → Skip review): ${strict}`);
-        if (cfg.mode !== 'enforce') return { action: 'would-move', trigger: 'rules', strict: true, why: `${why} (monitor mode: nothing is moved)` };
-        if (state.brake) return { action: 'would-move', trigger: 'rules', strict: true, why: `${why} (not moved: the brake is on)`, braked: true };
-        return { action: 'move', trigger: 'rules', strict: true, why };
-    }
-    if (!ruleMove && !aiMove && !spamMove) {
+    if (!ruleMove && !aiMove && !spamMove && !strict) {
         const line = typeof cfg.aiSuspicious === 'number' ? cfg.aiSuspicious : AI_SUSPICIOUS;
         const byRules = (result.status === 'caution' && !rulesOnlyVerified(result, cfg)) || result.status === 'flagged';
         const byAi = p !== null && p >= line;
         const suspicious = byRules || aiHigh || byAi;
         return { action: suspicious ? 'flag' : 'none', trigger: null, why: noted(suspicious ? suspiciousWhy(result, cfg) : '') };
     }
-    const trigger = ruleMove && aiMove ? 'rules+ai' : ruleMove ? 'rules' : aiMove ? 'ai' : 'spam';
+    const trigger = ruleMove && aiMove ? 'rules+ai' : ruleMove ? 'rules' : aiMove ? 'ai' : spamMove ? 'spam' : 'rules';
     // (0.6.39) In plain words: what scored how much, and the level that moves.
-    const why = spamMove ? noted(`spam: ${spamWhy.why}`) : noted([ruleMove ? `the rule checks scored it ${result.score} (moved from 5)` : '',
+    const why = strict ? noted(`straight to Spam, skipping review (Settings → Policy → Skip review): ${strict}`) : spamMove ? noted(`spam: ${spamWhy.why}`) : noted([ruleMove ? `the rule checks scored it ${result.score} (moved from 5)` : '',
                        aiMove ? `the AI was ${Math.round(p * 100)}% sure it is phishing (moved from ${Math.round(cfg.aiThreshold * 100)}%)${result.inside ? ' (the sender is staff; "Let the AI alone move staff email" is on)' : ''}` : ''].filter(Boolean).join(' and '));
     if (cfg.mode !== 'enforce') return { action: 'would-move', trigger, why: `${why} (monitor mode: nothing is moved)` };
     if (state.brake) return { action: 'would-move', trigger, why: `${why} (not moved: the brake is on)`, braked: true };

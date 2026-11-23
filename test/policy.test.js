@@ -207,7 +207,7 @@ test('0.6.59/0.6.65: Skip review: off by default; each chosen sign moves outside
     assert.equal(decide(r({ dmarc: 'fail', forgedHeaders: ['forged-message-id'] }), base).action, 'none', 'off by default');
     const cfg = Object.assign({}, base, { strictSpam: ['dmarc-fail', 'forged-headers', 'spam-headers', 'sender-listed', 'dangerous-links'] });
     const failing = decide(r({ dmarc: 'fail' }), cfg);
-    assert.deepEqual([failing.action, failing.trigger, failing.strict], ['move', 'rules', true]);
+    assert.deepEqual([failing.action, failing.trigger], ['move', 'rules']);
     assert.match(failing.why, /straight to Spam, skipping review \(Settings → Policy → Skip review\): the sender check failed/);
     const forged = decide(r({ forgedHeaders: ['forged-received', 'duplicate-headers'] }), cfg);
     assert.equal(forged.action, 'move');
@@ -255,4 +255,16 @@ test('0.6.65: Skip review on the dashboard: turning an item on needs the agreeme
         assert.equal(r.status, 200, 'turning one off needs no agreement');
         assert.deepEqual(cfg.strictSpam, ['spam-headers']);
     } finally { await s.close(); }
+});
+
+test('0.6.67: a Skip review change saved by 0.6.59-0.6.64 (old names) stays in force when settings.env sets STRICT_SPAM too', async () => {
+    const store = new MemoryStore();
+    // Saved by 0.6.60: "on a list" chosen on the dashboard, replacing settings.env's "forged message ID".
+    await store.setState('policy-strictSpam', { value: ['listed'], env: ['forged-id'], by: `it.head@${ORG}`, at: Date.now() - 86400e3, before: ['forged-id'] });
+    const cfg = loadConfig(Object.assign({}, ENV, { STRICT_SPAM: 'forged-id' }));
+    assert.deepEqual(cfg.strictSpam, ['forged-headers'], 'settings.env, in today\'s names');
+    const svc = new Service({ cfg, store, gmail: gmail(), log: { error() {} } });
+    await svc.refreshPolicy({ force: true });
+    assert.deepEqual(cfg.strictSpam, ['sender-listed', 'dangerous-links'], 'the dashboard\'s change, read in today\'s names, still in force');
+    assert.deepEqual(svc.policyInfo().strictSpam.changed && svc.policyInfo().strictSpam.value, ['sender-listed', 'dangerous-links']);
 });

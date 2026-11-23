@@ -46,7 +46,7 @@ const training = require('./training');
 const { createReleases, parseChangelog, modelSourceOf } = require('./releases');
 const repos = require('./repos');
 const { updateInfo, startUpdate, checkNow } = require('./update');
-const { suspiciousWhy, rulesOnlyVerified } = require('./policy');
+const { suspiciousWhy, rulesOnlyVerified, strictKinds } = require('./policy');
 
 const PUBLIC = path.resolve(__dirname, '..', 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
@@ -308,16 +308,11 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
 
     // The brake, and how many emails it holds (still in the Inbox, recorded since it came on). The brake and the
     // held campaigns are read at most every 15 s (0.6.7, shortLived), shared with GET /api/pending.
-    // (0.6.63) Spam's own brake: on, with the spam it left in the Inbox since.
-    async function spamBrakeInfo(records) {
-        const b = await shortLived('spamBrake', 15000, () => store.getState('spamBrake'));
+    // A brake that is on (state: 'brake', or (0.6.63) 'spamBrake' with held 'spam-brake'), with the mail it left in the Inbox since.
+    async function brakeInfo(records, state = 'brake', heldTag = 'brake') {
+        const b = await shortLived(state, 15000, () => store.getState(state));
         if (!b) return null;
-        return Object.assign({}, b, { held: records.filter(r => r.held === 'spam-brake' && r.state === 'inbox' && r.processedAt >= b.at).length });
-    }
-    async function brakeInfo(records) {
-        const b = await shortLived('brake', 15000, () => store.getState('brake'));
-        if (!b) return null;
-        return Object.assign({}, b, { held: records.filter(r => r.held === 'brake' && r.state === 'inbox' && r.processedAt >= b.at).length });
+        return Object.assign({}, b, { held: records.filter(r => r.held === heldTag && r.state === 'inbox' && r.processedAt >= b.at).length });
     }
     // Campaigns held on weak evidence, waiting for an admin's decision.
     async function heldCampaigns(records) {
@@ -523,7 +518,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const n = nDays(q), now = Date.now();
             return { summary: A.summary(records, stats, now, n), trend: A.trend(records, stats, now, n), topReasons: A.topReasons(records, now, n).slice(0, 8),
                      campaigns: A.campaigns(records, now, n).slice(0, 5), alerts: await eventsSince(now - 7 * A.DAY, 10),
-                     brake: await brakeInfo(records), spamBrake: await spamBrakeInfo(records), heldCampaigns: await heldCampaigns(records), mode: cfg.mode, aiThreshold: cfg.aiThreshold,
+                     brake: await brakeInfo(records), spamBrake: await brakeInfo(records, 'spamBrake', 'spam-brake'), heldCampaigns: await heldCampaigns(records), mode: cfg.mode, aiThreshold: cfg.aiThreshold,
                      // The phishing lists that missed their download (0.5.22): the overview's banner.
                      missedLists: await missedLists(),
                      // Phishing found after delivery, not yet marked seen (0.5.35): the overview's banner.
@@ -684,7 +679,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const mb = await mailboxes();
             // (the list, only with ?mailboxes=1, at most 500: Settings → Mailboxes reads GET /api/mailboxes since 0.5.53)
             const listed = q && q.get && q.get('mailboxes') ? await store.listWatched(500) : null;
-            return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, strictSpam: require('./policy').strictKinds(cfg.strictSpam), suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
+            return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, strictSpam: cfg.strictSpam || [], suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
                      brakeLimit: await service.brakeLimit(), spamBrakePerHour: cfg.spamBrakePerHour || 0, campaignHoldAfter: cfg.campaignHoldAfter, alertEmail: cfg.alertEmail || '',
                      orgDomains: cfg.orgDomains, pilotGroups: cfg.pilotGroups, pilotOu: cfg.pilotOu, pilotUsers: cfg.pilotUsers.length, watchScope: cfg.watchScope, allowDomains: cfg.allowDomains, allowLinkDomains: cfg.allowLinkDomains || [], allowAddresses: cfg.allowAddresses.length,
                      retentionDays: cfg.retentionDays, storeSubjects: cfg.storeSubjects, storeAiQuotes: cfg.storeAiQuotes, movedLabel: cfg.movedLabel,
@@ -859,7 +854,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             catch (e) { if (e.status) return { error: e.message, status: e.status }; throw e; }
         },
         // Resume moving; with moveHeld, the emails the brake held are moved now too.
-        'POST /api/resume': async (q, body, admin) => (body.spam === true ? service.resumeSpam(admin.email, { moveHeld: body.moveHeld === true }) : service.resume(admin.email, { moveHeld: body.moveHeld === true })),
+        'POST /api/resume': async (q, body, admin) => service.resume(admin.email, { moveHeld: body.moveHeld === true, spam: body.spam === true }),
         // A campaign: what the brakes and admins decided, and how many copies are where.
         'GET /api/campaign': async (q) => {
             const key = String(q.get('key') || '');
@@ -1008,8 +1003,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             if (key === 'aiMovesInside' && /^(true|on|yes|1)$/i.test(String(body.value)) && !cfg.aiMovesInside && body.agree !== true) return { error: 'Tick "I agree" to let the AI alone move mail from inside. Nothing was changed.', status: 400 };
             // (0.6.65) Skip review: turning any item on moves mail without review, so it is agreed to, ticked.
             if (key === 'strictSpam') {
-                const { strictKinds } = require('./policy');
-                const was = strictKinds(cfg.strictSpam), now = strictKinds(Array.isArray(body.value) ? body.value : String(body.value || '').split(/[\s,;]+/));
+                const was = cfg.strictSpam || [], now = strictKinds(body.value);
                 if (now.some(k => !was.includes(k)) && body.agree !== true) return { error: 'Tick "I agree" to send this mail to Spam without review. Nothing was changed.', status: 400 };
             }
             // (0.5.53) Who is checked (the pilot or the whole domain): ticked, and the signed-in admin's own address typed

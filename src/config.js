@@ -164,7 +164,7 @@ function loadConfig(env = process.env) {
         // acts as to read the directory (the pilot group and OU, the whole domain, the admin and moderator
         // groups, colleagues' names), and the Pub/Sub topic Gmail notifies.
         delegatedServiceAccount: env.DELEGATED_SA || '',
-        directoryAdmin: env.DIRECTORY_ADMIN || '',
+        directoryAdmin: String(env.DIRECTORY_ADMIN || '').trim().toLowerCase(),   // (0.6.67: normalized once here)
         pubsubTopic: env.PUBSUB_TOPIC || '',
         // Who may call what: Pub/Sub push and Cloud Scheduler sign their requests (OIDC); the dashboard
         // sits behind Identity-Aware Proxy and only these admins may use it.

@@ -185,7 +185,8 @@ test('0.6.59: reviewed mail is never judged again: marked safe, phishing or spam
         { action: 'flag', falseAlarm: false, markedBy: `it@${ORG}` },
         { action: 'flag', falseAlarm: false, spam: true, markedBy: `it@${ORG}` },
         { action: 'flag', falseAlarm: null, unclear: true },
-        { action: 'promo', falseAlarm: null, promoKept: { by: `it@${ORG}`, at: t.clock.get() } }
+        { action: 'promo', falseAlarm: null, promoKept: { by: `it@${ORG}`, at: t.clock.get() } },
+        { action: 'flag', falseAlarm: null, userReported: { at: t.clock.get() } }   // (0.6.67) its reader reported it
     ];
     for (const [i, c] of cases.entries()) {
         const id = `r${i}`;
@@ -208,7 +209,7 @@ test('Link clicks (off by default): Gmail\'s logs say who opened it and who clic
     const ev = (type, id) => ({ type, ev: { id: { time: at }, events: [{ name: 'delivery', parameters: [{ name: 'event_info', messageValue: { parameter: [{ name: 'mail_event_type', intValue: String(type) }] } }, { name: 'message', messageValue: { parameter: [{ name: 'rfc2822_message_id', value: id }] } }] }] } });
     t.gmail.logs[`ana@${ORG}`] = [ev(7, '<st1@payroll-center.example>'), ev(15, '<st1@payroll-center.example>'), ev(15, '<other@elsewhere.example>')];
     t.gmail.logs[`ben@${ORG}`] = [ev(15, '<other@elsewhere.example>')];
-    assert.deepEqual(await t.svc.clickLogs(), { on: false, admin: '' });
+    assert.deepEqual(await t.svc.clickLogs(), { on: false, admin: `it@${ORG}` }, '(0.6.67) the admin shown is DIRECTORY_ADMIN, never stored');
     t.clock.add(21 * HOUR); t.listed.add('fresh-phish.example');
     let out = await t.svc.syncFeeds();
     assert.ok(!out.clicks, 'off: Gmail\'s logs not read');

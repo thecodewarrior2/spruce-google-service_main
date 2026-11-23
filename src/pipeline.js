@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { readMessage } = require('./engine/mime');
 const { analyze, aiReading, senderVerified, sameOrgDomain, platformNotification, shareSource } = require('./engine/analyze');
 const { MASS_SHARE } = require('./engine/notifications');
-const { decide, isAllowed, suspiciousWhy, STRICT_KINDS, strictKinds } = require('./policy');
+const { decide, isAllowed, suspiciousWhy, STRICT_KINDS, strictKinds, AI_SUSPICIOUS } = require('./policy');
 const { GoogleApiError } = require('./gmail/client');
 const { compareHistoryIds, movesForward } = require('./store/history');
 const { buildDigest, mime, isSummary, localParts } = require('./digest');
@@ -129,7 +129,10 @@ async function pool(items, n, fn, stop = () => false) {
     const worker = async () => { while (i < items.length && !stop()) { const item = items[i++]; await fn(item); } };
     await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
 }
-// Sender addresses are remembered as a hash only (as the extension's senderHistoryKey).
+// (0.6.67) A record someone already decided on: an admin's answer (or Not sure), its reader's own move, a brake's hold
+// waiting for an admin, an admin's Keep in Review → Promotional, or its reader's report with Gmail's Report phishing. The
+// re-checks (after an update, a list, an hour, a day) never judge it again.
+const settled = (r) => !!r && (r.falseAlarm != null || !!r.markedBy || !!r.unclear || !!r.userPlaced || !!r.held || !!r.promoKept || !!r.userReported);
 // (0.6.59) What the service took a record for, in a few words (Remembered answers' "Was" column).
 function verdictOf(rec) {
     if (!rec) return 'unknown';
@@ -140,6 +143,7 @@ function verdictOf(rec) {
     if (rec.action === 'promo') return 'Promotional';
     return 'Not flagged';
 }
+// Sender addresses are remembered as a hash only (as the extension's senderHistoryKey).
 const senderHash = (address) => crypto.createHash('sha256').update(String(address || '').toLowerCase()).digest('hex').slice(0, 16);
 const recordKey = (user, messageId) => `${user}|${messageId}`;
 
@@ -155,34 +159,28 @@ function campaignOf(senderDomain, subject, user) {
     return { key, label: `${senderDomain}: ${s || '(no subject)'}`.slice(0, 160) };
 }
 
-// What Google refusing Gmail's logs means, and what to do (0.5.39; Settings → Link clicks): { why, fix }.
-// "not authorized to read activity records": the admin's role lacks the Reports privilege; a token refused:
-// the scope isn't on the domain-wide delegation entry.
-function reportsProblem(e, admin) {
+// (0.6.67) What Google refusing an Admin SDK read means, and what to do: { why, fix }. A refused token: the scope isn't on the
+// service's domain-wide delegation entry; (Alert Center) the API isn't turned on; a 401/403: the admin's role lacks the
+// privilege. Gmail's logs (0.5.39, Settings → Link clicks) and the Alert Center (0.6.60, Settings → User reports) say which.
+const DELEGATION = 'Admin console → Security → Access and data control → API controls → Manage Domain Wide Delegation → the service\'s client ID → Edit: add';
+function googleProblem(e, admin, g) {
     const msg = String((e && e.message) || e || '');
     if (/token for .*(unauthorized_client|access_denied|invalid_grant)|domain-wide delegation set up/i.test(msg)) return {
-        why: 'Google didn\'t give the service access to Gmail\'s logs: the scope admin.reports.audit.readonly isn\'t on its domain-wide delegation entry (or the account doesn\'t exist).',
-        fix: 'Admin console → Security → Access and data control → API controls → Manage Domain Wide Delegation → the service\'s client ID → Edit: add https://www.googleapis.com/auth/admin.reports.audit.readonly to the line, then Authorize. Test again in a few minutes.' };
-    if (/not authorized to read activity records|HTTP 40[13]\b/i.test(msg)) return {
-        why: `${admin} isn't allowed to read Google's activity reports: its admin role doesn't have the Reports privilege.`,
-        fix: `Admin console → Account → Admin roles → the role ${admin} has (the directory admin's is "SPRUCE group reader") → Privileges → Admin console privileges → tick Reports → Save. Or type a super admin's address instead. Test again in a few minutes (role changes take a little while).` };
-    return { why: `Google answered: ${msg.replace(/\s+/g, ' ').slice(0, 200)}`, fix: 'docs/INSTALL.md, "Link clicks".' };
+        why: `Google didn't give the service access to ${g.what}: the scope ${g.scope} isn't on its domain-wide delegation entry (or the account doesn't exist).`,
+        fix: `${DELEGATION} https://www.googleapis.com/auth/${g.scope} to the line, then Authorize. Test again in a few minutes.` };
+    if (g.disabled && /SERVICE_DISABLED|has not been used in project|is disabled/i.test(msg)) return g.disabled;
+    if (g.denied.test(msg)) return { why: g.deniedWhy(admin), fix: g.deniedFix(admin) };
+    return { why: `Google answered: ${msg.replace(/\s+/g, ' ').slice(0, 200)}`, fix: g.doc };
 }
-
-// (0.6.60) What Google refusing its Alert Center means, and what to do (Settings → User reports): { why, fix }.
-function alertsProblem(e, admin) {
-    const msg = String((e && e.message) || e || '');
-    if (/token for .*(unauthorized_client|access_denied|invalid_grant)|domain-wide delegation set up/i.test(msg)) return {
-        why: 'Google didn\'t give the service access to its Alert Center: the scope apps.alerts isn\'t on its domain-wide delegation entry (or the account doesn\'t exist).',
-        fix: 'Admin console → Security → Access and data control → API controls → Manage Domain Wide Delegation → the service\'s client ID → Edit: add https://www.googleapis.com/auth/apps.alerts to the line, then Authorize. Test again in a few minutes.' };
-    if (/SERVICE_DISABLED|has not been used in project|is disabled/i.test(msg)) return {
-        why: 'The Alert Center API isn\'t turned on in the service\'s Google Cloud project.',
-        fix: 'Run deploy/install.sh again (Settings → Update can\'t: it turns on alertcenter.googleapis.com), or in Cloud Shell: gcloud services enable alertcenter.googleapis.com. Test again in a few minutes.' };
-    if (/HTTP 40[13]\b|permission|not authorized/i.test(msg)) return {
-        why: `${admin} (DIRECTORY_ADMIN) isn't allowed to read the Alert Center: its admin role doesn't have the Alert Center privilege.`,
-        fix: `Admin console → Account → Admin roles → the role ${admin} has (SPRUCE group reader) → Privileges → Admin console privileges → Security → Alert Center → tick View access → Save. Test again in a few minutes (role changes take a little while).` };
-    return { why: `Google answered: ${msg.replace(/\s+/g, ' ').slice(0, 200)}`, fix: 'docs/INSTALL.md, "User reports".' };
-}
+const REPORTS_PROBLEM = { what: 'Gmail\'s logs', scope: 'admin.reports.audit.readonly', doc: 'docs/INSTALL.md, "Link clicks".', denied: /not authorized to read activity records|HTTP 40[13]\b/i,
+    deniedWhy: (a) => `${a} isn't allowed to read Google's activity reports: its admin role doesn't have the Reports privilege.`,
+    deniedFix: (a) => `Admin console → Account → Admin roles → the role ${a} has (the directory admin's is "SPRUCE group reader") → Privileges → Admin console privileges → tick Reports → Save. Test again in a few minutes (role changes take a little while).` };
+const ALERTS_PROBLEM = { what: 'its Alert Center', scope: 'apps.alerts', doc: 'docs/INSTALL.md, "User reports".', denied: /HTTP 40[13]\b|permission|not authorized/i,
+    disabled: { why: 'The Alert Center API isn\'t turned on in the service\'s Google Cloud project.', fix: 'Run deploy/install.sh again (Settings → Update can\'t: it turns on alertcenter.googleapis.com), or in Cloud Shell: gcloud services enable alertcenter.googleapis.com. Test again in a few minutes.' },
+    deniedWhy: (a) => `${a} (DIRECTORY_ADMIN) isn't allowed to read the Alert Center: its admin role doesn't have the Alert Center privilege.`,
+    deniedFix: (a) => `Admin console → Account → Admin roles → the role ${a} has (SPRUCE group reader) → Privileges → Admin console privileges → Security → Alert Center → tick View access → Save. Test again in a few minutes (role changes take a little while).` };
+const reportsProblem = (e, admin) => googleProblem(e, admin, REPORTS_PROBLEM);
+const alertsProblem = (e, admin) => googleProblem(e, admin, ALERTS_PROBLEM);
 
 // The new entries of the lists' downloads, taken out of feeds.sync's answer (they don't go into the
 // hourly job's response or the dashboard's): [{ name, kind, entries }].
@@ -229,6 +227,15 @@ const STRICT_WORDS = { 'forged-headers': 'forged headers', 'spam-headers': 'spam
 const MAX_ALLOWED = 500;
 // (0.6.59) Spam learning: the longest run, and how sure the AI's spam answer must be (outside promotional mail).
 const SPAM_LEARN_MAX_DAYS = 30, SPAM_LEARN_SURE = 0.99;
+// (0.6.63; one table since 0.6.67) The two brakes: the domain-wide one, and spam's own (trigger 'spam' counts only there).
+// state: on while set; resumedAt: when an admin last resumed (a new hourly counter); counter: the moveCounts bucket's prefix;
+// held: the record's tag for what it held.
+const BRAKES = {
+    all: { state: 'brake', resumedAt: 'brakeResumedAt', counter: '', held: 'brake', alert: 'brake', heldWords: 'the brake is on', what: 'Moving', heldWhat: 'emails',
+        alertText: (count, limit) => `${count} emails were moved within the hour (limit ${limit}). Moving has stopped in every mailbox: from now on, emails that would be moved stay in the Inbox, like any other email, until an admin resumes on the dashboard (Today), which can also move them then.` },
+    spam: { state: 'spamBrake', resumedAt: 'spamBrakeResumedAt', counter: 'spam|', held: 'spam-brake', alert: 'spam-brake', heldWords: 'moving spam is paused, its own brake is on', what: 'Moving spam', heldWhat: 'spam emails',
+        alertText: (count, limit) => `${count} emails were moved as spam within the hour (spam's own limit: ${limit}). Moving spam has stopped in every mailbox until an admin resumes it on the dashboard (Today). Phishing is still moved as usual. If a sender on Spam senders or Spam learning sent this much, that may be expected; if the AI's spam answer did, look at what it moved first.` }
+};
 // (0.6.60) The Alert Center's alert type for Gmail's "Report phishing" (source "Gmail phishing", data MailPhishing).
 const USER_REPORT_TYPE = 'User reported phishing';
 const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -414,7 +421,9 @@ class Service {
         let rows;
         try { rows = await Promise.all(POLICY_KEYS.map(k => this.store.getState(`policy-${k}`))); }
         catch (e) { this.log.error('reading the policy changed on the dashboard:', e); return this.policyState; }
-        this.policyState = Object.fromEntries(POLICY_KEYS.map((k, i) => [k, rows[i] || null]));
+        // (0.6.67) A row saved by an older version is read in today's terms (Skip review's 0.6.59 names), once, here: its
+        // value and the settings.env value it replaced, so comparing it with settings.env and every reader of cfg agree.
+        this.policyState = Object.fromEntries(POLICY_KEYS.map((k, i) => [k, rows[i] && k === 'strictSpam' ? Object.assign({}, rows[i], { value: strictKinds(rows[i].value), env: strictKinds(rows[i].env) }) : rows[i] || null]));
         this.applyPolicy();
         return this.policyState;
     }
@@ -863,7 +872,10 @@ class Service {
         result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
         await this.applySpamMemory(user, facts, result);
         // (0.6.56) The email's fingerprint (src/remember.js), for remembered Not phishing answers: a hash, never the email.
-        result.fingerprint = remember.fingerprintOf(facts, user);
+        // (0.6.67) Worked out only when something reads it (a recorded email, Spam learning, a remembered answer): most mail
+        // is clean and never needs it.
+        let fp;
+        Object.defineProperty(result, 'fingerprint', { configurable: true, enumerable: false, get: () => (fp === undefined ? (fp = remember.fingerprintOf(facts, user)) : fp) });
         // (0.6.30) From a domain an allow list holds but the 30-day check suspended: tagged, so an admin finds (and can
         // release) the emails it got while waiting for review (Settings → Sender lists).
         result.allowSuspended = await this.allowSuspendedFor((facts.senderAddress.split('@')[1] || '').toLowerCase());
@@ -1013,52 +1025,32 @@ class Service {
                 return { decision: { action: 'would-move', trigger: decision.trigger, why: `${decision.why} (not moved: moving this campaign is paused after ${this.cfg.campaignHoldAfter} copies on evidence nothing outside the email confirms, until an admin confirms it or dismisses it)` }, held: 'campaign' };
             }
         }
-        if (spam) {
-            const spamHeld = { decision: { action: 'would-move', trigger: decision.trigger, why: `${decision.why} (not moved: moving spam is paused, its own brake is on)`, braked: true }, held: 'spam-brake' };
-            if (await this.store.getState('spamBrake')) return spamHeld;
-            const spamResumedAt = Number(await this.store.getState('spamBrakeResumedAt')) || 0;
-            const spamLimit = await this.spamBrakeLimit();
-            const s = await this.store.reserveMove(`spam|${hourOf(now)}|${spamResumedAt}`, spamLimit, now);
-            if (!s.ok) { await this.tripSpamBrake(now, s.count, spamLimit); return spamHeld; }
-            return { decision, held: null };
-        }
-        const resumedAt = Number(await this.store.getState('brakeResumedAt')) || 0;
-        const limit = await this.brakeLimit();
-        const slot = await this.store.reserveMove(`${hourOf(now)}|${resumedAt}`, limit, now);
-        if (!slot.ok) {
-            await this.tripBrake(now, slot.count, limit);
-            return { decision: { action: 'would-move', trigger: decision.trigger, why: `${decision.why} (not moved: the brake is on)`, braked: true }, held: 'brake' };
-        }
+        // (0.6.67) One mechanism for both brakes (BRAKES): its state, its counter, its limit; the reads at once.
+        const b = BRAKES[spam ? 'spam' : 'all'];
+        const [on, resumedAt, limit] = await Promise.all([spam ? this.store.getState(b.state) : null, this.store.getState(b.resumedAt), spam ? this.spamBrakeLimit() : this.brakeLimit()]);
+        const held = { decision: { action: 'would-move', trigger: decision.trigger, why: `${decision.why} (not moved: ${b.heldWords})`, braked: true }, held: b.held };
+        if (on) return held;
+        const slot = await this.store.reserveMove(`${b.counter}${hourOf(now)}|${Number(resumedAt) || 0}`, limit, now);
+        if (!slot.ok) { await this.tripBrake(now, slot.count, limit, spam ? 'spam' : 'all'); return held; }
         return { decision, held: null };
     }
     // The domain-wide limit: BRAKE_PER_HOUR, or half the watched mailboxes (at least 100).
     async brakeLimit() {
         if (this.cfg.brakePerHour > 0) return this.cfg.brakePerHour;
-        return Math.max(100, Math.ceil((Number(await this.store.getState('watchedCount')) || 0) / 2));
+        // (0.6.67) The watched count changes once a day (renew-watches): read at most once a minute per instance.
+        if (!this._watchedCount || this.now() - this._watchedCount.at > 60000) this._watchedCount = { at: this.now(), n: Number(await this.store.getState('watchedCount')) || 0 };
+        return Math.max(100, Math.ceil(this._watchedCount.n / 2));
     }
     // (0.6.63) Spam's own limit: SPAM_BRAKE_PER_HOUR, else the domain-wide brake's (counted apart).
     async spamBrakeLimit() {
         if (this.cfg.spamBrakePerHour > 0) return this.cfg.spamBrakePerHour;
         return this.brakeLimit();
     }
-    async tripSpamBrake(now, count, limit) {
-        if (!(await this.store.setStateIfUnset('spamBrake', { at: now, moves: count, limit }))) return;
-        await this.alert('spam-brake', `${count} emails were moved as spam within the hour (spam's own limit: ${limit}). Moving spam has stopped in every mailbox until an admin resumes it on the dashboard (Today). Phishing is still moved as usual. If a sender on Spam senders or Spam learning sent this much, that may be expected; if the AI's spam answer did, look at what it moved first.`);
-    }
-    async spamBrakeOn() { return !!(await this.store.getState('spamBrake')); }
-    // The admin resumes moving spam: its hour's count starts again, and with moveHeld the spam its brake held is moved now.
-    async resumeSpam(by, { moveHeld = false } = {}) {
-        const b = await this.store.getState('spamBrake');
-        await this.store.setState('spamBrakeResumedAt', this.now());
-        await this.store.setState('spamBrake', null);
-        const out = moveHeld && b ? await this.moveHeld(r => r.held === 'spam-brake' && r.processedAt >= b.at, by, 'resumed moving spam', { sinceMs: b.at }) : null;
-        await this.store.addEvent({ kind: 'resume', text: `Moving spam resumed by ${by}${out ? (out.monitor ? '' : `; ${out.moved} spam emails left in the Inbox while its brake was on were moved to Spam${out.gone ? `, ${out.gone} no longer in the Inbox` : ''}`) : ''}.` });
-        return { ok: true, held: out };
-    }
     // The brake comes on: only the instance that sets it first alerts (the others' moves were refused too).
-    async tripBrake(now, count, limit) {
-        if (!(await this.store.setStateIfUnset('brake', { at: now, moves: count, limit }))) return;
-        await this.alert('brake', `${count} emails were moved within the hour (limit ${limit}). Moving has stopped in every mailbox: from now on, emails that would be moved stay in the Inbox, like any other email, until an admin resumes on the dashboard (Today), which can also move them then.`);
+    async tripBrake(now, count, limit, kind = 'all') {
+        const b = BRAKES[kind];
+        if (!(await this.store.setStateIfUnset(b.state, { at: now, moves: count, limit }))) return;
+        await this.alert(b.alert, b.alertText(count, limit));
     }
 
     // An alert: in Health → Activity (and Today's Recent activity), and a log line Cloud Monitoring emails to
@@ -1094,6 +1086,10 @@ class Service {
         if (!sender) return null;
         if (await this.allowSuspendedFor(String(address || '').toLowerCase().split('@')[1] || '')) return null;   // (0.6.30) suspended for review
         if (await this.store.getCached('spamok', `${senderHash(user)}|${senderHash(sender)}`)) return 'they took mail from this sender back out of Spam before';
+        return this.spamKeptByMany(sender);
+    }
+    // The shared half: SPAM_SHARED people took this sender's spam back (and no admin chose to keep moving it).
+    async spamKeptByMany(sender) {
         const e = ((await this.store.getState('spamRescued')) || {})[sender];
         if (e && e.shared && !e.keep && this.now() - (e.last || 0) <= SPAM_KEEP_MS) return `${e.users.length} people took mail from this sender back out of Spam`;
         return null;
@@ -1183,25 +1179,37 @@ class Service {
         const q = result.ai && typeof result.ai.spam === 'number' ? result.ai.spam : null;
         const p = result.ai && typeof result.ai.probability === 'number' ? result.ai.probability : null;
         const promo = decision.action === 'promo';
-        const sure = decision.action === 'none' && result.status === 'clean' && q !== null && q >= SPAM_LEARN_SURE && (p === null || p < (this.cfg.aiSuspicious || 0.65));
+        const sure = decision.action === 'none' && result.status === 'clean' && q !== null && q >= SPAM_LEARN_SURE && (p === null || p < (this.cfg.aiSuspicious || AI_SUSPICIOUS));
         if (!promo && !sure) return null;
-        if (await this.spamKept(user, facts.senderAddress)) return null;
-        if (result.fingerprint && (await this.rememberedMap())[result.fingerprint]) return null;   // an admin marked it safe
+        // (0.6.67) The cheap, cached checks first; the reads only for a sender this run hasn't learned yet on this instance.
         const key = this.spamListKey(facts.senderAddress);
-        if (!key || ((await this.store.getState('spamSendersRemoved')) || {})[key]) return null;   // an admin took it off the list
-        const st = await this.store.getState('spamLearning');   // fresh: Stop now applies at once
-        this._spamLearning = { at: this.now(), st };
-        if (!st || st.stoppedAt || this.now() >= st.endsAt) return null;
+        if (!key || (await this.spamSendersRemovedMap())[key]) return null;   // an admin took it off the list
+        if (result.fingerprint && (await this.rememberedMap())[result.fingerprint]) return null;   // an admin marked it safe
+        if (await this.spamKept(user, facts.senderAddress)) return null;
         const monitor = this.cfg.mode !== 'enforce';
-        if (!monitor) {
-            const added = await this.addSpamSender(facts.senderAddress, 'Spam learning', { from: 'learning' });
-            if (!added || !added.ok) return null;
+        const runKey = `${cached.startedAt}`;
+        if (!this._learnedKeys || this._learnedKeys.run !== runKey) this._learnedKeys = { run: runKey, keys: new Set() };
+        let st = cached;
+        if (!this._learnedKeys.keys.has(key)) {
+            st = await this.store.getState('spamLearning');   // fresh before learning a new sender: Stop now applies at once
+            this._spamLearning = { at: this.now(), st };
+            if (!st || st.stoppedAt || this.now() >= st.endsAt) return null;
+            if (!monitor) {
+                const added = await this.addSpamSender(facts.senderAddress, 'Spam learning', { from: 'learning' });
+                if (!added || !added.ok) return null;
+            }
+            const got = (await this.store.getState('spamLearned')) || {};
+            if (!got[key] && Object.keys(got).length < 5000) await this.store.setState('spamLearned', Object.assign({}, got, { [key]: { at: this.now(), monitor } }));
+            this._learnedKeys.keys.add(key);
         }
-        const got = (await this.store.getState('spamLearned')) || {};
-        if (!got[key] && Object.keys(got).length < 5000) await this.store.setState('spamLearned', Object.assign({}, got, { [key]: { at: this.now(), monitor } }));
         const what = promo ? `promotional (${(decision.promotional && decision.promotional.signs || []).slice(0, 2).join('; ')})` : `the AI was ${Math.min(99, Math.round(q * 100))}% sure it is spam`;
         const why = `spam learning (Settings → Sender lists → Spam learning, until ${dayOf(st.endsAt)}): ${what}; ${monitor ? `monitor mode: nothing is moved, and ${key} would be added to Spam senders` : `${key} is on Spam senders now`}`;
-        return { action: monitor ? 'would-move' : 'move', trigger: 'spam', why, learned: true, promotional: decision.promotional };
+        return { action: monitor ? 'would-move' : 'move', trigger: 'spam', why, promotional: decision.promotional };
+    }
+    // (0.6.66) The senders an admin took off Spam senders (Spam learning never adds them back), read at most once a minute.
+    async spamSendersRemovedMap() {
+        if (!this._spamRemoved || this.now() - this._spamRemoved.at > 60000) this._spamRemoved = { at: this.now(), all: (await this.store.getState('spamSendersRemoved')) || {} };
+        return this._spamRemoved.all;
     }
     async spamSenderList() {
         const all = (await this.store.getState('spamSenders')) || {};
@@ -1244,9 +1252,11 @@ class Service {
         // (0.6.66) An admin adding a sender again: it is no longer one an admin took off the list.
         if (from !== 'learning') {
             const removed = (await this.store.getState('spamSendersRemoved')) || {};
-            if (removed[key]) { const rest = Object.assign({}, removed); delete rest[key]; await this.store.setState('spamSendersRemoved', rest); }
+            if (removed[key]) { const rest = Object.assign({}, removed); delete rest[key]; await this.store.setState('spamSendersRemoved', rest); this._spamRemoved = null; }
         }
-        this._spamSenders = null;
+        // (0.6.67) The cached list gets the new entry (it was dropped, so the next email read it again).
+        if (this._spamSenders) this._spamSenders.all = all;
+        this._senderListTest = null;
         if (!had && from !== 'learning') await this.store.addEvent({ kind: 'settings', text: `${by} added ${key} to Spam senders${from === 'review' ? ' (answering Spam on an email)' : ''}: its verified mail goes straight to Spam, as spam.` });
         // (0.6.59) Spam learning adds many: it reads no list back.
         return from === 'learning' ? { ok: true, key, added: !had } : { ok: true, key, added: !had, list: await this.spamSenderList() };
@@ -1257,12 +1267,13 @@ class Service {
         if (!all[k]) return { error: 'That sender isn\'t on the list.', status: 404 };
         delete all[k];
         await this.store.setState('spamSenders', all);
-        this._spamSenders = null;
+        this._spamSenders = null; this._senderListTest = null;
         // (0.6.66) Remembered, so Spam learning never adds it back (an admin adding it again takes it off this list).
         const removed = Object.assign({}, (await this.store.getState('spamSendersRemoved')) || {}, { [k]: { by, at: this.now() } });
         const keys = Object.keys(removed).sort((a, b) => removed[b].at - removed[a].at);
         for (const x of keys.slice(2000)) delete removed[x];
         await this.store.setState('spamSendersRemoved', removed);
+        this._spamRemoved = null;
         await this.store.addEvent({ kind: 'settings', text: `${by} removed ${k} from Spam senders: its mail is checked as usual${(await this.spamLearningInfo()).active ? '; Spam learning won\'t add it again' : ''}.` });
         return { ok: true, list: await this.spamSenderList() };
     }
@@ -1396,7 +1407,7 @@ class Service {
         if (await this.allowSuspendedFor(String(facts.senderAddress || '').toLowerCase().split('@')[1] || '')) return null;
         if (await this.store.getCached('spamok', `${senderHash(user)}|${senderHash(this.spamSenderKey(facts.senderAddress))}`)) return null;
         // (0.6.59) Learned by Spam learning, not an admin's choice: once several people took its mail back, for everyone.
-        if (e.from === 'learning' && await this.spamKept(user, facts.senderAddress)) return null;
+        if (e.from === 'learning' && await this.spamKeptByMany(this.spamSenderKey(facts.senderAddress))) return null;   // (its per-person half is just above)
         return Object.assign({ key }, e);
     }
     // (0.6.29) Brand senders the organization's reviewers confirmed: "False alarm" on an email whose only sign was a brand's
@@ -1602,16 +1613,19 @@ class Service {
     }
 
     async brakeOn() { return !!(await this.store.getState('brake')); }
-    // The admin resumes: the hour's count starts again (a new counter), and with moveHeld the copies the
-    // brake held since it came on are moved now (those still in the Inbox).
-    async resume(by, { moveHeld = false } = {}) {
-        const brake = await this.store.getState('brake');
-        await this.store.setState('brakeResumedAt', this.now());
-        await this.store.setState('brake', null);
-        const out = moveHeld && brake ? await this.moveHeld(r => r.held === 'brake' && r.processedAt >= brake.at, by, 'resumed moving', { sinceMs: brake.at }) : null;
-        await this.store.addEvent({ kind: 'resume', text: `Moving resumed by ${by}${out ? (out.monitor ? '' : `; ${out.moved} emails left in the Inbox while the brake was on were moved to Spam${out.gone ? `, ${out.gone} no longer in the Inbox` : ''}`) : ''}.` });
+    // The admin resumes a brake (spam: spam's own): the hour's count starts again (a new counter), and with moveHeld the copies
+    // that brake held since it came on are moved now (those still in the Inbox).
+    async resume(by, { moveHeld = false, spam = false } = {}) {
+        const b = BRAKES[spam ? 'spam' : 'all'];
+        const brake = await this.store.getState(b.state);
+        await this.store.setState(b.resumedAt, this.now());
+        await this.store.setState(b.state, null);
+        const out = moveHeld && brake ? await this.moveHeld(r => r.held === b.held && r.processedAt >= brake.at, by, spam ? 'resumed moving spam' : 'resumed moving', { sinceMs: brake.at }) : null;
+        await this.store.addEvent({ kind: 'resume', text: `${b.what} resumed by ${by}${out ? (out.monitor ? '' : `; ${out.moved} ${b.heldWhat} left in the Inbox while ${spam ? 'its' : 'the'} brake was on were moved to Spam${out.gone ? `, ${out.gone} no longer in the Inbox` : ''}`) : ''}.` });
         return { ok: true, held: out };
     }
+    // (0.6.63) Spam's brake: resume(by, { spam: true }).
+    resumeSpam(by, opts = {}) { return this.resume(by, Object.assign({}, opts, { spam: true })); }
 
     // Moves held or recorded copies now, those still in the Inbox (an admin's resume or confirmation;
     // not counted by the brake). Enforce mode only. { moved, gone, failed, left }.
@@ -1683,6 +1697,14 @@ class Service {
     // senders (not while suspended), Spam senders, Brand senders. Only when Gmail confirmed the sender (DMARC), as the lists
     // themselves. A test for records: (r) => the list's name, or null.
     async senderListTest() {
+        // (0.6.67) Built at most every 15 seconds (Review and the pending count ask on every page load and every 25 seconds per
+        // open dashboard); a change to Spam senders here builds it again at once.
+        if (this._senderListTest && this.now() - this._senderListTest.at < 15000) return this._senderListTest.fn;
+        const fn = await this.buildSenderListTest();
+        this._senderListTest = { at: this.now(), fn };
+        return fn;
+    }
+    async buildSenderListTest() {
         const E = spruce.load();
         const spam = (await this.store.getState('spamSenders')) || {};
         const brands = new Set(Object.values((await this.store.getState('brandSenders')) || {}).map(v => v && String(v.domain || '').toLowerCase()).filter(Boolean));
@@ -1999,7 +2021,7 @@ class Service {
         // is half of these.
         const ok = [...users].filter(u => (out.get(u) || expiry(u)) > now).length;
         const left = todo.length - out.size - failed;
-        await this.store.setState('watchedCount', ok);
+        await this.store.setState('watchedCount', ok); this._watchedCount = null;
         // (0.6.56) What is left, for the hourly runs: the mailboxes not tried yet (a failure waits for the next daily run,
         // which records it), new ones marked, and the watches still to stop.
         const rest = todo.filter(u => !out.has(u) && !failedUsers.has(u));
@@ -2062,7 +2084,7 @@ class Service {
         const users = q.users.filter(u => !done.has(u) && !failedSet.has(u)), stop = (q.stop || []).filter(e => !stoppedSet.has(e));
         await this.store.setState('watchQueue', users.length || stop.length ? { at: q.at, scope: q.scope, users, fresh: users.filter(u => fresh.has(u)), stop } : null);
         const watched = (Number(await this.store.getState('watchedCount')) || 0) + added - stoppedSet.size;
-        await this.store.setState('watchedCount', Math.max(0, watched));
+        await this.store.setState('watchedCount', Math.max(0, watched)); this._watchedCount = null;
         const left = users.length + stop.length;
         await this.store.setState('watchLeft', { left, at: now, scope: q.scope });
         const text = `Continued watching mailboxes: ${done.size} watched now (${added} new)${stoppedSet.size ? `, ${stoppedSet.size} stopped` : ''}${failedSet.size ? `, ${failedSet.size} failed (see the errors; the daily run tries them again)` : ''}${tookOver ? `, ${tookOver} taken over from another watch of this Google Cloud project (see Activity)` : ''}; ${left ? `${left} more within the next hours (each hourly run continues)` : 'none left'}. Watching ${Math.max(0, watched)} mailboxes.`;
@@ -2312,7 +2334,7 @@ class Service {
         // never reached, and a gone email was asked for again every hour for two days.
         const [hourOld, dayOld] = await Promise.all([this.store.listRecords({ sinceMs: now - 6 * HOUR, untilMs: now - HOUR, limit: 3000 }),
             this.store.listRecords({ sinceMs: now - 30 * HOUR, untilMs: now - DAY, limit: 3000 })]);
-        const open = (r) => r.action === 'flag' && r.state === 'inbox' && r.falseAlarm == null && !r.unclear && !r.userPlaced && !r.recheck;
+        const open = (r) => r.action === 'flag' && r.state === 'inbox' && !settled(r) && !r.recheck;
         const due = [...hourOld.filter(r => open(r) && (r.laterChecks || 0) === 0), ...dayOld.filter(r => open(r) && (r.laterChecks || 0) <= 1)];
         return this.queueRechecks(due.slice(0, 1000).map(r => ({ user: r.user, id: r.messageId, receivedAt: r.receivedAt || null, source: 'later', round: (r.laterChecks || 0) + 1 })));
     }
@@ -2388,6 +2410,12 @@ class Service {
         return { checked: results.length, left: queue.length + retry.length, moved: count('moved'), wouldMove: count('would-move') + count('held'), notInInbox: count('not-in-inbox'), suspicious: count('flag') };
     }
 
+    // (0.6.67) What the checks are given for an email read again from a mailbox (a re-check, a reader's report): the same as
+    // on arrival, in one place, so a new input reaches every path that judges stored mail.
+    async analyzeCtx(user, msg, facts, { trusted, firstTime }) {
+        const [allowLinkDomains, colleagues, lookalikes, brandSenders, threadSize] = await Promise.all([this.allowLinkDomainsNow(), this.colleagueNames(), this.lookalikeMap(), this.brandSenderSet(), this.threadSizeOf(user, msg.threadId, facts)]);
+        return { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains, trusted, firstTime, intel: this.intel, colleagues, selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes, brandSenders, threadSize };
+    }
     // One email checked again (item: { user, id, source: 'lists'|'lookalike'|'update'|'later', site, list, round, version }).
     async recheckMessage(item) {
         const { user, id } = item;
@@ -2397,7 +2425,7 @@ class Service {
         // re-check that already moved it or would; (0.6.59) promotional mail an admin kept in Review → Promotional.
         // (A copy held by a brake waits for the admins: the brake's resume on Today, or the campaign's decision
         // on Threats → Campaigns.) Reviewed mail is never judged again, by an update's re-check or any other.
-        if (before && (before.state !== 'inbox' || before.falseAlarm != null || before.markedBy || before.unclear || before.userPlaced || before.held || before.promoKept || (before.recheck && before.recheck.outcome !== 'flag'))) return { item, outcome: 'skipped' };
+        if (before && (before.state !== 'inbox' || settled(before) || (before.recheck && before.recheck.outcome !== 'flag'))) return { item, outcome: 'skipped' };
         let msg;
         try { msg = await this.gmail.raw(user, id); }
         catch (e) { if (e instanceof GoogleApiError && e.status === 404) return { item, outcome: 'gone' }; throw e; }
@@ -2412,8 +2440,7 @@ class Service {
         const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
         // A new sender on arrival stays one (as for an admin's re-scan); unknown for mail not recorded then.
         const firstTime = before ? (before.arrival ? !!before.arrival.firstTime : (before.signals || []).some(x => x && x.kind === 'first-time')) : false;
-        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime, intel: this.intel,
-            colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), threadSize: await this.threadSizeOf(user, msg.threadId, facts) });
+        const result = await analyze(facts, await this.analyzeCtx(user, msg, facts, { trusted: allowlisted && verified, firstTime }));
         result.allowlistedUnverified = allowlisted && !verified;
         result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
         await this.applySpamMemory(user, facts, result);
@@ -2489,7 +2516,9 @@ class Service {
     // Settings → Link clicks (0.5.35; off by default): Gmail's logs (Admin SDK Reports API) read as an admin
     // with the Reports privilege, for each re-checked email: when its reader first opened it, and whether
     // they clicked a link in it.
-    async clickLogs() { return Object.assign({ on: false, admin: '' }, await this.store.getState('clickLogs')); }
+    // (0.6.62) Read as DIRECTORY_ADMIN (deploy/settings.env), the account the service acts as for the directory: admin is
+    // that, never stored (0.6.67).
+    async clickLogs() { return Object.assign({ on: false }, await this.store.getState('clickLogs'), { admin: this.cfg.directoryAdmin || '' }); }
     // One email's events in its reader's Gmail log, from 5 minutes before it arrived: mail_event_type 15 and 16
     // (a link clicked), 7 (opened), each matched to the email by its Message-ID; the first time of each.
     async clicksOf(rec, admin) {
@@ -2514,7 +2543,7 @@ class Service {
     // is an alert; logs that can't be read are an alert once a day.
     async followClicks({ budgetMs = 15000, max = 100 } = {}) {
         const cl = await this.clickLogs();
-        const reader = this.readerOfAlerts();   // (0.6.62) DIRECTORY_ADMIN, as for User reports
+        const reader = this.cfg.directoryAdmin;   // (0.6.62) DIRECTORY_ADMIN, as for User reports
         if (!cl.on || !reader) return null;
         const started = Date.now(), now = this.now();
         const recs = (await this.store.listRecords({ sinceMs: now - (this.cfg.recheckDays + 2) * DAY, limit: 5000 }))
@@ -2543,15 +2572,15 @@ class Service {
     // whether its events name the emails they are about. (0.6.62) Always read as DIRECTORY_ADMIN (deploy/settings.env):
     // an address typed on the page before is no longer used.
     async setClickLogs(on, by) {
-        const a = this.readerOfAlerts();
+        const a = this.cfg.directoryAdmin;
         if (on && !a) return { error: 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env: Link clicks reads Gmail\'s logs as that account.', status: 400 };
-        const v = { on: !!on, admin: a, by, at: this.now() };
+        const v = { on: !!on, by, at: this.now() };
         await this.store.setState('clickLogs', v);
         await this.adminNotice('settings', `${by} turned ${on ? `on Link clicks (Gmail's logs read as ${a}, DIRECTORY_ADMIN)` : 'off Link clicks'}.`);
-        return { clickLogs: v };
+        return { clickLogs: Object.assign({}, v, { admin: a }) };
     }
     async testClickLogs(by) {
-        const a = this.readerOfAlerts();
+        const a = this.cfg.directoryAdmin;
         if (!a) return { error: 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env: Link clicks reads Gmail\'s logs as that account.', status: 400 };
         const now = this.now();
         let evs;
@@ -2576,29 +2605,26 @@ class Service {
     // checked again) gets userReported. Nothing is moved by a report (Gmail already moved it), and an admin's answer is
     // recorded as usual (Mark safe leaves it where its reader put it). State userReports: { on, admin, by, at, cursor (the
     // last alert's time), seen (the last alerts read) }; userReportsHealth, userReportsTest.
-    async userReports() { return Object.assign({ on: false, admin: '' }, await this.store.getState('userReports')); }
+    async userReports() { return Object.assign({ on: false }, await this.store.getState('userReports'), { admin: this.cfg.directoryAdmin || '' }); }
     // (0.6.61) Whether it is on, read at most once a minute (Review shows its Reported tab only then: GET /api/review, pending).
     async userReportsOn() {
         if (!this._userReportsOn || this.now() - this._userReportsOn.at > 60000) this._userReportsOn = { at: this.now(), on: !!(await this.userReports()).on };
         return this._userReportsOn.on;
     }
-    // (0.6.62) User reports and Link clicks read as DIRECTORY_ADMIN (deploy/settings.env), the account the service already
-    // acts as for the directory.
-    readerOfAlerts() { return String(this.cfg.directoryAdmin || '').trim().toLowerCase(); }
     async setUserReports(on, by) {
         const was = await this.userReports();
-        const a = this.readerOfAlerts();
+        const a = this.cfg.directoryAdmin;
         if (on && !a) return { error: 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env: User reports reads the Alert Center as that account.', status: 400 };
         const now = this.now();
         // Turned on: reports from the last day are read too; turned on again later, from where it stopped.
-        const v = Object.assign({}, was, { on: !!on, admin: a, by, at: now, cursor: was.cursor || (on ? now - DAY : null) });
+        const v = { on: !!on, by, at: now, cursor: was.cursor || (on ? now - DAY : null), seen: was.seen || [] };
         await this.store.setState('userReports', v);
         this._userReportsOn = null;
         await this.adminNotice('settings', `${by} turned ${on ? `on User reports (Gmail's Report phishing reports read from the Alert Center as ${a}, DIRECTORY_ADMIN; they go to Review → Reported)` : 'off User reports'}.`);
-        return { userReports: v };
+        return { userReports: Object.assign({}, v, { admin: a }) };
     }
     async testUserReports(by) {
-        const a = this.readerOfAlerts();
+        const a = this.cfg.directoryAdmin;
         if (!a) return { error: 'DIRECTORY_ADMIN isn\'t set in deploy/settings.env: User reports reads the Alert Center as that account.', status: 400 };
         const now = this.now();
         let alerts;
@@ -2615,7 +2641,7 @@ class Service {
     // The hourly run: the alerts since the last one read, oldest first, within budgetMs.
     async followUserReports({ budgetMs = 15000, max = 200 } = {}) {
         const st = await this.userReports();
-        const reader = this.readerOfAlerts();
+        const reader = this.cfg.directoryAdmin;
         if (!st.on || !reader) return null;
         const started = Date.now(), now = this.now();
         const since = Math.max(Number(st.cursor) || now - DAY, now - 30 * DAY);
@@ -2629,24 +2655,30 @@ class Service {
         // half-read when the time runs out isn't marked read, and the next run reads it again (its messages already in
         // Review count as 'already').
         let outOfTime = false;
+        const users = new Map();   // recipient → its watched-mailbox record, read once per run
         for (const al of alerts) {
             if (Date.now() - started > budgetMs) break;
             const at = Date.parse(al.createTime) || now;
             if (al.deleted || seen.has(al.alertId)) { cursor = Math.max(cursor, at); continue; }
-            try {
-                for (const m of ((al.data && al.data.messages) || [])) {
-                    if (Date.now() - started > budgetMs) { outOfTime = true; break; }
-                    const r = await this.reportedEmail(String(m.recipient || '').toLowerCase(), String(m.messageId || ''), { at, alertId: al.alertId });
-                    emails++;
+            // (0.6.67) Five at a time (each waits on Gmail's search and Firestore); each recipient read once per run.
+            const msgs = (al.data && al.data.messages) || [];
+            let doneHere = 0, err = null;
+            await pool(msgs, 5, async (m) => {
+                try {
+                    const r = await this.reportedEmail(String(m.recipient || '').toLowerCase(), String(m.messageId || ''), { at, alertId: al.alertId }, users);
+                    emails++; doneHere++;
                     if (found[r] !== undefined) found[r]++;
-                }
-            } catch (e) { const p = alertsProblem(e, reader); failed = `${p.why} ${p.fix}`; break; }
+                } catch (e) { err = err || e; }
+            }, () => !!err || Date.now() - started > budgetMs);
+            if (err) { const p = alertsProblem(err, reader); failed = `${p.why} ${p.fix}`; break; }
+            if (doneHere < msgs.length) outOfTime = true;
             if (outOfTime) break;
             seen.add(al.alertId); done++;
             cursor = Math.max(cursor, at);
         }
         const fresh = await this.userReports();
-        await this.store.setState('userReports', Object.assign({}, fresh, { cursor, seen: [...seen].slice(-1000) }));
+        const { admin: _shown, ...kept } = fresh;   // (the admin isn't stored: DIRECTORY_ADMIN)
+        await this.store.setState('userReports', Object.assign({}, kept, { cursor, seen: [...seen].slice(-1000) }));
         await this.store.setState('userReportsHealth', { at: now, ok: !failed, error: failed, alerts: done, emails, found });
         if (failed) await this.alertDaily('user-reports', `Gmail's Report phishing reports couldn't be read from the Alert Center (Settings → User reports, as ${reader}, DIRECTORY_ADMIN): ${failed}`);
         const waiting = found.added + found.marked;
@@ -2655,10 +2687,11 @@ class Service {
     }
     // One reported email: found in its reader's mailbox by its Message-ID (Spam and Trash included), its record marked
     // userReported (or recorded now). 'added', 'marked', 'already', 'notWatched' or 'notFound'.
-    async reportedEmail(user, rfcId, report) {
+    async reportedEmail(user, rfcId, report, users = null) {
         const mid = String(rfcId || '').trim().replace(/^<|>$/g, '');
         if (!user || !mid || !this.cfg.orgDomains.includes(user.split('@')[1] || '')) return 'notWatched';
-        const u = await this.store.getUser(user);
+        if (users && !users.has(user)) users.set(user, this.store.getUser(user));
+        const u = await (users ? users.get(user) : this.store.getUser(user));
         if (!u || !u.watched) return 'notWatched';   // only the mailboxes the service checks
         // (0.6.66) The Message-ID is the sender's own text: one with spaces, quotes or angle brackets inside isn't searched for
         // (it could carry search words that find other emails), and only a message whose own Message-ID is exactly it counts.
@@ -2667,7 +2700,7 @@ class Service {
         let id = null;
         for (const x of ids) {
             const hd = await this.gmail.headers(user, x).catch(() => null);
-            if (hd && String(hd.messageId || '').trim().replace(/^<|>$/g, '').toLowerCase() === mid.toLowerCase()) { id = x; break; }
+            if (hd && messageIdOf(hd.messageId).toLowerCase() === mid.toLowerCase()) { id = x; break; }
         }
         if (!id) return 'notFound';
         const key = recordKey(user, id), now = this.now();
@@ -2685,12 +2718,11 @@ class Service {
         const where = labels.includes('INBOX') ? 'inbox' : labels.includes('SPAM') ? 'spam' : labels.includes('TRASH') ? 'trash' : 'archived';
         const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
         const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
-        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel,
-            colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet() });
+        const result = await analyze(facts, await this.analyzeCtx(user, msg, facts, { trusted: allowlisted && verified, firstTime: false }));
         const senderDomain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
         const campaign = campaignOf(senderDomain, facts.subject, user);
         const campaignLabel = this.cfg.storeSubjects ? campaign.label : senderDomain;
-        const decision = { action: 'flag', trigger: null, why: `its reader reported it as phishing in Gmail (Report phishing); ${result.status === 'clean' && !(result.ai && result.ai.probability >= (this.cfg.aiSuspicious || 0.65)) ? 'the checks had found nothing' : `the checks: ${suspiciousWhy(result, this.cfg)}`}` };
+        const decision = { action: 'flag', trigger: null, why: `its reader reported it as phishing in Gmail (Report phishing); ${result.status === 'clean' && !(result.ai && result.ai.probability >= (this.cfg.aiSuspicious || AI_SUSPICIOUS)) ? 'the checks had found nothing' : `the checks: ${suspiciousWhy(result, this.cfg)}`}` };
         const rec = this.recordOf(user, msg, facts, result, decision, { now, campaign, campaignLabel, senderDomain, held: null, state: where === 'inbox' ? 'inbox' : 'reported', labeled: false });
         rec.userReported = userReported;
         rec.arrival = { at: rec.receivedAt, action: 'none' };
