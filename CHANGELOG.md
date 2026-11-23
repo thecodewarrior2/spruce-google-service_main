@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.69: phish-tiny 0.27.0
+
+- **The AI model is phish-tiny 0.27.0** (TinyPhishLLM `46cc244`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.26.0),
+  the same input format 3 and spam answer (the sync checked all 95 reference cases). Trained from 0.26.0, five runs
+  averaged, also on published research collections (never published) and a district's de-identified examples (never
+  published).
+- **What changes**, against 0.26.0 at the 65% line (held-out sets, never trained on; TinyPhishLLM's changelog): a
+  district's held-out phishing or spam missed 27 of 188 → 18, and 15 of 32 → 13 in its newer held-out set; its held-out
+  genuine mail called phishing 10 of 54 → 9; research collections' phishing missed 280 of 2,936 → 236, their spam
+  missed 209 of 3,759 → 145, their genuine mail called phishing or spam 110 of 4,072 → 93; published phishing missed
+  18 of 954 → 15, published genuine called phishing or spam 8 of 834 → 7; every hand-written case right.
+- **On this project's made-up test emails** every action is the same as with 0.26.0: the fake notices, payroll lures
+  and the gift-card survey stay at 99% to 100% phishing; the newsletters, the credit-card offer and the IPTV offer stay
+  under 1% phishing and 89% to 100% spam.
+- **Known weakness, kept by the maintainer's decision:** the first-time vendor asking to "update our bank details" (the
+  demo's "Quote for the reading program", DMARC passing) is still 13% (0.26.0: 13%), so the AI doesn't flag it; the
+  model's own release check fails on that case. Spoofed and look-alike senders asking the same are still caught by the
+  sender checks.
+- The checks level is raised to 53: after this update the service checks recent delivered mail again with the new model.
+  No installation change (installLevel stays the same).
+
 ## 0.6.68: Review's queues decided in one place
 
 - **Each email is in exactly one of Review's queues, or none, decided in one place** (`src/review-queues.js`), in one

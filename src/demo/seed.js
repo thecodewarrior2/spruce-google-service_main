@@ -85,7 +85,7 @@ function campaignTemplates() {
             subject: 'Last chance! 90% off ends tonight — claim your reward',
             html: '<p>Congratulations! You have been selected for our biggest reward of the year.</p><p>Claim your $500 gift card today. Offer expires in 24 hours.</p><p>Confirm your account details to receive your reward.</p><p><a href="https://e.gadgetdeals-shop.example/claim">Claim now</a></p>' }) },
         // A new vendor asking to update bank details: the rules see little. (0.6.58) phish-tiny 0.26.0 scores it 13% (0.25.0: 92%),
-        // so it is no longer recorded: a known weakness of that model (CHANGELOG.md).
+        // so it is no longer recorded: a known weakness of that model (CHANGELOG.md). (0.6.69) phish-tiny 0.27.0: 13% still.
         { id: 'newvendor', recipients: 6, daysAgo: 9, spread: 0.4, make: (to) => eml({ fromName: 'Pat Fictional', from: 'pat@brightpath-learning.example', to, dmarc: 'pass',
             subject: 'Quote for the reading program',
             html: '<p>Hi,</p><p>Following up on the conference. Could you send me the purchase order number and update our bank details on file for the invoice?</p><p>Thanks, Pat Fictional, Account Executive</p>' }) },

@@ -1,5 +1,5 @@
 {
-  "checksLevel": 52,
-  "fingerprint": "5045c692df84c70885471a9018d3640f13f588a9ba320246529d435c65fe067f",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.68: Review's queues from src/review-queues.js; answers that also answer other waiting emails leave a reported one alone; no verdict changes"
+  "checksLevel": 53,
+  "fingerprint": "bc7b18939c832af3153b325d20ea8add4ef1c47339d8d51870084ac8138c3799",
+  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
 }
