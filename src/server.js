@@ -25,7 +25,7 @@
 //                              lists/recheck, keys/save, keys/remove, safe-browsing/key, safe-browsing/remove,
 //                              clicks, clicks/test, user-reports, user-reports/test, phish-training/rule, …/rule/edit, …/rule/remove,
 //                              phish-training/domains, digest, digest/send, update, update/check,
-//                              training-export/allow
+//                              training-export/allow, settings-backup/export, settings-backup/preview, settings-backup/import
 //     Every page, Help         GET session, help
 //   GET  /*                        the dashboard's files (public/)
 const http = require('http');
@@ -116,6 +116,7 @@ const expectedProject = (cfg) => cfg.project || (cfg.demo ? DEMO_PROJECT : '');
 // (0.6.68) Review's queues: src/review-queues.js decides each email's one queue (or none), in one order, for Review's tabs,
 // the pending count and the answers that also answer other waiting emails.
 const RQ = require('./review-queues');
+const Backup = require('./settings-backup');
 // What Review lists from: the recent records, with the Sender lists' test (pipeline.js senderListTest) that review-queues.js
 // applies (a reader's report stays listed even from a sender on a list).
 async function reviewRecords(service, cache, sinceMs) {
@@ -458,6 +459,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     const sbKey = () => (service.intel && service.intel.sbKey) || null;
     // The optional services' keys (0.5.37): service.intel.keys.spamhaus, .abusech (src/intel/apikey.js).
     const apiKey = (id) => (service.intel && service.intel.keys && service.intel.keys[id]) || null;
+    const backupKeys = () => ({ safeBrowsing: sbKey(), spamhaus: apiKey('spamhaus'), abusech: apiKey('abusech') });
     const safeBrowsingOn = async () => !!cfg.safeBrowsing && !!sbKey() && !!(await sbKey().get().catch(() => null));
     const safeBrowsingInfo = async () => {
         const k = sbKey();
@@ -1051,6 +1053,44 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // (adminAction: an admin's own change, emailed like an alert but not one: shown as "emailed", 0.5.28)
         // Activity (0.5.29): any period it is kept for (AUDIT_DAYS), a kind, words to look for; the newest 500
         // shown, and all of them (up to 10,000) as CSV, which is recorded.
+        // (0.6.72) Settings → Backup (src/settings-backup.js): every saved setting in one file, and its import. Admins only.
+        // The API keys only when ticked, encrypted with the admin's passphrase, and with the project ID typed; an import
+        // with the project ID typed, checked first (preview), each ticked section applied through the usual checks.
+        'POST /api/settings-backup/export': async (q, body, admin) => {
+            const includeKeys = body.includeKeys === true;
+            if (includeKeys) {
+                const bad = await projectCheck(admin, body, 'a settings export with the API keys');
+                if (bad) return bad;
+                if (String(body.passphrase || '').length < Backup.PASSPHRASE_MIN) return { error: `The passphrase needs at least ${Backup.PASSPHRASE_MIN} characters. Nothing was exported.`, status: 400 };
+                if (String(body.passphrase) !== String(body.passphrase2 || '')) return { error: 'The two passphrases aren\'t the same. Nothing was exported.', status: 400 };
+            }
+            if (!once(`backup-export:${admin.email}`, 5000)) return { error: 'Exported a moment ago: try again in a few seconds.', status: 429 };
+            const file = await Backup.exportSettings({ service, store, cfg, keys: backupKeys(), by: admin.email, includeKeys, passphrase: String(body.passphrase || ''), version: VERSION });
+            const names = file.keys ? file.keys.names.map(n => ({ safeBrowsing: 'Safe Browsing', spamhaus: 'Spamhaus', abusech: 'abuse.ch' }[n])) : [];
+            if (includeKeys) await service.alert('settings-export', `${admin.email} exported the settings with the API keys${names.length ? ` (${names.join(', ')})` : ' (none saved)'}, encrypted with a passphrase they typed (confirmed with the project ID).`);
+            else await service.adminNotice('settings', `${admin.email} exported the settings (no API keys).`);
+            return { file, name: `spruce-settings-${new Date().toISOString().slice(0, 10)}${includeKeys ? '-with-keys' : ''}.json` };
+        },
+        'POST /api/settings-backup/preview': async (q, body) => {
+            try { return { preview: await Backup.previewImport(Backup.parseFile(body.file), { service, store, cfg }) }; }
+            catch (e) { if (e.status) return { error: e.message, status: e.status }; throw e; }
+        },
+        'POST /api/settings-backup/import': async (q, body, admin) => {
+            const bad = await projectCheck(admin, body, 'a settings import');
+            if (bad) return bad;
+            const sections = (Array.isArray(body.sections) ? body.sections : []).map(String).filter(x => Backup.SECTION_IDS.includes(x));
+            if (!sections.length) return { error: 'Tick at least one section to import. Nothing was changed.', status: 400 };
+            if (!once(`backup-import:${admin.email}`, 10000)) return { error: 'Imported a moment ago: try again in a few seconds.', status: 429 };
+            let f;
+            try { f = Backup.parseFile(body.file); } catch (e) { if (e.status) return { error: `${e.message} Nothing was changed.`, status: e.status }; throw e; }
+            if (sections.includes('keys') && f.keys && String(body.passphrase || '').length === 0) return { error: 'Type the passphrase the file was made with, or untick API keys. Nothing was changed.', status: 400 };
+            const out = await Backup.applyImport(f, { service, store, cfg, keys: backupKeys(), by: admin.email, sections, passphrase: String(body.passphrase || '') });
+            cache.stale();
+            const label = Object.fromEntries(Backup.SECTIONS.map(x => [x.id, x.label]));
+            const said = out.done.map(d => `${label[d.id]}${d.error ? ` (failed: ${d.error})` : ''}`).join(', ');
+            await service.alert('settings-import', `${admin.email} imported settings from a file made ${f.exportedAt ? f.exportedAt.slice(0, 10) : 'on an unknown day'}${f.exportedBy ? ` by ${f.exportedBy}` : ''}: ${said || 'nothing'} (confirmed with the project ID).`);
+            return out;
+        },
         'GET /api/activity': async (q) => {
             const { events, days } = await activityFor(q);
             return { events: events.slice(0, 500).map(e => Object.assign({}, e, { adminAction: A.isAdminAction(e) })), total: events.length, days, maxDays: cfg.auditDays };
@@ -1127,7 +1167,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
                 // The policy settings changed on the dashboard (at most every 30 s), before anything reads them.
                 if (service.refreshPolicy) await service.refreshPolicy();
                 // (a pasted email for "Check an email" can be large: its attachments come with it)
-                const body = req.method === 'POST' ? await readBody(req, route === 'POST /api/check' ? CHECK_MAX_BYTES * 2 : 64 * 1024) : {};
+                const body = req.method === 'POST' ? await readBody(req, route === 'POST /api/check' ? CHECK_MAX_BYTES * 2 : /^POST \/api\/settings-backup\/(preview|import)$/.test(route) ? Backup.MAX_FILE_BYTES * 2 + 64 * 1024 : 64 * 1024) : {};
                 if (admin.role === 'moderator' && !moderatorMay(route, body && body.action)) return send(res, 403, forModerators);
                 const out = await api[route](url.searchParams, body, admin);
                 // (0.6.7) A change made on the dashboard: the records, events and short-lived answers are read again.

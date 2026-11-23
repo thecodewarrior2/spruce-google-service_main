@@ -468,6 +468,17 @@ Their data is never exported for retraining: their terms don't allow it to train
   it on Monday from 7 AM in `TIME_ZONE`, once a week whichever instance runs. The service never judges its
   own summary: it is marked as seen, and has the `X-SPRUCE-Summary` header with no `Received:` header,
   which mail from outside always has.
+- **Settings → Backup** (`src/settings-backup.js`, 0.6.72). The export reads the saved settings: the policy's effective
+  values, the Sender lists' state documents (`spamSenders`, `spamSendersRemoved`, `brandSenders`, `confirmedDomains`,
+  `provenDomains`, `promoKept`, `spamRescued`), `rememberedSafe`, `phishTraining`, the marked entries of
+  `lookalikeWatch`, and the switches' on or off. With the API keys ticked (project ID typed), the keys are read from
+  Secret Manager and written only encrypted: AES-256-GCM, the key from scrypt (N 2^15, r 8, p 1) of the admin's
+  passphrase and a random salt; the passphrase isn't kept. The import parses and checks the file (format, every section's
+  shape, at most 50,000 entries and 900 KB a document), previews each section's changes, and applies the ticked ones:
+  the keys through each key's own save (tested with its service), the policy through `setPolicy` (the Policy page's
+  checks; a change that page asks to be agreed to is never made: `GATED`), the lists by replacing their documents,
+  the switches through their own setters. Then the instance's caches of saved settings are forgotten; the others read
+  them again within a minute. Each import and each export with keys is an alert.
 - **The retraining export** (`src/training.js`; off until an admin allows it in Settings → Retraining). The emails an
   admin marked are read from Gmail when an admin downloads them: one per campaign, the newest copy still
   in a mailbox. Each is judged again as on arrival, with `analyze(..., { keepAiFacts: true })`, to get

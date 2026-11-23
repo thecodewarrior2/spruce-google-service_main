@@ -277,6 +277,27 @@ Mail is still checked; one source of evidence is missing until it comes back.
 - **What to do:** if nobody in your team did it, set it back (Settings → Update → Repositories), check who is in
   `ADMIN_GROUP` / `ADMIN_EMAILS`, and don't press Update until you know what the new repository holds.
 
+### The settings were exported with the API keys (`settings-export`)
+
+- **When:** an admin exported the settings (Settings → Backup, 0.6.72) and ticked "Include the API keys". The keys
+  (Safe Browsing, Spamhaus, abuse.ch) are in the file encrypted with a passphrase the admin typed, which isn't kept;
+  the project ID was typed too. An export without the keys is only noted in Activity.
+- **What it means:** a copy of the keys now exists outside Secret Manager, readable by whoever has both the file and
+  the passphrase.
+- **What to do:** expected when someone in your team is backing up or moving the service. If nobody did it, replace
+  the keys (Settings → Safe Browsing, Spamhaus, abuse.ch: save a new key, and delete the old one where it was made)
+  and check who is in `ADMIN_GROUP` / `ADMIN_EMAILS`.
+
+### Settings were imported (`settings-import`)
+
+- **When:** an admin imported a settings file (Settings → Backup, 0.6.72), with the project ID typed. The alert names
+  the file's date and who made it, and the sections imported; each ticked section became what the file holds.
+- **What it means:** the Sender lists, the remembered answers, the policy and the other sections imported decide what
+  is moved and what is trusted. An import never switches to enforce mode, lets the AI alone move staff email, turns on
+  Skip review, changes who is checked or where updates come from: those are made on their own pages.
+- **What to do:** expected after a restore or a move. If nobody did it, look at Settings → Sender lists and Policy, and
+  import your own last export to put them back.
+
 ### An admin's account was locked (`lockout`)
 - **When:** an account typed a wrong project ID or email address 5 times within 10 minutes.
 - **What to do:** ask the admin. If it wasn't them, someone may be using their signed-in session: sign them

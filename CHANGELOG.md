@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.72: Settings → Backup: export every setting, and import it
+
+- **Export the settings** (Settings → Backup): one file with every setting saved on the dashboard: the policy (with
+  Trusted senders and the allowed link domains), the Sender lists (Spam senders and the ones taken off it, Brand
+  senders, Company domains, proven companies, Promotional senders kept, spam people took back), the remembered answers,
+  the phishing-training rules, the look-alike marks, and the switches (weekly summary, Link clicks, User reports, the
+  retraining export).
+- **The API keys** (Safe Browsing, Spamhaus, abuse.ch) are in it only when "Include the API keys" is ticked, and then
+  only encrypted with a passphrase the admin types twice (AES-256-GCM, the key made from the passphrase with scrypt):
+  the file never holds a key in the clear, the passphrase is never kept, and the project ID is typed too. That export
+  is an alert to every admin (`settings-export`, docs/ALERTS.md); one without keys is noted in Activity.
+- **Import:** choose a file and it is read first: each section shows what it would change (entries added, changed,
+  removed; the policy's settings from → to), and a file from another organization says so. The ticked sections become
+  what the file holds, with the project ID typed; the keys need the file's passphrase and are tested before they are
+  saved; a section that fails says why and the others still import. An import never switches to enforce mode, lets the
+  AI alone move staff email, turns on Skip review, changes who is checked or where updates come from: those are listed,
+  to be made on their own pages. Each import is an alert (`settings-import`).
+- Not in the file: the emails' records, Activity, the statistics, the queues and brakes, `deploy/settings.env` and the
+  AI model. Nothing about how email is judged changes. No installation change.
+
 ## 0.6.71: the loading bar no longer stays up after an action
 
 - **Fixed: the loading bar and the "Saving…" note in the corner stayed until the page was reloaded** after answering

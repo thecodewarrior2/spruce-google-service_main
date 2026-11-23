@@ -146,7 +146,8 @@
         '/api/safe-browsing/remove': 'Removing the key…', '/api/clicks': 'Saving the link-clicks setting…', '/api/clicks/test': 'Testing with Google…',
         '/api/training-export': 'Reading the emails for the retraining file (up to a minute)…', '/api/training-export/allow': 'Saving the setting…',
         '/api/phish-training/rule': 'Saving the rule…', '/api/phish-training/rule/edit': 'Saving the rule…', '/api/phish-training/rule/remove': 'Removing the rule…',
-        '/api/phish-training/domains': 'Saving the domains…', '/api/update': 'Starting the update…', '/api/update/check': 'Asking GitHub for the newest version…'
+        '/api/phish-training/domains': 'Saving the domains…', '/api/settings-backup/export': 'Making the settings file…',
+        '/api/settings-backup/preview': 'Reading the settings file…', '/api/settings-backup/import': 'Importing the settings…', '/api/update': 'Starting the update…', '/api/update/check': 'Asking GitHub for the newest version…'
     };
     const busyWordsFor = (path) => BUSY_WORDS[String(path || '').split('?')[0]] || 'Sending it to the service…';
     function busyLabel() {
@@ -2015,7 +2016,7 @@
     // Update): updated every STILL_MS, not every LIVE_MS. And after IDLE_MS with no key, click, touch or scroll,
     // nothing is fetched (a dashboard left open on a screen or overnight) until the person is back.
     const STILL_MS = 5 * 60 * 1000, IDLE_MS = 15 * 60 * 1000;
-    const STILL_PAGES = /^#\/?(help\w*|credits|about|update|settings|allowlist|safebrowsing|spamhaus|abusech|summary|clicks|phishtraining|retraining)(\?|$)/;
+    const STILL_PAGES = /^#\/?(help\w*|credits|about|update|settings|allowlist|safebrowsing|spamhaus|abusech|summary|clicks|phishtraining|retraining|backup)(\?|$)/;
     let lastInput = Date.now();
     const away = () => Date.now() - lastInput > IDLE_MS;
     for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
@@ -3598,6 +3599,128 @@
     }
 
     // --- Settings → Link clicks (0.5.35; optional, off by default) ---------------------------------------
+    // (0.6.72) Settings → Backup: every saved setting in one file (src/settings-backup.js), and its import. The API keys only
+    // when ticked, encrypted with a passphrase typed here (never kept); an import is read first, shows what each section
+    // would change, and applies the sections ticked, with the project ID typed.
+    const BACKUP_SECTIONS = [
+        ['policy', 'Policy', 'The mode, the AI lines, the optional services on or off, Trusted senders, the allowed link domains, how long records are kept, Skip review, who is checked, where updates come from.'],
+        ['senders', 'Sender lists', 'Spam senders (and the ones taken off it), Brand senders, Company domains, proven companies, Promotional senders kept, spam people took back.'],
+        ['remembered', 'Remembered answers', 'The answers kept for the same email sent again.'],
+        ['phishTraining', 'Phishing training', 'The rules that recognize your phishing-training emails, and their link domains.'],
+        ['lookalikes', 'Look-alike marks', 'The look-alikes of your domain an admin marked as yours, harmless or a threat.'],
+        ['switches', 'Switches', 'The weekly summary, Link clicks, User reports, the retraining export: on or off.'],
+        ['keys', 'API keys', 'Safe Browsing, Spamhaus and abuse.ch, encrypted with your passphrase. Only when you tick it.']];
+    const BACKUP_PARTS = { spamSenders: 'Spam senders', spamSendersRemoved: 'Taken off Spam senders', brandSenders: 'Brand senders', confirmedDomains: 'Company domains',
+        provenDomains: 'Proven companies', promoKept: 'Promotional senders kept', spamRescued: 'Spam people took back', rememberedSafe: 'Remembered answers' };
+    async function backupPage() {
+        const projectField = () => h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', placeholder: 'project-id', 'aria-label': 'Google Cloud project ID' });
+        const passField = (label) => h('input', { type: 'password', autocomplete: 'new-password', 'aria-label': label, minlength: '12' });
+        // Export
+        const withKeys = h('input', { type: 'checkbox' });
+        const pass1 = passField('Passphrase'), pass2 = passField('The passphrase again'), project = projectField();
+        const keyBox = h('div', { class: 'policy-form sb-form', hidden: true },
+            h('div', { class: 'alert warning small', role: 'note' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '!' }),
+                h('div', { class: 'grow' }, 'The keys are encrypted with this passphrase (AES-256): without it, nobody can read them, including you. It isn\'t kept anywhere: write it down somewhere safe, away from the file. Keep the file off email and shared drives.')),
+            h('label', { class: 'project' }, h('span', { text: 'Passphrase (at least 12 characters)' }), pass1),
+            h('label', { class: 'project' }, h('span', { text: 'The same passphrase again' }), pass2),
+            h('label', { class: 'project' }, h('span', { text: 'Google Cloud project ID, to confirm' }), project));
+        withKeys.addEventListener('change', () => { keyBox.hidden = !withKeys.checked; });
+        const exportErr = h('div', { class: 'policy-error', role: 'alert' });
+        const exportBtn = h('button', { class: 'btn primary', type: 'button' }, 'Export the settings');
+        exportBtn.addEventListener('click', async () => {
+            exportErr.textContent = '';
+            if (withKeys.checked && pass1.value.length < 12) { exportErr.textContent = 'The passphrase needs at least 12 characters.'; return; }
+            if (withKeys.checked && pass1.value !== pass2.value) { exportErr.textContent = 'The two passphrases aren\'t the same.'; return; }
+            exportBtn.disabled = true; acting++; const bt = busyStart();
+            try {
+                const o = await api('/api/settings-backup/export', { method: 'POST', body: withKeys.checked ? { includeKeys: true, passphrase: pass1.value, passphrase2: pass2.value, projectId: project.value } : { includeKeys: false } });
+                const url = URL.createObjectURL(new Blob([JSON.stringify(o.file, null, 1)], { type: 'application/json' }));
+                const a = h('a', { href: url, download: o.name }); document.body.append(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 30000);
+                pass1.value = ''; pass2.value = '';
+                toast(o.file.keys ? `Saved ${o.name}, with the API keys encrypted. Keep the passphrase apart from the file.` : `Saved ${o.name} (no API keys in it).`);
+            } catch (e) { exportErr.textContent = e.message; }
+            finally { exportBtn.disabled = false; acting--; busyEnd(bt); }
+        });
+        // Import
+        const fileIn = h('input', { type: 'file', accept: '.json,application/json', 'aria-label': 'Settings file' });
+        const previewBox = h('div', { role: 'status' });
+        let fileText = null;
+        const word = (v) => (v === true ? 'on' : v === false ? 'off' : Array.isArray(v) ? (v.length ? `${num(v.length)} entr${v.length === 1 ? 'y' : 'ies'}` : 'none') : v === null || v === undefined || v === '' ? 'not set' : String(v));
+        const showPreview = (p) => {
+            previewBox.textContent = '';
+            const ticks = new Map();
+            const head = h('p', { class: 'small' }, `Made ${p.exportedAt ? when(Date.parse(p.exportedAt)) : 'on an unknown day'}${p.exportedBy ? ` by ${p.exportedBy}` : ''}${p.version ? `, version ${p.version}` : ''}.`);
+            const other = p.otherDistrict ? h('div', { class: 'alert warning small', role: 'note' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '!' }),
+                h('div', { class: 'grow' }, `This file is from another organization (${p.orgDomains.join(', ')}). Its Sender lists and remembered answers are theirs: import only what you mean to share.`)) : null;
+            const rows = p.sections.map(sec => {
+                const box = h('input', { type: 'checkbox', checked: !!sec.changed });
+                ticks.set(sec.id, box);
+                let detail;
+                if (sec.id === 'policy') detail = [sec.changes.length ? h('ul', { class: 'small' }, sec.changes.map(c => h('li', {}, `${c.key}: ${word(c.from)} → ${word(c.to)}`))) : h('div', { class: 'small muted', text: 'Nothing would change.' }),
+                    sec.waits.length ? h('div', { class: 'small' }, h('b', { text: 'Not imported (make these on their page): ' }), sec.waits.map(w => `${w.key} → ${word(w.to)} (${w.why})`).join('; '), '.') : null];
+                else if (sec.id === 'phishTraining') detail = h('div', { class: 'small', text: sec.parts.length ? `${num(sec.parts[0].rules || 0)} rule${sec.parts[0].rules === 1 ? '' : 's'} and ${num(sec.parts[0].domains || 0)} link domain${sec.parts[0].domains === 1 ? '' : 's'} in the file; ${sec.changed ? 'different from the ones saved here' : 'the same as the ones saved here'}.` : 'Nothing in the file.' });
+                else if (sec.parts) detail = h('ul', { class: 'small' }, sec.parts.map(x => h('li', {}, `${BACKUP_PARTS[x.name] || x.name}: ${num(x.entries)} in the file; ${num(x.added)} added, ${num(x.changed)} changed, ${num(x.removed)} removed`)));
+                else if (sec.id === 'lookalikes') detail = h('div', { class: 'small', text: sec.marks.length ? sec.marks.map(m => `${m.domain} → ${m.status}`).join('; ') : 'Nothing would change.' });
+                else if (sec.id === 'switches') detail = h('div', { class: 'small', text: sec.changes.length ? sec.changes.map(c => `${c.label} ${c.to ? 'on' : 'off'}`).join('; ') : 'Nothing would change.' });
+                else if (sec.id === 'keys') detail = h('div', { class: 'small', text: `${sec.names.length ? sec.names.join(', ') : 'No keys'}, encrypted: type the passphrase the file was made with. Each key is tested before it is saved.` });
+                return h('div', { class: 'backup-row' }, h('label', { class: 'choice' }, box, h('b', { text: sec.label })), detail);
+            });
+            const keysIn = p.sections.some(x => x.id === 'keys');
+            const pass = passField('The file\'s passphrase'), proj = projectField();
+            const err = h('div', { class: 'policy-error', role: 'alert' });
+            const go = h('button', { class: 'btn primary', type: 'button' }, 'Import the ticked sections');
+            go.addEventListener('click', async () => {
+                err.textContent = '';
+                const sections = [...ticks].filter(([, b]) => b.checked).map(([id]) => id);
+                if (!sections.length) { err.textContent = 'Tick at least one section.'; return; }
+                if (!window.confirm(`Import ${sections.length} section${sections.length === 1 ? '' : 's'}? Each one ticked becomes what the file holds. Export the current settings first if you may want them back.`)) return;
+                go.disabled = true; acting++; const bt = busyStart();
+                try {
+                    const o = await api('/api/settings-backup/import', { method: 'POST', body: { file: fileText, sections, passphrase: keysIn ? pass.value : '', projectId: proj.value } });
+                    pass.value = '';
+                    forgetReviewLists();
+                    const label = Object.fromEntries(BACKUP_SECTIONS.map(([id, l]) => [id, l]));
+                    previewBox.textContent = '';
+                    previewBox.append(h('h3', { text: 'Imported' }), h('ul', { class: 'small' }, o.done.map(d => h('li', {}, h('b', { text: `${label[d.id]}: ` }),
+                        d.error ? h('span', { class: 'bad-text', text: `not imported: ${d.error}` })
+                            : d.id === 'policy' ? `${d.changed.length ? `changed ${d.changed.join(', ')}` : 'nothing changed'}${d.waits.length ? `; left for their page: ${d.waits.map(w => `${w.key} (${w.why})`).join('; ')}` : ''}${d.failed.length ? `; failed: ${d.failed.join('; ')}` : ''}`
+                            : d.id === 'keys' ? `${d.saved.length ? `saved ${d.saved.join(', ')}` : 'none saved'}${d.failed.length ? `; failed: ${d.failed.join('; ')}` : ''}`
+                            : d.id === 'lookalikes' ? `${num(d.marked)} marked`
+                            : d.id === 'switches' ? `${d.turned.length ? d.turned.join(', ') : 'nothing changed'}${d.failed.length ? `; failed: ${d.failed.join('; ')}` : ''}`
+                            : 'replaced with the file\'s'))));
+                    toast('Imported. Activity → What admins did records it, and the admins were alerted.');
+                } catch (e) { err.textContent = e.message; go.disabled = false; }
+                finally { acting--; busyEnd(bt); }
+            });
+            previewBox.append(...[head, other, h('div', { class: 'backup-rows' }, rows)].filter(Boolean),
+                h('div', { class: 'policy-form sb-form' },
+                    keysIn ? h('label', { class: 'project' }, h('span', { text: 'The file\'s passphrase (for the API keys)' }), pass) : null,
+                    h('label', { class: 'project' }, h('span', { text: 'Google Cloud project ID, to confirm' }), proj),
+                    h('div', { class: 'actions' }, go), err));
+        };
+        fileIn.addEventListener('change', async () => {
+            previewBox.textContent = ''; fileText = null;
+            const f = fileIn.files && fileIn.files[0];
+            if (!f) return;
+            if (f.size > 8 * 1024 * 1024) { previewBox.append(h('div', { class: 'policy-error', text: 'That file is over 8 MB: it isn\'t a settings file.' })); return; }
+            fileText = await f.text();
+            acting++; const bt = busyStart();
+            try { const o = await api('/api/settings-backup/preview', { method: 'POST', body: { file: fileText } }); showPreview(o.preview); }
+            catch (e) { previewBox.append(h('div', { class: 'policy-error', role: 'alert', text: e.message })); }
+            finally { acting--; busyEnd(bt); }
+        });
+        return [h('h1', { text: 'Backup' }),
+            h('p', { class: 'sub', text: 'Every setting saved on this dashboard in one file, to keep or to move to another installation, and the import that puts it back.' }),
+            h('section', { class: 'card spaced' }, h('h2', { text: 'Export' }),
+                h('ul', { class: 'small backup-what' }, BACKUP_SECTIONS.map(([, l, w]) => h('li', {}, h('b', { text: `${l}. ` }), w))),
+                h('div', { class: 'small muted', text: 'Not in it: the emails\' records, Activity and the statistics (what the service found and did), deploy/settings.env (kept by install.sh in Cloud Shell), and the AI model (downloaded with each update).' }),
+                h('label', { class: 'choice backup-keys' }, withKeys, h('span', { text: 'Include the API keys, encrypted with a passphrase' })),
+                keyBox, h('div', { class: 'actions' }, exportBtn), exportErr),
+            h('section', { class: 'card spaced' }, h('h2', { text: 'Import' }),
+                h('div', { class: 'small', text: 'Choose a file the Export made. It is read first: you see what each section would change, and tick the ones to import. Each ticked section becomes what the file holds. A change the Policy page asks you to agree to (enforce mode, the AI alone moving staff email, Skip review, who is checked, where updates come from) is never made by an import: it is listed, to be made on its page.' }),
+                h('div', { class: 'actions' }, fileIn), previewBox)];
+    }
     async function clicksPage() {
         const d = await api('/api/clicks');
         const cl = d.clickLogs || {}, hl = d.health, t = d.test;
@@ -3746,7 +3869,7 @@
 
     // --- Routing ---------------------------------------------------------------------------------
     const PERIOD_PAGES = new Set(['overview', 'review', 'campaigns', 'users', 'messages', 'rechecked', 'health', 'readiness', 'status', 'trainingexport']);
-    const ROUTES = { dmarc: dmarcPage, trainingexport: trainingPage, overview, review, campaigns, users, messages, message, check, rechecked, lookalikes, health, readiness, activity, status, settings, allowlist, mailboxes, summary, retraining, safebrowsing: safeBrowsingPage, spamhaus: spamhausPage, abusech: abusechPage, clicks: clicksPage, userreports: userReportsPage, phishtraining: phishTrainingPage, update: updatePage, about,
+    const ROUTES = { dmarc: dmarcPage, trainingexport: trainingPage, overview, review, campaigns, users, messages, message, check, rechecked, lookalikes, health, readiness, activity, status, settings, allowlist, mailboxes, summary, retraining, safebrowsing: safeBrowsingPage, spamhaus: spamhausPage, abusech: abusechPage, clicks: clicksPage, userreports: userReportsPage, phishtraining: phishTrainingPage, backup: backupPage, update: updatePage, about,
         // Help (0.5.46)
         help: () => helpDocPage('howitworks'), helpdashboard: () => helpDocPage('dashboard'), helpalerts: () => helpDocPage('alerts'), helpprivacy: () => helpDocPage('privacy'),
         helpworkspace: () => helpDocPage('workspace'), helpinstall: () => helpDocPage('install'), helpsettings: () => helpDocPage('settings'), helpcosts: () => helpDocPage('costs'),
@@ -3762,7 +3885,7 @@
         settings: { label: 'Settings', groups: [['Protection', [['settings', 'Policy'], ['allowlist', 'Sender lists']]],
             ['Threat feeds', [['safebrowsing', 'Safe Browsing'], ['spamhaus', 'Spamhaus'], ['abusech', 'abuse.ch']]],
             ['Organization', [['mailboxes', 'Mailboxes'], ['summary', 'Weekly summary'], ['clicks', 'Link clicks'], ['userreports', 'User reports'], ['phishtraining', 'Phishing training']]],
-            ['System', [['retraining', 'Retraining'], ['update', 'Update'], ['about', 'About']]]] },
+            ['System', [['retraining', 'Retraining'], ['backup', 'Backup'], ['update', 'Update'], ['about', 'About']]]] },
         help: { label: 'Help', groups: [[null, [['help', 'How it works'], ['helpdashboard', 'The dashboard'], ['helpalerts', 'Alerts'], ['helpprivacy', 'Your privacy'], ['helpworkspace', 'Google Workspace settings'],
             ['helpinstall', 'Install & troubleshooting'], ['helpsettings', 'Settings reference'], ['helpcosts', 'Costs'], ['helparchitecture', 'Architecture deep dive'], ['credits', 'About & credits']]]] }
     };

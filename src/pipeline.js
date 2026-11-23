@@ -449,6 +449,13 @@ class Service {
     // A change made on the dashboard (the server checks the project ID, and the agreement for enforce mode).
     // In force at once here, everywhere within POLICY_REFRESH_MS; noted in Activity → What admins did (not
     // emailed, 0.5.28: an alert is a problem).
+    // (0.6.72) Settings → Backup: the settings the Policy page changes, and the caches of saved settings forgotten after an
+    // import (every other instance reads them again within a minute, as after any change).
+    policyKeys() { return POLICY_KEYS.slice(); }
+    forgetSettingsCaches() {
+        for (const k of ['_spamSenders', '_spamRemoved', '_senderListTest', '_remembered', '_brandSenders', '_promoKept', '_spamLearning', '_userReportsOn', '_learnedKeys']) this[k] = null;
+        this.lookalikeCache = null; this.scopeCache = null;
+    }
     async setPolicy(key, raw, by) {
         if (!POLICY_KEYS.includes(key)) throw Object.assign(new Error('That setting can\'t be changed on the dashboard.'), { status: 400 });
         const value = policyValue(key, raw, { orgDomains: this.cfg.orgDomains, aiThreshold: this.cfg.aiThreshold, aiSuspicious: this.cfg.aiSuspicious });

@@ -539,6 +539,15 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     waits, and the largest campaigns go into each dashboard admin's Inbox. **Preview** and **Send one
     now** are next to it.
   - **Retraining** (off by default): allows **Download for retraining** on Health → Retraining examples.
+  - **Backup** (0.6.72): **Export the settings** saves every setting saved on the dashboard in one file: the policy (with
+    Trusted senders and the allowed link domains), the Sender lists, the remembered answers, the phishing-training rules,
+    the look-alike marks and the switches (weekly summary, Link clicks, User reports, the retraining export). The API keys
+    are in it only when you tick **Include the API keys**, and then encrypted with a passphrase you type (AES-256; never
+    kept), with the project ID typed; the admins are alerted. **Import** reads a file first and shows what each section
+    would change; the sections you tick become what the file holds (project ID typed; the admins are alerted). An import
+    never switches to enforce mode, lets the AI alone move staff email, turns on Skip review, changes who is checked or
+    where updates come from: it lists those, to be made on their pages. Not in the file: the emails' records, Activity,
+    the statistics, `deploy/settings.env` and the AI model.
   - Each service's page (Safe Browsing, Spamhaus, abuse.ch, Link clicks; Threats → Look-alikes) shows beside
     its title whether it is on: a green "Service is on", a red "Service is on, but not working", or a grey
     "Service is off" (0.5.40).
@@ -707,6 +716,7 @@ training examples, and a better AI model.
 | `src/auth/verify.js` | OIDC for Pub/Sub and Scheduler; Identity-Aware Proxy and ADMIN_EMAILS / ADMIN_GROUP (admins), MODERATOR_GROUP (moderators) for the dashboard |
 | `src/scheduler.js` | Cloud Scheduler, for the dashboard's "Read the directory again now" (runs the daily re-read job) and Settings → Update (runs the spruce-update job) |
 | `src/releases.js`, `src/update.js` | Settings → Update: the newest approved version and its changelog (read from GitHub), and the request |
+| `src/settings-backup.js` | Settings → Backup: every saved setting in one file (the API keys only when ticked, encrypted with a passphrase), and its import |
 | `src/training.js`, `src/names.js` | The retraining export: an email → a training example, with the people taken out |
 | `src/digest.js` | The weekly summary email (put in admins' Inboxes; never judged by the service) |
 | `src/cloudrun.js` | Cloud Run, read-only, for the Service status page |

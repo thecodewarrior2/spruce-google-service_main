@@ -165,6 +165,10 @@ To delete what the dashboard shows sooner, all at once: `bash deploy/clear-data.
   email into their Inbox, their address and the sender's.
 - **The CSV export** (Mail → Messages → Download CSV) holds what the Messages page shows: keep the file as you
   would the dashboard.
+- **The settings file** (Settings → Backup, 0.6.72) holds the district's settings and Sender lists (sender addresses
+  and domains, the remembered answers' subjects): keep it as you would the dashboard. It holds the API keys only when
+  the admin ticks it, and then only encrypted with a passphrase they type, which the service never keeps; that export
+  is an alert to every admin. No email body, record or Activity is in it.
 - **The retraining export** (Health → Retraining examples → Download for retraining) is off until an admin allows it in
   Settings, and Activity notes who allowed it and every download.
   - It reads the emails admins marked from Gmail at the moment of the download: confirmed phishing, and
