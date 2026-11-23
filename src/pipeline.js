@@ -29,6 +29,7 @@ const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOK
 const sims = require('./simulations');
 const { promotionalSigns, aiMarketingSign } = require('./promotional');
 const remember = require('./remember');
+const RQ = require('./review-queues');
 
 const DAY = 24 * 60 * 60 * 1000;
 // (0.6.44) The longest one email of a bulk answer may take (its Gmail calls each give up after 20 s and are tried 3 times).
@@ -1307,7 +1308,8 @@ class Service {
     async promoWaiting(company, records = null) {
         const c = String(company || '').toLowerCase();
         const list = records || await this.store.listRecords({ sinceMs: this.now() - 35 * DAY, limit: 20000 });
-        return list.filter(r => r && r.action === 'promo' && r.state === 'inbox' && !r.markedBy && !r.promoKept && r.promotional && r.promotional.company === c);
+        // (0.6.68) Its emails in Review → Promotional (review-queues.js; a reported one waits in Review → Reported).
+        return list.filter(r => RQ.baseQueueOf(r, { cfg: this.cfg }) === 'promotional' && r.promotional && r.promotional.company === c);
     }
     // Review → Promotional, one answer for a company's waiting emails:
     //   spam: each answered Spam as in Review (moved to Spam in enforce mode; with addSender, each sender put on Spam senders by
@@ -1729,7 +1731,8 @@ class Service {
         for (const k of keys) { const r = await this.store.getRecord(k); if (r && r.spam && r.sender && r.sender.address) addrs.add(String(r.sender.address).toLowerCase()); }
         if (!addrs.size) return out;
         const list = records || await this.store.listRecords({ sinceMs: this.now() - 35 * DAY, limit: 20000 });
-        const waits = (r) => !r.markedBy && (((r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin') || (r.action === 'flag' && r.state === 'inbox'));
+        // (0.6.68) Not a reported one: it waits in Review → Reported for an answer of its own (review-queues.js).
+        const waits = (r) => RQ.waitingForAnswer(r) && (((r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin') || (r.action === 'flag' && r.state === 'inbox'));
         const todo = list.filter(r => r && !answered.has(r.key) && r.sender && addrs.has(String(r.sender.address || '').toLowerCase()) && waits(r)).slice(0, 2000);
         await pool(todo, 10, async (r) => {
             try {

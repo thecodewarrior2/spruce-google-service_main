@@ -133,6 +133,18 @@ Firestore, in your own project and region (`src/store/firestore.js`). Each docum
 
 Secrets (the Safe Browsing, Spamhaus and abuse.ch keys) are only in Secret Manager.
 
+## Review's queues
+
+(0.6.68, `src/review-queues.js`.) Each recorded email is in one of Review's queues or none, decided in one place and in one
+order: answered (`markedBy`) → none; reported by its reader (`userReported`, 0.6.60) → Reported, even from a sender on a
+Sender list; from a sender on a Sender list (`senderListTest`) → none; moved or would move by the checks (not a copy an
+admin's search found) → Moved; flagged and still in the Inbox, unless a rules-only flag from a sender Gmail confirmed
+(`rulesOnlyVerified`) → Suspicious; promotional, still in the Inbox, its company not kept → Promotional. Within the
+records listed together, a suspicious copy of a campaign with a moved copy is in Moved (one email, one tab). `queuesOf`
+classifies each record once (the pending count shares one classification between the period shown and the last 90
+days); `GET /api/review`, `GET /api/pending` and the answers that also answer other waiting emails (`answerSameSender`,
+`promoWaiting`, which leave a reported email alone: `waitingForAnswer`) all read it.
+
 ## The hourly job
 
 Cloud Scheduler calls the worker's `/tasks/sync-feeds` every hour (`syncFeeds` in `src/pipeline.js`), within

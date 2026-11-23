@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.68: Review's queues decided in one place
+
+- **Each email is in exactly one of Review's queues, or none, decided in one place** (`src/review-queues.js`), in one
+  order: answered → none; reported by its reader → Reported (even from a sender on a Sender list); from a sender on a
+  Sender list → none; moved or would move → Moved; suspicious and still in the Inbox → Suspicious (not a rules-only flag
+  from a sender Gmail confirmed); promotional, its company not kept → Promotional. A suspicious copy of a campaign that has
+  a moved copy is in Moved with it, as before. Before, each tab was its own filter, kept apart by excluding the others by
+  hand. Review's tabs, their counts, the pending count and the browser tab's title read the one answer: the same emails in
+  the same tabs as 0.6.67 (compared on the demo's data and on 2,000 made-up records).
+- **The pending count** (every 25 seconds per open dashboard) classifies each record once instead of about four times.
+- **A reported email waits for an answer of its own:** a Spam answer that also answers the same address's other waiting
+  emails, and a company's answer in Review → Promotional, no longer answer an email its reader reported (it stays in
+  Review → Reported).
+- Dashboard and Review only: nothing judges email differently (the checks level stays 52); no installation change.
+
 ## 0.6.67: an efficiency and clean-up pass
 
 - **Fewer Firestore reads where it adds up:**

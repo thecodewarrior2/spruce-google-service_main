@@ -113,30 +113,15 @@ const POLICY_WHAT = { mode: 'the mode', aiThreshold: 'the AI move threshold', ai
 // The project ID a policy change must be confirmed with ('' when the dashboard doesn't know it).
 const expectedProject = (cfg) => cfg.project || (cfg.demo ? DEMO_PROJECT : '');
 
-// Recorded emails nobody has reviewed yet (the review queue): moved or "would move", not by an admin.
-const unreviewed = (r) => (r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin' && !r.markedBy && !r.userReported;
-// (0.6.60) Review → Reported: emails their readers reported with Gmail's "Report phishing" (Settings → User reports) that
-// nobody answered yet, whatever the checks had made of them (they are listed only here).
-const reportedUnreviewed = (r) => !!r.userReported && !r.markedBy;
-// (0.6.39) The moved tab: unreviewed moved copies, plus the suspicious copies of the same emails (one email, one tab).
-function movedTab(records) {
-    const moved = records.filter(unreviewed);
-    const campaigns = new Set(moved.map(r => r.campaign).filter(Boolean));
-    return moved.concat(records.filter(r => suspiciousUnreviewed(r) && r.campaign && campaigns.has(r.campaign)));
-}
-// Review's other queue: suspicious emails (below what moves) still in the Inbox, nobody has reviewed.
-const suspiciousUnreviewed = (r) => r.action === 'flag' && r.state === 'inbox' && !r.markedBy && !r.userReported && !rulesOnlyVerified(r, liveCfg || {});
-// (0.6.52) Review's third queue: promotional emails (never moved; pipeline.js promotionalOf) still in the Inbox that nobody
-// answered and whose company nobody kept, one item per company (aggregate.js promoGroups).
-const promoUnreviewed = (r) => r.action === 'promo' && r.state === 'inbox' && !r.markedBy && !r.promoKept && !r.userReported;
-// (0.6.40) The settings the suspicious queue reads (records from before 0.6.40 judged by today's rule): set at start.
-let liveCfg = null;
-// What Review lists: the recent records, without the emails of senders on a Sender list (pipeline.js senderListTest).
+// (0.6.68) Review's queues: src/review-queues.js decides each email's one queue (or none), in one order, for Review's tabs,
+// the pending count and the answers that also answer other waiting emails.
+const RQ = require('./review-queues');
+// What Review lists from: the recent records, with the Sender lists' test (pipeline.js senderListTest) that review-queues.js
+// applies (a reader's report stays listed even from a sender on a list).
 async function reviewRecords(service, cache, sinceMs) {
     const records = await cache.list(sinceMs);
     const listed = await service.senderListTest().catch(() => () => null);
-    // (0.6.60) A reader's report stays listed even from a sender on a list: a trusted sender's account can be taken over.
-    return records.filter(r => r.userReported || !listed(r));
+    return { records, listed };
 }
 // A review queue as items: the copies of one campaign together (in the queue's order, where its first copy
 // is), each with its keys, recipients and senders (at most 2000 of each), and what the list shows of it
@@ -227,7 +212,6 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
     // when a page shows them (Last 90 days, plus the day before that `load` reads: 92), never past how long
     // records are kept (RETENTION_DAYS, or Settings → Policy: the copy forgets them too).
     const cache = new RecordCache(store, { keepDays: () => Math.min(92, cfg.retentionDays || 35) });
-    liveCfg = cfg;
     const events = new EventCache(store);   // (0.6.7) Activity's events, read once and then only the new ones
     const eventsSince = (sinceMs, limit) => events.list(sinceMs, { limit });
     // (0.6.7) Answers shared by every open dashboard for a few seconds (what several pages and the pending badge
@@ -909,24 +893,18 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // groups: the copies of one campaign (the same email to many people) are one item, decided together:
         // its keys, who received it and who sent it. An email of no campaign is an item of its own.
         'GET /api/review': async (q) => {
-            const records = await reviewRecords(service, cache, since(q));
-            const queue = ['suspicious', 'promotional', 'reported'].includes(q.get('queue')) ? q.get('queue') : 'moved';
-            // (0.6.39) One email in one tab: its copies can be judged differently (a first-time sender for one person
-            // only), some "would move", some only suspicious. An email with any copy in the moved tab is only there,
-            // with its suspicious copies too, so one answer covers every copy; the suspicious tab holds the rest.
-            const movedList = records.filter(unreviewed);
-            const movedCampaigns = new Set(movedList.map(r => r.campaign).filter(Boolean));
-            const suspAll = records.filter(suspiciousUnreviewed);
-            const suspOnly = suspAll.filter(r => !r.campaign || !movedCampaigns.has(r.campaign));
-            const promo = records.filter(promoUnreviewed);
-            const reported = records.filter(reportedUnreviewed);
-            const counts = { moved: movedList.length + (suspAll.length - suspOnly.length), suspicious: suspOnly.length, promotional: promo.length, reported: reported.length };
+            const { records, listed } = await reviewRecords(service, cache, since(q));
+            const queue = RQ.QUEUES.includes(q.get('queue')) ? q.get('queue') : 'moved';
+            // One email in one tab (review-queues.js): an email with any copy in the moved tab is only there, with its
+            // suspicious copies too, so one answer covers every copy (0.6.39); the suspicious tab holds the rest.
+            const Q = RQ.queuesOf(records, { cfg, listed });
+            const counts = { moved: Q.moved.length, suspicious: Q.suspicious.length, promotional: Q.promotional.length, reported: Q.reported.length };
             // (0.6.61) The Reported tab is shown only while Settings → User reports is on, or while reports still wait.
             const reportedOn = service.userReportsOn ? await service.userReportsOn() : false;
-            if (queue === 'promotional') return { queue, total: promo.length, companies: A.promoGroups(promo).slice(0, 1000), mode: cfg.mode, counts, reportedOn };
-            const list = queue === 'reported' ? reported.sort((a, b) => (b.userReported.at || 0) - (a.userReported.at || 0))
-                : queue === 'suspicious' ? suspOnly.sort((a, b) => b.processedAt - a.processedAt)
-                : movedList.concat(suspAll.filter(r => r.campaign && movedCampaigns.has(r.campaign))).sort((a, b) => a.processedAt - b.processedAt);
+            if (queue === 'promotional') return { queue, total: Q.promotional.length, companies: A.promoGroups(Q.promotional).slice(0, 1000), mode: cfg.mode, counts, reportedOn };
+            const list = queue === 'reported' ? Q.reported.sort((a, b) => (b.userReported.at || 0) - (a.userReported.at || 0))
+                : queue === 'suspicious' ? Q.suspicious.sort((a, b) => b.processedAt - a.processedAt)
+                : Q.moved.sort((a, b) => a.processedAt - b.processedAt);
             return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode, counts, reportedOn };
         },
         // Several emails at once: release, false-alarm, phishing or unclear (ignore, treat as suspicious), at most
@@ -944,20 +922,20 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // still waiting from before it (within 90 days), so an empty Review can say where they are.
         'GET /api/pending': async (q) => {
             const n = nDays(q), from = Date.now() - n * A.DAY;
-            const all = await reviewRecords(service, cache, Date.now() - 90 * A.DAY);
+            const { records: all, listed } = await reviewRecords(service, cache, Date.now() - 90 * A.DAY);
             const records = all.filter(r => (r.processedAt || 0) >= from);
+            // (0.6.68) Each record classified once (review-queues.js), for the period shown and the last 90 days.
+            const base = new Map();
+            const Q = RQ.queuesOf(records, { cfg, listed, base }), QA = RQ.queuesOf(all, { cfg, listed, base });
             const brake = !!(await shortLived('brake', 15000, () => store.getState('brake')));
             const spamBrake = !!(await shortLived('spamBrake', 15000, () => store.getState('spamBrake')));
             const held = (await shortLived('held', 15000, () => store.listHeldCampaigns())).filter(c => !c.decision).length;
             const rescues = records.filter(rescueToCheck).length;
-            const inMoved = movedTab(records), movedKeys = new Set(inMoved.map(r => r.key));
-            const movedAll = movedTab(all), movedAllKeys = new Set(movedAll.map(r => r.key));
-            const suspicious = records.filter(r => suspiciousUnreviewed(r) && !movedKeys.has(r.key)).length;
-            const suspiciousAll = all.filter(r => suspiciousUnreviewed(r) && !movedAllKeys.has(r.key)).length;
-            const olderMoved = Math.max(0, movedAll.length - inMoved.length);
-            const reported = records.filter(reportedUnreviewed).length;
+            const suspicious = Q.suspicious.length, suspiciousAll = QA.suspicious.length;
+            const olderMoved = Math.max(0, QA.moved.length - Q.moved.length);
+            const reported = Q.reported.length;
             const reportedOn = service.userReportsOn ? await service.userReportsOn() : false;
-            return { brake, held, rescues, days: n, unreviewed: inMoved.length, suspicious, promotional: records.filter(promoUnreviewed).length, reported, reportedOn, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
+            return { brake, held, rescues, days: n, unreviewed: Q.moved.length, suspicious, promotional: Q.promotional.length, reported, reportedOn, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
                 spamBrake, total: (brake ? 1 : 0) + (spamBrake ? 1 : 0) + held + rescues + reported };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).
