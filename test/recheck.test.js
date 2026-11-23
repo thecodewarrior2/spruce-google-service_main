@@ -447,19 +447,22 @@ test('0.6.70: the queue stays well under one Firestore document; Today sees how 
     await svc.store.setState('recheckQueue', Array.from({ length: 30 }, (_, i) => ({ user: `reader${i % 4}@${ORG}`, id: `p${i}`, source: i < 20 ? 'update' : 'later' })));
     await svc.store.setState('updateRecheck', { version: '0.6.70', queued: 20, max: 5000, startedAt: 1, doneAt: null });
     let calls = 0;
-    svc.recheckMessage = async (item) => { calls++; return { item, outcome: calls === 3 ? 'would-move' : 'unchanged' }; };
+    svc.recheckMessage = async (item) => { calls++; const n = calls; await new Promise(r => setTimeout(r, 30)); return { item, outcome: n === 3 ? 'would-move' : 'unchanged' }; };
     let st = await svc.recheckStatus();
     assert.equal(st.queued, 30); assert.equal(st.queuedMailboxes, 4); assert.deepEqual(st.bySource, { update: 20, later: 10 });
     assert.equal(st.sweep.version, '0.6.70'); assert.equal(st.progress, null);
-    const realNow = Date.now;
-    let t = 0; Date.now = () => (t += 30 * 1000);       // each batch of 12 takes the run's 40 s: one batch, then the next run
-    try { await svc.runRechecks({ budgetMs: 40 * 1000 }); } finally { Date.now = realNow; }
+    // (0.6.73) 12 at a time, each slot taking the next email as soon as its own is done, none started after the budget: 30 ms
+    // each and 40 ms to spend leaves some for the next run.
+    await svc.runRechecks({ budgetMs: 40 });
     st = await svc.recheckStatus();
     assert.ok(st.progress.checked >= 12 && st.queued === 30 - st.progress.checked && !st.progress.endedAt, 'under way');
     assert.equal(st.progress.lastRun.checked, st.progress.checked);
+    assert.ok(st.progress.lastRun.ms >= 30 && st.progress.lastRun.slowestMs >= 25, 'the run is timed');
+    assert.equal(st.progress.perHour, st.progress.checked, 'the last hour\'s runs together');
     assert.equal(st.progress.wouldMove, 1);
     await svc.runRechecks({ budgetMs: 60 * 1000 });
     st = await svc.recheckStatus();
+    assert.equal(st.progress.perHour, 30, 'both runs of the hour');
     assert.equal(st.queued, 0); assert.equal(st.progress.checked, 30); assert.equal(st.progress.mailboxes, 4); assert.ok(st.progress.endedAt, 'finished');
     assert.ok(!JSON.stringify(await svc.store.getState('recheckProgress')).includes(ORG), 'no mailbox kept readable');
     await svc.store.setState('recheckQueue', [{ user: `a@${ORG}`, id: 'z1', source: 'lists' }]);

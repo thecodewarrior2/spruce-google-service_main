@@ -589,15 +589,25 @@
             return bits.length ? `Found: ${bits.join(', ')}.` : 'Nothing new found so far.';
         };
         const why = Object.entries(r.bySource || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${num(n)} because ${k === 'update' && r.sweep ? `version ${r.sweep.version} changed how email is checked` : RECHECK_WHY[k] || k}`);
-        const perRun = cur && cur.lastRun && cur.lastRun.checked ? cur.lastRun.checked : 0;
-        const runsLeft = perRun ? Math.ceil(r.queued / perRun) : 0;
+        // (0.6.73) The rate: emails checked in the last hour's runs (the hourly job runs the queue twice), and how long the rest takes.
+        const perHour = cur ? (cur.perHour || (cur.lastRun ? cur.lastRun.checked : 0)) : 0;
+        const hoursLeft = perHour ? Math.ceil(r.queued / perHour) : 0;
+        const left = !hoursLeft ? '' : hoursLeft <= 1 ? 'the rest within the next hour' : hoursLeft < 48 ? `about ${num(hoursLeft)} hours more` : `about ${num(Math.round(hoursLeft / 24))} days more`;
+        const last = cur && cur.lastRun;
+        const stalled = running && ((last && now - last.at > 2.5 * 3600 * 1000) || (!last && r.sweep && r.sweep.startedAt && now - r.sweep.startedAt > 2.5 * 3600 * 1000));
+        const startedAt = cur ? cur.startedAt : (r.sweep && !r.sweep.doneAt ? r.sweep.startedAt : null);
         const sweepOpen = r.sweep && !r.sweep.doneAt;
         const body = running ? [
             h('div', { class: 'recheck-line' }, h('b', { text: `${num(done)} of ${num(total)} emails checked (${pct(share)})` }),
                 ` · ${num(cur ? cur.mailboxes : 0)} mailbox${cur && cur.mailboxes === 1 ? '' : 'es'} done, ${num(r.queuedMailboxes)} waiting`),
             h('progress', { class: 'recheck-bar', max: String(Math.max(1, total)), value: String(done), 'aria-label': `Re-checks done: ${pct(share)}` }),
+            h('div', { class: 'small recheck-times' }, startedAt ? `Started ${when(startedAt)}` : 'Starts at the next hourly run',
+                last ? ` · last run ${when(last.at)}: ${num(last.checked)} checked${last.ms ? ` in ${Math.round(last.ms / 1000)} s` : ''}` : '',
+                perHour ? ` · ${num(perHour)} in the last hour, ${left}` : ''),
+            stalled ? h('div', { class: 'alert warning small', role: 'alert' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '!' }),
+                h('div', { class: 'grow' }, `No re-check has run since ${when(last ? last.at : r.sweep.startedAt)}: the hourly job (spruce-sync-feeds) may not be running. `, h('a', { href: '#/status', text: 'Service status' }), ' says whether it does.')) : null,
             h('div', { class: 'small muted' }, why.length ? `Waiting: ${why.join('; ')}. ` : '',
-                runsLeft ? `About ${num(perRun)} are checked each hourly run: ${runsLeft === 1 ? 'the rest in the next run' : `about ${num(runsLeft)} more runs`}. ` : 'They are checked in the hourly runs. ',
+                'They are checked in the hourly runs, as much as each run has time for. ',
                 sweepOpen ? `More of the mail delivered before the update is added as the queue has room (up to ${num(r.sweep.max)}; ${num(r.sweep.queued)} so far). ` : '',
                 cur ? found(cur) : '')
         ] : [

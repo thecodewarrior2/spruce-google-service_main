@@ -246,7 +246,8 @@ async function buildDemo({ now = Date.now(), cfg }) {
     await store.setState('recheckQueue', Array.from({ length: 1240 }, (_, i) => ({ queuedAt: now - 2 * H, user: staff[i % staff.length], id: `demo-recheck-${i}`, receivedAt: now - 3 * H - i * 60000,
         source: i < 1180 ? 'update' : i < 1225 ? 'later' : 'lists', version: '0.6.70' })));
     await store.setState('recheckProgress', { startedAt: now - 2 * H, checked: 640, moved: 0, wouldMove: 2, suspicious: 5, notInInbox: 31, errors: 0,
-        mailboxes: Array.from({ length: 41 }, (_, i) => `demo${i}`), lastRun: { at: now - 40 * 60 * 1000, checked: 330 }, endedAt: null });
+        mailboxes: Array.from({ length: 41 }, (_, i) => `demo${i}`), lastRun: { at: now - 37 * 60 * 1000, checked: 210, ms: 52000, slowestMs: 9000 }, perHour: 330,
+        runs: [{ at: now - 38 * 60 * 1000, checked: 120, ms: 36000 }, { at: now - 37 * 60 * 1000, checked: 210, ms: 52000 }], endedAt: null });
     await store.setState('spamRescued', { 'coupon-blast.example': { users: ['demo-a', 'demo-b', 'demo-c', 'demo-d'], first: now - 12 * DAY, last: now - 2 * DAY, shared: true, keep: false } });
     // (the colleague-name check read the demo directory while the made-up mail was judged: as of now)
     const cn = await store.getState('colleagueNames');

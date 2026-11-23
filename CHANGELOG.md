@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.73: re-checks of delivered mail go faster; Today says when they started
+
+- **Faster re-checks.** Re-checks run in the hourly job's 2-minute window, and they had at most 40 seconds of it, in
+  batches of 12 that each waited for their slowest email: on a district's mail about 24 emails an hour, so an update's
+  re-check of 3,000 emails would have taken five days. Now each of the 12 slots takes the next email as soon as its own
+  is done, and the re-checks run a second time in the same window with the time the job's other steps didn't need
+  (new emails are started until 95 seconds in, so the last one still finishes within the worker's 120 seconds).
+  How much faster depends on how long each email takes there: Today's card now shows the rate. Nothing else changes:
+  the same checks, limits, brakes and queue.
+- **Today's "Re-checking delivered mail"** says when it started, the last run (how many, in how many seconds), how many
+  were checked in the last hour and about how long the rest takes. If no run happened for two and a half hours while
+  emails wait, it says so, with a link to Service status (the hourly job may not be running).
+- Nothing about how email is judged changes. No installation change.
+
 ## 0.6.72: Settings → Backup: export every setting, and import it
 
 - **Export the settings** (Settings → Backup): one file with every setting saved on the dashboard: the policy (with

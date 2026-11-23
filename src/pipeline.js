@@ -2241,7 +2241,13 @@ class Service {
             const budget = Math.min(15 * 1000, 98 * 1000 - (Date.now() - started));
             if (budget >= 5 * 1000) { const w = await this.checkAllowlists({ budgetMs: budget }); if (w && w.checked) out.allowWatch = w; }
         } catch (e) { out.allowWatch = { error: String(e.message || e).slice(0, 200) }; this.log.error('allow lists\' check:', e); }
-        const budgetMs = Math.min(30 * 1000, 105 * 1000 - (Date.now() - started));
+        // (0.6.73) Re-checks again, with the time the steps above didn't need: new emails are started until 95 s into the
+        // request (the worker's 120 s), so one started last still finishes in time. Before, re-checks had at most 40 s an hour.
+        try {
+            const budget = 95 * 1000 - (Date.now() - started);
+            if (budget >= 10 * 1000) { const r = await this.runRechecks({ budgetMs: budget }); if (r) out.recheckedMore = r; }
+        } catch (e) { this.log.error('re-check, second pass:', e); }
+        const budgetMs = Math.min(30 * 1000, 108 * 1000 - (Date.now() - started));
         if (budgetMs > 0) { try { out.purged = await this.purge({ budgetMs }); } catch (e) { out.purged = { error: String(e.message || e).slice(0, 200) }; } }
         return out;
     }
@@ -2411,26 +2417,32 @@ class Service {
         const queue = (await this.store.getState('recheckQueue')) || [];
         if (!queue.length) return null;
         const results = [], retry = [];
-        while (queue.length && Date.now() - started < budgetMs) {
-            const batch = queue.splice(0, RECHECK_PARALLEL);
-            const outs = await Promise.all(batch.map(it => this.emailSlots.run(() => this.recheckMessage(it)).catch(e => {
+        // (0.6.73) RECHECK_PARALLEL at a time, each slot taking the next email as soon as its own is done (before, a batch of 12
+        // waited for its slowest email: about 24 emails an hour were checked). No email is started once budgetMs is spent.
+        let taken = 0, slowestMs = 0;
+        await pool(queue, RECHECK_PARALLEL, async (it) => {
+            taken++;
+            const t0 = Date.now();
+            const out = await this.emailSlots.run(() => this.recheckMessage(it)).catch(e => {
                 this.log.error(`re-check ${it.user} ${it.id}:`, e);
                 if ((it.tries || 1) < 3) retry.push(Object.assign({}, it, { tries: (it.tries || 1) + 1 }));
                 return { item: it, outcome: 'error', error: String((e && e.message) || e).slice(0, 200) };
-            })));
-            results.push(...outs);
-        }
+            });
+            slowestMs = Math.max(slowestMs, Date.now() - t0);
+            results.push(out);
+        }, () => Date.now() - started >= budgetMs);
+        queue.splice(0, taken);
         await this.store.setState('recheckQueue', queue.concat(retry).slice(0, RECHECK_QUEUE_MAX));
         await this.recheckReport(results);
         const count = (o) => results.filter(r => r.outcome === o).length;
-        try { await this.recheckProgressAdd(results, queue.length + retry.length); } catch (e) { this.log.error('re-check progress:', e); }
+        try { await this.recheckProgressAdd(results, queue.length + retry.length, { ms: Date.now() - started, slowestMs }); } catch (e) { this.log.error('re-check progress:', e); }
         return { checked: results.length, left: queue.length + retry.length, moved: count('moved'), wouldMove: count('would-move') + count('held'), notInInbox: count('not-in-inbox'), suspicious: count('flag') };
     }
 
     // (0.6.70) The re-checks under way, for Today (state/recheckProgress): since the queue last started filling, how many
     // emails were checked, in how many mailboxes (counted by a short hash, never kept readable), what was found, the last
     // run; ended when the queue is empty. A new batch after that starts a new count.
-    async recheckProgressAdd(results, left) {
+    async recheckProgressAdd(results, left, { ms = null, slowestMs = null } = {}) {
         const now = this.now();
         let p = await this.store.getState('recheckProgress');
         if (!p || p.endedAt) p = { startedAt: now, checked: 0, moved: 0, wouldMove: 0, suspicious: 0, notInInbox: 0, errors: 0, mailboxes: [], endedAt: null };
@@ -2447,7 +2459,12 @@ class Service {
             if (user && boxes.size < RECHECK_MAILBOXES_KEPT) boxes.add(crypto.createHash('sha256').update(`spruce-box|${user}`).digest('hex').slice(0, 10));
         }
         p.mailboxes = [...boxes];
-        p.lastRun = { at: now, checked: results.length };
+        // (0.6.73) The last run, and the last hour's runs together (the hourly job runs the queue twice: Today's "per hour").
+        const hourAgo = now - HOUR;
+        const recent = (p.runs || []).filter(r => r.at > hourAgo).concat([{ at: now, checked: results.length, ms }]).slice(-6);
+        p.runs = recent;
+        p.lastRun = { at: now, checked: results.length, ms, slowestMs };
+        p.perHour = recent.reduce((a, r) => a + r.checked, 0);
         if (!left) p.endedAt = now;
         await this.store.setState('recheckProgress', p);
         return p;
@@ -2461,7 +2478,7 @@ class Service {
         for (const it of q) bySource[it.source || 'lists'] = (bySource[it.source || 'lists'] || 0) + 1;
         const waiting = new Set(q.map(it => it.user));
         const progress = p ? { startedAt: p.startedAt, endedAt: p.endedAt || null, checked: p.checked || 0, moved: p.moved || 0, wouldMove: p.wouldMove || 0, suspicious: p.suspicious || 0,
-            notInInbox: p.notInInbox || 0, errors: p.errors || 0, mailboxes: (p.mailboxes || []).length, lastRun: p.lastRun || null } : null;
+            notInInbox: p.notInInbox || 0, errors: p.errors || 0, mailboxes: (p.mailboxes || []).length, lastRun: p.lastRun || null, perHour: p.perHour || (p.lastRun ? p.lastRun.checked : 0) } : null;
         return { on: !!this.cfg.recheck, queued: q.length, queuedMailboxes: waiting.size, bySource, progress,
             sweep: sw && sw.version ? { version: sw.version, queued: sw.queued || 0, max: sw.max || 0, startedAt: sw.startedAt || null, doneAt: sw.doneAt || null } : null,
             queueMax: RECHECK_QUEUE_MAX, perRun: RECHECK_PARALLEL };

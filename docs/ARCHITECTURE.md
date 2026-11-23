@@ -213,12 +213,15 @@ it; with Link clicks on, Gmail's logs (Admin SDK Reports API) add who clicked a 
 700 KB, well inside Firestore's 1 MiB per document (each entry's site is cut to 100 characters); an email already
 queued isn't queued twice. A list's download finds at most 3,000 emails, of the last `RECHECK_DAYS`; an update's
 sweep at most `RECHECK_AFTER_UPDATE_MAX`, 1,500 an hour. Each hourly run checks 12 at a time for at most 40
-seconds (the rest at the next run), an email at most 3 tries. Mail an admin answered, one its reader moved, and
+seconds, and (0.6.73) again with the time its other steps left, starting new emails until 95 s into the worker's 120-s
+request (the rest at the next run); each of the 12 slots takes the next email as soon as its own is done (before, a
+batch of 12 waited for its slowest: about 24 emails an hour); an email at most 3 tries. Mail an admin answered, one its reader moved, and
 one no longer in the Inbox are never judged again; moves go through the brakes. A re-scan from the dashboard: one
 email at a time, not again within 30 s; the lists' Re-check at most once a minute. The Sender lists (Trusted, Spam,
 Brand senders) aren't re-checks: they apply to mail as it arrives. **Today** shows the re-checks under way
 (`state/recheckProgress`, kept by `runRechecks`: since the queue last started filling, the emails checked, the
-mailboxes, counted by a short hash and never kept readable, and what was found; ended when the queue is empty),
+mailboxes, counted by a short hash and never kept readable, and what was found; when it started, the last run and how
+long it took, the emails of the last hour's runs; ended when the queue is empty),
 with what still waits and why, and for a day after they finish (`recheckStatus`, read at most every 15 s).
 
 ## The look-alike watch

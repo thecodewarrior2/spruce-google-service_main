@@ -956,3 +956,4 @@ dialog.popup .popup-body > .card > h2:first-child { display: none; }
 .backup-row ul { margin: 6px 0 0; padding-left: 20px; overflow-wrap: anywhere; }
 .backup-row .small { overflow-wrap: anywhere; }
 .backup-keys { margin: 14px 0 6px; }
+.recheck-times { margin: 0 0 6px; }
