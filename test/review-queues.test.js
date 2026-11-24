@@ -96,3 +96,18 @@ test('0.6.68: a Spam answer for the same address, and a company\'s Promotional a
     const list = [promo('p1'), promo('p2', { userReported: { at: now } }), promo('p3', { promoKept: { by: ADMIN } })];
     assert.deepEqual((await svc.promoWaiting('madeup-store.example', list)).map(r => r.key), ['p1']);
 });
+
+test('0.6.75: Ignore suspicious leaves suspicious emails out of Review; the other queues are as before', () => {
+    const recs = randomRecords(400, 75);
+    const on = Object.assign({}, cfg, { ignoreSuspicious: true });
+    const a = RQ.queuesOf(recs, { cfg }), b = RQ.queuesOf(recs, { cfg: on });
+    assert.ok(a.suspicious.length > 0, 'some suspicious emails to ignore');
+    assert.equal(b.suspicious.length, 0, 'no Suspicious queue');
+    for (const q of ['promotional', 'reported']) assert.deepEqual(b[q].map(r => r.key), a[q].map(r => r.key), q);
+    // A suspicious copy of a campaign with a moved copy is still in Moved (one answer covers every copy); the rest are in none.
+    const moved = new Set(b.moved.map(r => r.key));
+    for (const r of a.moved) assert.ok(moved.has(r.key) || r.action === 'flag', r.key);
+    for (const r of a.suspicious) assert.equal(b.of.has(r.key), false, r.key);
+    assert.equal(RQ.baseQueueOf({ key: 'x', action: 'flag', state: 'inbox', status: 'flagged', score: 6 }, { cfg: on }), null);
+    assert.equal(RQ.baseQueueOf({ key: 'x', action: 'move', state: 'moved', trigger: 'rules' }, { cfg: on }), 'moved');
+});

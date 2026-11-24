@@ -108,7 +108,7 @@ const DEMO_PROJECT = 'demo-project';
 const POLICY_TRIES = 5, POLICY_LOCK_MS = 10 * 60 * 1000;
 // What a policy change is for, in Activity's words (a wrong project ID, 0.5.30).
 const POLICY_WHAT = { mode: 'the mode', aiThreshold: 'the AI move threshold', aiSuspicious: 'the AI suspicious line', aiScansInside: 'whether the AI reads inside mail',
-    aiMovesInside: 'whether the Let the AI alone move staff email', safeBrowsing: 'Google Safe Browsing (on or off)', spamhaus: 'Spamhaus (on or off)', abusech: 'abuse.ch (on or off)', suspiciousLabel: 'the Suspicious label', recheck: 're-checking delivered mail', brakePerHour: 'the brake', timeZone: 'the time zone',
+    aiMovesInside: 'whether the Let the AI alone move staff email', safeBrowsing: 'Google Safe Browsing (on or off)', spamhaus: 'Spamhaus (on or off)', abusech: 'abuse.ch (on or off)', suspiciousLabel: 'the Suspicious label', ignoreSuspicious: 'Ignore suspicious', recheck: 're-checking delivered mail', brakePerHour: 'the brake', timeZone: 'the time zone',
     strictSpam: 'Skip review', allowDomains: 'the allowlisted domains', allowAddresses: 'the allowlisted addresses', allowLinkDomains: 'the allowed link domains', releasesRepo: 'the release repository', modelRepo: 'the model repository', retentionDays: 'how long records are kept', watchScope: 'who is checked (the pilot or the whole domain)' };
 // The project ID a policy change must be confirmed with ('' when the dashboard doesn't know it).
 const expectedProject = (cfg) => cfg.project || (cfg.demo ? DEMO_PROJECT : '');
@@ -667,7 +667,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const mb = await mailboxes();
             // (the list, only with ?mailboxes=1, at most 500: Settings → Mailboxes reads GET /api/mailboxes since 0.5.53)
             const listed = q && q.get && q.get('mailboxes') ? await store.listWatched(500) : null;
-            return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, strictSpam: cfg.strictSpam || [], suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
+            return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, strictSpam: cfg.strictSpam || [], suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, ignoreSuspicious: !!cfg.ignoreSuspicious, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
                      brakeLimit: await service.brakeLimit(), spamBrakePerHour: cfg.spamBrakePerHour || 0, campaignHoldAfter: cfg.campaignHoldAfter, alertEmail: cfg.alertEmail || '',
                      orgDomains: cfg.orgDomains, pilotGroups: cfg.pilotGroups, pilotOu: cfg.pilotOu, pilotUsers: cfg.pilotUsers.length, watchScope: cfg.watchScope, allowDomains: cfg.allowDomains, allowLinkDomains: cfg.allowLinkDomains || [], allowAddresses: cfg.allowAddresses.length,
                      retentionDays: cfg.retentionDays, storeSubjects: cfg.storeSubjects, storeAiQuotes: cfg.storeAiQuotes, movedLabel: cfg.movedLabel,
@@ -905,11 +905,13 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const counts = { moved: Q.moved.length, suspicious: Q.suspicious.length, promotional: Q.promotional.length, reported: Q.reported.length };
             // (0.6.61) The Reported tab is shown only while Settings → User reports is on, or while reports still wait.
             const reportedOn = service.userReportsOn ? await service.userReportsOn() : false;
-            if (queue === 'promotional') return { queue, total: Q.promotional.length, companies: A.promoGroups(Q.promotional).slice(0, 1000), mode: cfg.mode, counts, reportedOn };
+            // (0.6.75) suspiciousOff: Settings → Policy → Ignore suspicious is on (no Suspicious tab).
+            const suspiciousOff = !!cfg.ignoreSuspicious;
+            if (queue === 'promotional') return { queue, total: Q.promotional.length, companies: A.promoGroups(Q.promotional).slice(0, 1000), mode: cfg.mode, counts, reportedOn, suspiciousOff };
             const list = queue === 'reported' ? Q.reported.sort((a, b) => (b.userReported.at || 0) - (a.userReported.at || 0))
                 : queue === 'suspicious' ? Q.suspicious.sort((a, b) => b.processedAt - a.processedAt)
                 : Q.moved.sort((a, b) => a.processedAt - b.processedAt);
-            return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode, counts, reportedOn };
+            return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode, counts, reportedOn, suspiciousOff };
         },
         // Several emails at once: release, false-alarm, phishing or unclear (ignore, treat as suspicious), at most
         // 500. Moderators: not release (moderatorMay).
@@ -939,7 +941,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const olderMoved = Math.max(0, QA.moved.length - Q.moved.length);
             const reported = Q.reported.length;
             const reportedOn = service.userReportsOn ? await service.userReportsOn() : false;
-            return { brake, held, rescues, days: n, unreviewed: Q.moved.length, suspicious, promotional: Q.promotional.length, reported, reportedOn, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
+            return { brake, held, rescues, days: n, unreviewed: Q.moved.length, suspicious, promotional: Q.promotional.length, reported, reportedOn, suspiciousOff: !!cfg.ignoreSuspicious, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
                 spamBrake, total: (brake ? 1 : 0) + (spamBrake ? 1 : 0) + held + rescues + reported };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).

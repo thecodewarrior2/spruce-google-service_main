@@ -307,7 +307,8 @@ When it finishes, it prints the **dashboard address**.
   - **Threats → Re-checked** lists mail found to be phishing after it was delivered (a list added its site
     later): in monitor mode it is recorded as "would move", like any email.
   - Also go through **Review → Suspicious, not moved** now and then: phishing among them is what the
-    move rules miss. In enforce mode, **P** there moves the email to Spam.
+    move rules miss. In enforce mode, **P** there moves the email to Spam. (Settings → Policy → **Ignore suspicious**,
+    off by default, hides that tab when there are too many to go through; they are still recorded and looked at again.)
   - Watch **Health → Model health**.
   - **Health → Readiness** turns these into checks; switch when they are all green.
 - **To move mail for real**, either:

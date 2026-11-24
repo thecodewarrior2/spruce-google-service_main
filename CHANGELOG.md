@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.75: Ignore suspicious
+
+- **Settings → Policy → Ignore suspicious** (off by default; `IGNORE_SUSPICIOUS`): when it is on, emails that are
+  suspicious but not moved are no longer listed for review. Review has no Suspicious tab, and they don't count as
+  waiting (the dashboard's count, the browser tab's title). They are still checked, recorded and looked at again an hour
+  and a day after they arrived (and moved then if they should be), and still counted on Today and in the weekly summary.
+  They get no Suspicious label while it is on, even with the Suspicious label on. Emails moved, or that would be moved,
+  are reviewed as before; a suspicious copy of a campaign that has a moved copy is still answered with it, in Moved.
+  Turning it off lists them again, the ones from while it was on too. Changing it is recorded in the activity log, and
+  a settings backup carries it.
+- Nothing changes in how email is judged (the checks level stays the same); no installation change.
+
 ## 0.6.74: phish-tiny 0.28.0
 
 - **The AI model is phish-tiny 0.28.0** (TinyPhishLLM `6942a2c`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.27.0),

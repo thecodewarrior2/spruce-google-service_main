@@ -89,4 +89,16 @@ test('the worker: the conversation is looked up only for a "RE:" naming an earli
         assert.equal((await store.getRecord(fr.key)).suspiciousLabel, false);
     } else assert.fail(`the made-up email should be suspicious, not ${res.action} (score ${fr && fr.score})`);
     assert.ok((await store.listEvents(0)).some(e => e.admin && /turned on the Suspicious label/.test(e.text)));
+    // (0.6.75) Ignore suspicious: off by default; on, a suspicious email gets no label, even with the label on, and is still recorded.
+    assert.equal(svc.cfg.ignoreSuspicious, false);
+    await svc.setPolicy('ignoreSuspicious', true, `it.head@${ORG}`);
+    assert.equal(svc.cfg.ignoreSuspicious, true);
+    raws.flagged2 = flagged;
+    const res2 = await svc.judge(USER, { id: 'flagged2', threadId: 't-flagged2', internalDate: Date.now() }, await readMessage(flagged));
+    assert.equal(res2.action, 'flag');
+    assert.ok(!gmail.modified.some(m => m.id === 'flagged2' && m.add.includes('L_SPRUCE/Suspicious')), 'no label while ignored');
+    const fr2 = (await store.listRecords({})).find(r => r.messageId === 'flagged2');
+    assert.ok(fr2 && !fr2.suspiciousLabel, 'still recorded, unlabeled');
+    assert.ok((await store.listEvents(0)).some(e => e.admin && /turned on Ignore suspicious/.test(e.text)));
+    await assert.rejects(() => svc.setPolicy('ignoreSuspicious', 'maybe', `it.head@${ORG}`), /Ignore suspicious is on or off/);
 });

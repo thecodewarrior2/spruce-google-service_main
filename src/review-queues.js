@@ -10,7 +10,8 @@
 //      (even from a sender on a Sender list: a trusted sender's account can be taken over)
 //   3. from a sender on a Sender list (Trusted, Spam or Brand senders: listed())         → none
 //   4. moved, or would be moved, by the checks (not a copy an admin's search found)      → 'moved'
-//   5. suspicious, still in the Inbox (not a rules-only flag from a sender Gmail confirmed: policy.js rulesOnlyVerified)
+//   5. suspicious, still in the Inbox (not a rules-only flag from a sender Gmail confirmed: policy.js rulesOnlyVerified;
+//      none while Settings → Policy → Ignore suspicious is on, 0.6.75)
 //                                                                                        → 'suspicious'
 //   6. promotional, still in the Inbox, its company not kept                             → 'promotional'
 // Then, within the records being listed together, a suspicious copy of a campaign that has a moved copy is in 'moved' too:
@@ -25,7 +26,8 @@ function baseQueueOf(r, { cfg = {}, listed = null } = {}) {
     if (r.userReported) return 'reported';
     if (listed && listed(r)) return null;
     if ((r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin') return 'moved';
-    if (r.action === 'flag' && r.state === 'inbox') return rulesOnlyVerified(r, cfg) ? null : 'suspicious';
+    // (0.6.75) Settings → Policy → Ignore suspicious: not listed at all.
+    if (r.action === 'flag' && r.state === 'inbox') return cfg.ignoreSuspicious || rulesOnlyVerified(r, cfg) ? null : 'suspicious';
     if (r.action === 'promo' && r.state === 'inbox' && !r.promoKept) return 'promotional';
     return null;
 }

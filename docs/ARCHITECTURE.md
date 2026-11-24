@@ -88,7 +88,8 @@ worker ──▶ security.cloudflare-dns.com    host names (blocked = 0.0.0.0)
    never the domain-wide one; over it, state `spamBrake` holds only spam (`held: 'spam-brake'`) until an admin resumes
    it (`resumeSpam`, `POST /api/resume` with `spam`). The domain-wide brake, on, still holds spam too.
 10. **It is carried out:** `messages.modify` adds `SPAM` and `SPRUCE/Moved` and takes `INBOX` off; in
-    monitor mode `MONITOR_LABEL` if set; for a suspicious email, the Suspicious label when that setting is on.
+    monitor mode `MONITOR_LABEL` if set; for a suspicious email, the Suspicious label when that setting is on (never while Ignore suspicious is on, 0.6.75:
+    then Review doesn't list suspicious emails either, `src/review-queues.js`).
 11. **It is recorded** (`records/{user|id}`), only when something happened (moved, would move, suspicious):
     the sender, the subject (`STORE_SUBJECTS`), the signs, the flagged links, the AI score and its short
     quotes, the decision and why. The day's counters (`stats`) count every email.

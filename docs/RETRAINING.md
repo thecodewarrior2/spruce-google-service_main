@@ -46,7 +46,8 @@ model, without any person's details reaching a repository or an outside service.
   (an admin's **Spam**: unwanted bulk mail), `phishing`, or `phishing or spam` (marked before 0.6.26, when
   **Phishing** covered both). The label stays 1 for spam and phishing, as the training reads it today; a model with
   a spam answer of its own will use the class. Mark spam as **Spam**, not **Phishing**, from now on.
-- **The best examples come from Review → Suspicious, not moved.** Phishing there is what the model
+- **The best examples come from Review → Suspicious, not moved** (not listed while Settings → Policy → Ignore
+  suspicious is on). Phishing there is what the model
   scored too low, and "not phishing" there is what it found suspicious for nothing. Mark some of those,
   not only moved emails, before you export.
 

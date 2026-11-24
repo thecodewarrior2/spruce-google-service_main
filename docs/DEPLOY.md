@@ -327,7 +327,7 @@ the dashboard offers only versions at that level or lower.
 
 ## Settings (environment variables)
 
-`MODE`, `AI_MOVE_THRESHOLD`, `AI_SUSPICIOUS_THRESHOLD`, `AI_SCANS_INSIDE`, `AI_MOVES_INSIDE`, `STRICT_SPAM`, `SUSPICIOUS_LABEL`,
+`MODE`, `AI_MOVE_THRESHOLD`, `AI_SUSPICIOUS_THRESHOLD`, `AI_SCANS_INSIDE`, `AI_MOVES_INSIDE`, `STRICT_SPAM`, `SUSPICIOUS_LABEL`, `IGNORE_SUSPICIOUS`,
 `RECHECK`, `BRAKE_PER_HOUR`, `TIME_ZONE` and `RETENTION_DAYS` (Settings → Policy), `ALLOW_DOMAINS`,
 `ALLOW_ADDRESSES` and `ALLOW_LINK_DOMAINS` (Settings → Sender lists), `SAFE_BROWSING`, `SPAMHAUS` and `ABUSECH` (their
 Settings pages) and `WATCH_SCOPE` (Settings → Mailboxes) can also be changed on the dashboard, with the project ID,
@@ -384,6 +384,7 @@ Those changes are kept in Firestore (`state/policy-<key>`) and read by both serv
 | `MOVED_LABEL`, `RELEASED_LABEL` | `SPRUCE/Moved`, `SPRUCE/Moved back` | labels added to mail moved to Spam, and to mail an admin moved back to the Inbox (`SPRUCE/Released` before 0.3.7) |
 | `MONITOR_LABEL` | none | optionally label would-move mail in monitor mode (users see it) |
 | `SUSPICIOUS_LABEL`, `SUSPICIOUS_LABEL_NAME` | `false`, `SPRUCE/Suspicious` | a Gmail label on emails that are suspicious but not moved, so their readers see it, in monitor mode too (0.5.33). Nothing is moved by it. Also on the dashboard: Settings → Policy, "Suspicious label" |
+| `IGNORE_SUSPICIOUS` | `false` | (0.6.75) emails that are suspicious but not moved are still recorded and looked at again an hour and a day later, but Review doesn't list them (no Suspicious tab) and they get no Suspicious label. Nothing is moved by it. Also on the dashboard: Settings → Policy, "Ignore suspicious" |
 | `CLOUDFLARE_THREATS` | `true` | Cloudflare Security DNS for link sites and sender domains |
 | `SAFE_BROWSING_SECRET` | set by install.sh | the Secret Manager secret holding the Safe Browsing API key that an admin saves on Settings → Safe Browsing (0.5.23) |
 | `SAFE_BROWSING`, `SAFE_BROWSING_KEY` | `false`, none | Google Safe Browsing for links: off by default. Turned on and off on Settings → Safe Browsing; `SAFE_BROWSING=true` with `SAFE_BROWSING_KEY` is the older way, for an install without the secret |

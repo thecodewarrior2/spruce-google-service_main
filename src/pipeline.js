@@ -224,7 +224,7 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 // by, at }) and applies to every instance within POLICY_REFRESH_MS. It records the settings.env value it
 // replaced (env): when settings.env later has another value for the same setting (changed, then
 // install.sh), that one is newer and applies. The most recent change wins, wherever it was made.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'ignoreSuspicious', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
 const LIST_KEYS = ['allowDomains', 'allowAddresses', 'allowLinkDomains'];
 // (0.6.59; 0.6.65) Settings → Policy → Skip review (policy.js strictWhy).
 const STRICT_WORDS = { 'forged-headers': 'forged headers', 'spam-headers': 'spam headers', 'sender-listed': 'sender on a threat list', 'dmarc-fail': 'failed sender check', 'dmarc-missing': 'no DMARC', 'dangerous-links': 'dangerous links' };
@@ -322,11 +322,11 @@ function policyValue(key, v, now = {}) {
         return Number.isFinite(n) && n >= 0.5 && n <= ceiling ? Math.round(n * 1000) / 1000
             : bad(`The AI suspicious line is from 50% to the move threshold (${pc(ceiling)}). To go higher, raise the move threshold first.`);
     }
-    if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'safeBrowsing' || key === 'spamhaus' || key === 'abusech' || key === 'suspiciousLabel' || key === 'recheck') {
+    if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'safeBrowsing' || key === 'spamhaus' || key === 'abusech' || key === 'suspiciousLabel' || key === 'ignoreSuspicious' || key === 'recheck') {
         if (v === true || v === false) return v;
         const t = String(v).trim().toLowerCase();
         return ['on', 'true', 'yes', '1'].includes(t) ? true : ['off', 'false', 'no', '0'].includes(t) ? false
-            : bad({ aiScansInside: 'Whether the AI reads mail from inside is on or off.', aiMovesInside: 'Whether the AI alone moves mail from inside is on or off.', safeBrowsing: 'Google Safe Browsing is on or off.', suspiciousLabel: 'The Suspicious label is on or off.', recheck: 'Re-checking delivered mail is on or off.', spamhaus: 'Spamhaus is on or off.', abusech: 'abuse.ch is on or off.' }[key]);
+            : bad({ aiScansInside: 'Whether the AI reads mail from inside is on or off.', aiMovesInside: 'Whether the AI alone moves mail from inside is on or off.', safeBrowsing: 'Google Safe Browsing is on or off.', suspiciousLabel: 'The Suspicious label is on or off.', ignoreSuspicious: 'Ignore suspicious is on or off.', recheck: 'Re-checking delivered mail is on or off.', spamhaus: 'Spamhaus is on or off.', abusech: 'abuse.ch is on or off.' }[key]);
     }
     if (key === 'brakePerHour') { const n = Number(v); return n === 0 || (Number.isInteger(n) && n >= 10 && n <= 100000) ? n : bad('The brake is automatic, or a whole number of moves an hour from 10 to 100,000.'); }
     if (key === 'timeZone') { const z = String(v || '').trim(); return z && validTimeZone(z) ? z : bad('The time zone is an IANA name, for example America/New_York.'); }
@@ -342,7 +342,7 @@ function policyWords(key, v) {
     if (key === 'aiThreshold' || key === 'aiSuspicious') return `${Math.round(Number(v) * 1000) / 10}%`;
     if (key === 'brakePerHour') return Number(v) ? `${Number(v).toLocaleString('en-US')} moves an hour` : 'automatic (half the watched mailboxes, at least 100)';
     if (key === 'retentionDays') return `${Number(v)} days`;
-    if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'safeBrowsing' || key === 'spamhaus' || key === 'abusech' || key === 'suspiciousLabel' || key === 'recheck') return v ? 'on' : 'off';
+    if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'safeBrowsing' || key === 'spamhaus' || key === 'abusech' || key === 'suspiciousLabel' || key === 'ignoreSuspicious' || key === 'recheck') return v ? 'on' : 'off';
     return String(v);
 }
 
@@ -487,6 +487,9 @@ class Service {
             : key === 'suspiciousLabel' ? (value
                 ? `${by} turned on the Suspicious label on the dashboard (${how}): from now on, an email that is suspicious but not moved gets the label ${this.cfg.suspiciousLabelName} in its mailbox, so its reader sees it, in monitor mode too. Nothing is moved by it.`
                 : `${by} turned off the Suspicious label on the dashboard (${how}): no more emails get it; the ones that have it keep it.`)
+            : key === 'ignoreSuspicious' ? (value
+                ? `${by} turned on Ignore suspicious on the dashboard (${how}): emails that are suspicious but not moved are still checked, recorded and looked at again later (and moved if they then should be), but Review no longer lists them (no Suspicious tab) and they get no Suspicious label.`
+                : `${by} turned off Ignore suspicious on the dashboard (${how}): Review lists suspicious emails that weren't moved again (Review → Suspicious)${this.cfg.suspiciousLabel ? `, and new ones get the label ${this.cfg.suspiciousLabelName}` : ''}.`)
             : key === 'safeBrowsing' ? (value
                 ? `${by} turned on Google Safe Browsing on the dashboard (${how}): the addresses of the links in each email are now also looked up with Google (without the part after "#", and one-time links without their query), within 30 seconds everywhere.`
                 : `${by} turned off Google Safe Browsing on the dashboard (${how}): links are no longer sent to Google. The saved key stays in Secret Manager until it is removed.`)
@@ -945,7 +948,7 @@ class Service {
         }
         // Suspicious, not moved: a label its reader sees, when the setting is on (0.5.33; off by default).
         let labeled = false;
-        if (decision.action === 'flag' && this.cfg.suspiciousLabel && !decision.autoAnswer) {
+        if (decision.action === 'flag' && this.cfg.suspiciousLabel && !this.cfg.ignoreSuspicious && !decision.autoAnswer) {
             try { await this.gmail.modify(user, msg.id, [await this.gmail.labelId(user, this.cfg.suspiciousLabelName)], []); labeled = true; }
             catch (e) { this.log.error(`suspicious label ${user} ${msg.id}:`, e); }
         }
@@ -2540,7 +2543,7 @@ class Service {
             try { await this.gmail.modify(user, id, [await this.gmail.labelId(user, this.cfg.monitorLabel)], []); } catch (e) { this.log.error(`monitor label ${user} ${id}:`, e); }
         }
         let labeled = !!(before && before.suspiciousLabel);
-        if (decision.action === 'flag' && this.cfg.suspiciousLabel && !labeled && where === 'inbox') {
+        if (decision.action === 'flag' && this.cfg.suspiciousLabel && !this.cfg.ignoreSuspicious && !labeled && where === 'inbox') {
             try { await this.gmail.modify(user, id, [await this.gmail.labelId(user, this.cfg.suspiciousLabelName)], []); labeled = true; }
             catch (e) { this.log.error(`suspicious label ${user} ${id}:`, e); }
         }

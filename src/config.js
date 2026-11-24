@@ -11,7 +11,7 @@ const bool = (v, d) => (v === undefined || v === '' ? d : /^(1|true|yes|on)$/i.t
 // Spamhaus, abuse.ch). They read from a live
 // copy that only setPolicyValues changes (src/pipeline.js: refreshPolicy, setPolicy); envPolicy keeps what
 // the environment (deploy/settings.env) says. The rest of the configuration is frozen.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'ignoreSuspicious', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
 function withLivePolicy(c) {
     const envPolicy = Object.freeze(Object.fromEntries(POLICY_KEYS.map(k => [k, c[k]])));
     const live = Object.assign({}, envPolicy);
@@ -114,6 +114,10 @@ function loadConfig(env = process.env) {
         // A Gmail label on emails that are suspicious but not moved, so their readers see it (0.5.33): OFF by
         // default; an admin turns it on in Settings → Policy (a policy setting).
         suspiciousLabel: bool(env.SUSPICIOUS_LABEL, false),
+        // (0.6.75) Ignore suspicious: OFF by default (a policy setting). On, an email that is suspicious but not moved is still
+        // checked, recorded and looked at again an hour and a day later (moved if it then should be), but Review doesn't list
+        // it (no Suspicious tab, not counted as waiting) and it gets no Suspicious label.
+        ignoreSuspicious: bool(env.IGNORE_SUSPICIOUS, false),
         // Delivered mail checked again (0.5.35; on by default, a policy setting): when a phishing list adds a
         // site or sender an email of the last RECHECK_DAYS days has, and suspicious mail an hour and a day
         // after it arrived.

@@ -375,7 +375,9 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   list, in two tabs: **Moved, or would be moved** (oldest first) and **Suspicious (not moved)** (newest first). The
   copies of one email (a campaign: the same email to many people) are one item, answered together, and in one tab
   only (0.6.39): when any copy is in the first tab, the copies that were only suspicious are there too, so an
-  answer is never asked twice.
+  answer is never asked twice. (0.6.75) With **Settings → Policy → Ignore suspicious** on (off by default), the
+  Suspicious tab is gone: suspicious emails that weren't moved are still recorded and looked at again an hour and a day
+  later (and moved if they then should be), but not listed or counted as waiting, and they get no Suspicious label.
   - **Filter** (0.6.44): search by sender, domain or subject; filter by the sender check, the AI score and the kind;
     **Tick all shown**, then answer them at once. Each row shows its sender check, and ⌕ shows only that sender's mail.
   - **The same four answers everywhere** (0.6.39: Review, an email's page, Mail's ticked emails, a campaign's
@@ -690,7 +692,7 @@ The last command writes `build/mockup.html`, a single file to share the look and
 Changing a setting is quick: edit `deploy/settings.env` and run `install.sh` again. It reuses the image
 built from the same files, so it only redeploys, in about a minute. The policy settings can also be changed
 on the dashboard: the mode, the AI move threshold and suspicious line, the AI on inside mail and "AI alone moves
-inside mail", the brake, the time zone, how long records are kept, the Suspicious label, re-checking delivered
+inside mail", the brake, the time zone, how long records are kept, the Suspicious label, Ignore suspicious, re-checking delivered
 mail (Settings → Policy), the allowlist and allowed link domains (Settings → Sender lists), Safe Browsing, Spamhaus
 and abuse.ch (their Settings pages), and who is checked (Settings → Mailboxes). When the two differ,
 `install.sh` asks which to keep, and writes the answer into settings.env.
