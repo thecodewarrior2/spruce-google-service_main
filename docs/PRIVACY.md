@@ -119,6 +119,12 @@ And:
   before (phishing, spam, not phishing or not sure, and by whom), where the email was, and which sender the answer
   added to a list, so Undo (for an hour) can put them back; nothing of the email itself, and deleted with the record;
 - **sender history:** a hash of each sender address, to tell "first email from this sender";
+- **sender standing** (0.6.76; Settings → Policy → Sender standing, show only by default, off stops it): for each outside
+  sender domain whose mail passed DMARC (never a free-mail domain), under a one-way hash of the domain: when it first and
+  last mailed, on how many days, how many emails the checks found nothing in, and its profile, one-way hashes (SHA-256,
+  16 hex digits) of the domains that sign its mail, send it (SPF), take its replies and its links go to, and whether it
+  attaches files; and who marked one of its emails safe or answered one Phishing, and when. Never an address, a domain in
+  the clear, a subject or any of an email's text. Deleted 400 days after the domain's last email;
 - **mailbox state:** each watched mailbox's sync position;
 - **a re-scan** (Review, Mail → Emails: Check again): the email's record takes what an admin's re-scan found (the
   scores, the AI's opinion and model, the rule findings' descriptions), with when and by whom, and keeps its

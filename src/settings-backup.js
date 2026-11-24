@@ -49,6 +49,8 @@ const GATED = {
     mode: (v, cur) => (v === 'enforce' && cur !== 'enforce' ? 'switching to enforce mode is agreed to on the Policy page' : null),
     aiMovesInside: (v, cur) => (v === true && cur !== true ? 'letting the AI alone move staff email is agreed to on the Policy page' : null),
     strictSpam: (v, cur) => ((Array.isArray(v) ? v : []).some(k => !(cur || []).includes(k)) ? 'Skip review (mail sent to Spam without review) is agreed to on the Policy page' : null),
+    // (0.6.76) Sender standing on keeps the AI from moving some mail: turned on on the Policy page, not by a file.
+    senderStanding: (v, cur) => (v === 'on' && cur !== 'on' ? 'turning on sender standing is done on the Policy page' : null),
     watchScope: (v, cur) => (v !== cur ? 'who is checked is confirmed with your own address on the Policy page' : null),
     releasesRepo: (v, cur) => (v !== cur ? 'where updates come from is confirmed with your own address on Settings → Update' : null),
     modelRepo: (v, cur) => (v !== cur ? 'where the AI model comes from is confirmed with your own address on Settings → Update' : null)

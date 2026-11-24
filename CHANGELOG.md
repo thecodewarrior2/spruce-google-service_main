@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.76: Sender standing
+
+- **Settings → Policy → Sender standing** (`SENDER_STANDING`: off, **show** (the default) or on): fewer false alarms on
+  companies' own mail, without a list of brands to keep up. It changes only what the AI's score alone does: where the AI is
+  the only thing that objects to an email from an outside sender whose DMARC check passed, and the sender has standing,
+  **on** doesn't mark it suspicious, and one the AI alone would move goes to Review → Suspicious instead (listed even with
+  Ignore suspicious on). **Show** changes nothing: each email it would have changed says so on its page, and the Policy
+  row counts what it would have done in the last 7 days, so you can see it on your own mail before turning it on.
+- **Standing** belongs to a sender's domain, never a free-mail domain or your own, and is earned two ways: **history**
+  (it has mailed you for 30 days or more, on 5 days or more, 10 emails or more the checks found nothing in, and nobody
+  answered one of its emails Phishing), or **an answer** (an admin marked one of its emails safe, at once, for a new
+  sender too). A **Phishing** answer on any of its emails ends it; Undo of an answer puts back what was there.
+- **The usual way it mails:** standing applies only to an email that looks like the sender's usual mail: the same signing
+  domain (DKIM) and mail service (SPF), no new Reply-To domain, no links to a site it hasn't used, no attachment if it
+  never sends one. A change is what a taken-over account looks like, so that email is judged as before.
+- **Every other check is unchanged** and keeps standing from applying: DMARC (a forged copy of the sender fails it),
+  forged headers and Message-IDs, spam headers, threat lists, look-alikes, flagged links, anything outside the email
+  confirming it, Skip review, Spam senders, the brakes and readers' reports. The re-checks apply it the same way.
+- **What is kept:** for each sender domain, under a one-way hash: when it first and last mailed, on how many days, how
+  many clean emails, its profile as one-way hashes of domains, and who answered one of its emails safe or Phishing. Never
+  an address, a domain in the clear or any content (docs/PRIVACY.md). Deleted 400 days after its last email. A settings
+  backup carries the setting; turning it on from a backup waits for the Policy page.
+- Show only by default changes no verdict, so the checks level stays the same (no re-check after updating); no
+  installation change.
+
 ## 0.6.75: Ignore suspicious
 
 - **Settings → Policy → Ignore suspicious** (off by default; `IGNORE_SUSPICIOUS`): when it is on, emails that are

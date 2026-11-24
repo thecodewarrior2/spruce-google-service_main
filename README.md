@@ -378,6 +378,18 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   answer is never asked twice. (0.6.75) With **Settings → Policy → Ignore suspicious** on (off by default), the
   Suspicious tab is gone: suspicious emails that weren't moved are still recorded and looked at again an hour and a day
   later (and moved if they then should be), but not listed or counted as waiting, and they get no Suspicious label.
+  (0.6.76) An email **sender standing** kept from being moved waits there even then.
+- **Sender standing** (0.6.76; Settings → Policy, **show only** by default): fewer false alarms on companies' own mail
+  without a list of brands. Where the AI's score is the only thing that objects to an email from an outside sender whose
+  DMARC check passed, and the sender has standing (it has mailed you for 30 days or more, on 5 days or more, 10 emails or
+  more the checks found nothing in, and nobody answered one of its emails Phishing; or an admin marked one of its emails
+  safe), and the email mails the way the sender usually does (the same signing domain and mail service, no new Reply-To
+  domain, no links to a site it hasn't used, no attachment if it never sends one), **on** doesn't mark it suspicious, and
+  sends one the AI alone would move to Review → Suspicious instead. Every other check judges it as before: DMARC, forged
+  headers and Message-IDs, spam headers, threat lists, look-alikes, flagged links, Skip review, Spam senders, the brakes.
+  A Phishing answer ends a sender's standing. **Show only** changes nothing: each email it would have changed says so on
+  its page, and the Policy row counts the last 7 days. Free-mail domains and your own never get standing; only one-way
+  hashes are kept (docs/PRIVACY.md).
   - **Filter** (0.6.44): search by sender, domain or subject; filter by the sender check, the AI score and the kind;
     **Tick all shown**, then answer them at once. Each row shows its sender check, and ⌕ shows only that sender's mail.
   - **The same four answers everywhere** (0.6.39: Review, an email's page, Mail's ticked emails, a campaign's
@@ -692,7 +704,7 @@ The last command writes `build/mockup.html`, a single file to share the look and
 Changing a setting is quick: edit `deploy/settings.env` and run `install.sh` again. It reuses the image
 built from the same files, so it only redeploys, in about a minute. The policy settings can also be changed
 on the dashboard: the mode, the AI move threshold and suspicious line, the AI on inside mail and "AI alone moves
-inside mail", the brake, the time zone, how long records are kept, the Suspicious label, Ignore suspicious, re-checking delivered
+inside mail", the brake, the time zone, how long records are kept, the Suspicious label, Ignore suspicious, sender standing, re-checking delivered
 mail (Settings → Policy), the allowlist and allowed link domains (Settings → Sender lists), Safe Browsing, Spamhaus
 and abuse.ch (their Settings pages), and who is checked (Settings → Mailboxes). When the two differ,
 `install.sh` asks which to keep, and writes the answer into settings.env.

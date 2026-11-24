@@ -27,6 +27,8 @@ function baseQueueOf(r, { cfg = {}, listed = null } = {}) {
     if (listed && listed(r)) return null;
     if ((r.action === 'move' || r.action === 'would-move') && r.trigger !== 'admin') return 'moved';
     // (0.6.75) Settings → Policy → Ignore suspicious: not listed at all.
+    // (0.6.76) An email sender standing kept from being moved waits here even then: it would have been moved.
+    if (r.action === 'flag' && r.state === 'inbox' && r.standing && r.standing.applied === 'review') return 'suspicious';
     if (r.action === 'flag' && r.state === 'inbox') return cfg.ignoreSuspicious || rulesOnlyVerified(r, cfg) ? null : 'suspicious';
     if (r.action === 'promo' && r.state === 'inbox' && !r.promoKept) return 'promotional';
     return null;

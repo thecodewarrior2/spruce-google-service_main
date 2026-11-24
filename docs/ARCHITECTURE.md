@@ -80,7 +80,21 @@ worker ──▶ security.cloudflare-dns.com    host names (blocked = 0.0.0.0)
    setting `strictSpam`): an outside email with a chosen sign (forged headers, spam headers, the sender on a threat
    list, a failed or missing DMARC check, a dangerous link; `result.strictSigns` from `analyze`) is moved with trigger
    `rules` and never waits for review; never a Trusted sender Gmail confirmed or mail from inside. Then, in `judge`:
-   Spam senders, promotional mail, and (0.6.59) Spam learning (`learnSpam`, below).
+   Spam senders, promotional mail, and (0.6.59) Spam learning (`learnSpam`, below). (0.6.76) Then **sender standing**
+   (`src/standing.js`, `applyStanding`; Settings → Policy → Sender standing, `SENDER_STANDING`: off, show (the default)
+   or on): only where the AI's score is the only thing that objects (`whyNotEligible`: status clean, no flagged link,
+   nothing confirming it from outside, no forged or spam headers, no list, no look-alike or imitation sign, DMARC passing
+   for the sender, not a platform's notification), from an outside, non-free-mail sender domain with standing
+   (`standingFor`: 30 days or more of clean mail on 5 days or more, 10 clean emails or more, and no Phishing answer; or an
+   admin's Mark safe after any Phishing answer), whose email matches the domain's profile (the signing (DKIM) and SPF
+   domains, the Reply-To domains, the link domains, attachments or none, as one-way hashes). On: a suspicious email isn't
+   flagged (counted `standingCleared`), one the AI alone would move is flagged instead, with `standing.applied: 'review'`
+   (`standingHeld`; Review → Suspicious lists it even with Ignore suspicious on). Show: the decision stands and its why
+   says what standing would have done (`standingWouldClear`, `standingWouldReview`). The record keeps the note
+   (`standing`: the sender's key, the email's profile, the standing found). Clean mail (decision none or promotional,
+   DMARC passing, outside) adds to its domain's history and profile (`learnStanding`, added up per sender and day and
+   written with the day's counters); Mark safe on an email with a standing note gives its sender standing and its profile,
+   Phishing ends it (`standingAnswer`); Undo puts back what was there. The re-checks apply it the same way.
 9. **The brakes** (`brakes`, below) may hold a move: an admin's decision on the campaign, the campaign
    pause on weak evidence (not for a sender an admin put on Spam senders, 0.6.63), the domain-wide brake. (0.6.63)
    Spam (trigger `spam`) has a brake of its own instead: its moves count against `spamBrakeLimit()`
@@ -125,6 +139,7 @@ Firestore, in your own project and region (`src/store/firestore.js`). Each docum
 | `records` | each email moved, would move or suspicious (above); an admin's or user's decisions; re-checks | `RETENTION_DAYS` |
 | `stats` | the day's counters: checked, moved, would move, suspicious, moved back, training emails, errors | kept |
 | `senders` | a 64-bit hash of each sender address and when it was first seen | kept |
+| `standing` | (0.6.76) each outside sender domain's standing, under a one-way hash: when it first and last mailed, on how many days, how many clean emails, its profile (one-way hashes of its signing, SPF, Reply-To and link domains; attachments or none), an admin's Mark safe or Phishing answer (who, when) | 400 days after its last email |
 | `campaigns` | the campaign pause and an admin's decision on a campaign | `RETENTION_DAYS` |
 | `moveCounts` | the brake's hourly counters; the mass-share counters | 2 days |
 | `events` | Activity: alerts, admins' actions, errors | `AUDIT_DAYS` |

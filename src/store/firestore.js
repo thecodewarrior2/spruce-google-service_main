@@ -10,6 +10,8 @@
 //                           STAT_SHARDS documents a day (each document takes about one write a second; a
 //                           district's mail is more), summed when read. stats/{yyyy-mm-dd} (before 0.3.0) too.
 //   senders/{hash}          firstSeen (sender addresses as a 64-bit hash only, as in the extension)
+//   standing/{hash}         (0.6.76) a sender domain's standing (src/standing.js): first, last, days, count, prof (hashes),
+//                           safe, phishAt; one-way hashes only. Deleted a year and a month after its last mail (purge)
 //   state/{name}            brake, installedAt, watchedCount, …
 //   moveCounts/{hour|resume}~{i} moves in a clock hour (the domain-wide brake; a slot reserved before each
 //                           move), in up to 32 shards whose limits add up to the brake's limit exactly
@@ -193,6 +195,20 @@ class FirestoreStore {
     }
     // Created if new (no read, no lock); the first one's time if it exists (two instances racing: one
     // creates it, the other reads it).
+    // (0.6.76) A sender domain's standing (src/standing.js), or null; and a change to it, in a transaction (fn: old → new).
+    async getStanding(hash) {
+        const d = await this.col('standing').doc(safeId(hash)).get();
+        return d.exists ? d.data() : null;
+    }
+    async updateStanding(hash, fn) {
+        const ref = this.col('standing').doc(safeId(hash));
+        return this.db.runTransaction(async (t) => {
+            const d = await t.get(ref);
+            const next = fn(d.exists ? d.data() : null);
+            if (next) t.set(ref, next);
+            return next;
+        });
+    }
     async senderFirstSeen(hash, now) {
         const ref = this.col('senders').doc(hash);
         try { await ref.create({ firstSeen: now }); return now; }
@@ -343,6 +359,16 @@ class FirestoreStore {
                 await batch.commit();
                 n += q.size;
             }
+        }
+        // (0.6.76) Sender standing nobody has mailed for over 400 days.
+        for (;;) {
+            if (Date.now() - started > budgetMs) return n;
+            const q = await this.col('standing').where('last', '<', Date.now() - 400 * 24 * 60 * 60 * 1000).limit(400).get();
+            if (q.empty) break;
+            const batch = this.db.batch();
+            q.docs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+            n += q.size;
         }
         return n;
     }

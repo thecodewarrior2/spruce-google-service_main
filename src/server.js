@@ -288,6 +288,13 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         return { events, days };
     };
     const nDays = (q) => Math.min(90, Math.max(1, Number(q.get('days')) || 30));
+    // (0.6.76) Sender standing in the last 7 days, from the day's counters: { cleared, held, wouldClear, wouldReview }.
+    const standingWeek = async () => {
+        const now = Date.now(), days = Array.from({ length: 7 }, (_, i) => A.dayIn(now - (6 - i) * A.DAY, cfg.timeZone));
+        const rows = await store.getStats(days[0], days[6]).catch(() => []);
+        const sum = (f) => rows.reduce((t, r) => t + (Number(r[f]) || 0), 0);
+        return { cleared: sum('standingCleared'), held: sum('standingHeld'), wouldClear: sum('standingWouldClear'), wouldReview: sum('standingWouldReview') };
+    };
     // A page's records (all of its period: the cache holds slim copies of every one) and daily counters.
     const load = async (q) => ({ records: await cache.list(since(q) - A.DAY), stats: await statsFor(A.dayOf(since(q)), A.dayOf(Date.now())) });
 
@@ -658,6 +665,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const E = spruce.load();
             return { mode: cfg.mode, orgDomains: cfg.orgDomains, retentionDays: cfg.retentionDays, model: E.modelInfo, version: VERSION, donateButton: cfg.donateButton, timeZone: cfg.timeZone };
         },
+        // (0.6.76) What sender standing did, or would have done (show only), in the last 7 days (the day's counters).
+        'GET /api/standing': async () => ({ mode: cfg.senderStanding || 'off', week: await standingWeek() }),
         'GET /api/settings': async (q) => {
             const E = spruce.load();
             const renew = { available: canRenew() || cfg.demo, last: await lastRenew() };
@@ -667,7 +676,7 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const mb = await mailboxes();
             // (the list, only with ?mailboxes=1, at most 500: Settings → Mailboxes reads GET /api/mailboxes since 0.5.53)
             const listed = q && q.get && q.get('mailboxes') ? await store.listWatched(500) : null;
-            return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, strictSpam: cfg.strictSpam || [], suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, ignoreSuspicious: !!cfg.ignoreSuspicious, recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
+            return { mode: cfg.mode, aiThreshold: cfg.aiThreshold, aiSuspicious: cfg.aiSuspicious, moveOnRules: cfg.moveOnRules, aiMovesInside: cfg.aiMovesInside, aiScansInside: cfg.aiScansInside, strictSpam: cfg.strictSpam || [], suspiciousLabel: cfg.suspiciousLabel, suspiciousLabelName: cfg.suspiciousLabelName, ignoreSuspicious: !!cfg.ignoreSuspicious, senderStanding: cfg.senderStanding || 'off', standingWeek: await standingWeek(), recheck: cfg.recheck, recheckDays: cfg.recheckDays, recheckAfterUpdateHours: cfg.recheck ? cfg.recheckAfterUpdateHours : 0, brakePerHour: cfg.brakePerHour,
                      brakeLimit: await service.brakeLimit(), spamBrakePerHour: cfg.spamBrakePerHour || 0, campaignHoldAfter: cfg.campaignHoldAfter, alertEmail: cfg.alertEmail || '',
                      orgDomains: cfg.orgDomains, pilotGroups: cfg.pilotGroups, pilotOu: cfg.pilotOu, pilotUsers: cfg.pilotUsers.length, watchScope: cfg.watchScope, allowDomains: cfg.allowDomains, allowLinkDomains: cfg.allowLinkDomains || [], allowAddresses: cfg.allowAddresses.length,
                      retentionDays: cfg.retentionDays, storeSubjects: cfg.storeSubjects, storeAiQuotes: cfg.storeAiQuotes, movedLabel: cfg.movedLabel,

@@ -117,6 +117,18 @@ class MemoryStore {
     async getStats(fromDay, toDay) {
         return [...this.stats.values()].filter(s => s.day >= fromDay && s.day <= toDay).sort((a, b) => (a.day < b.day ? -1 : 1));
     }
+    // (0.6.76) A sender domain's standing (src/standing.js; see store/firestore.js).
+    async getStanding(hash) {
+        this.standing = this.standing || new Map();
+        const v = this.standing.get(hash);
+        return v ? JSON.parse(JSON.stringify(v)) : null;
+    }
+    async updateStanding(hash, fn) {
+        this.standing = this.standing || new Map();
+        const next = fn(await this.getStanding(hash));
+        if (next) this.standing.set(hash, JSON.parse(JSON.stringify(next)));
+        return next;
+    }
     async senderFirstSeen(hash, now) {
         if (!this.senders.has(hash)) this.senders.set(hash, now);
         return this.senders.get(hash);

@@ -2187,8 +2187,9 @@
         reported: { label: 'Reported by their readers (Gmail\'s Report phishing)', short: 'Reported', what: 'emails their readers reported as phishing', order: 'newest report first' }
     };
     // (0.6.75) No Suspicious tab while Settings → Policy → Ignore suspicious is on: its address shows the moved emails.
-    const queueOf = (params) => (['suspicious', 'promotional', 'reported'].includes(params.get('queue')) && !(params.get('queue') === 'suspicious' && suspiciousOff) ? params.get('queue') : 'moved');
-    const shownQueues = () => Object.entries(QUEUES).filter(([k, x]) => (!x.admin || !isModerator()) && !(k === 'suspicious' && suspiciousOff));
+    // (0.6.76) While Ignore suspicious is on, the tab shows only when emails sender standing kept from being moved wait there.
+    const queueOf = (params) => (['suspicious', 'promotional', 'reported'].includes(params.get('queue')) ? params.get('queue') : 'moved');
+    const shownQueues = () => Object.entries(QUEUES).filter(([, x]) => !x.admin || !isModerator());
     // (0.6.39) The four answers, worded the same everywhere (Review, Mail, an email's page, a campaign's box). When the
     // click moves mail (enforce mode), the button says where to.
     const ANSWER = {
@@ -2300,7 +2301,7 @@
     }
     // The tabs above Review's lists, each with how many emails it holds (left: the queue's count).
     // (0.6.61) Reported only while Settings → User reports is on, or while reports from before still wait (or it is open).
-    const reviewTabs = (queue, left) => h('nav', { class: 'segmented', 'aria-label': 'Which emails to review' }, shownQueues().filter(([k]) => k !== 'reported' || reportedOn || left(k) > 0 || queue === k).map(([k, x]) =>
+    const reviewTabs = (queue, left) => h('nav', { class: 'segmented', 'aria-label': 'Which emails to review' }, shownQueues().filter(([k]) => (k !== 'reported' || reportedOn || left(k) > 0 || queue === k) && (k !== 'suspicious' || !suspiciousOff || left(k) > 0 || queue === k)).map(([k, x]) =>
         h('a', { href: k === 'moved' ? '#/review' : `#/review?queue=${k}`, 'aria-current': k === queue ? 'page' : null, title: x.label }, `${x.short} · ${num(left(k))}`)));
     // (0.6.52) Review → Promotional: marketing and subscribed mail (Gmail's Promotions category, or a one-click unsubscribe the
     // sender signed) from senders Gmail verified, that the checks found nothing wrong with. Never moved for that. One row per
@@ -2380,7 +2381,7 @@
         if (!st || params.get('restart') || st.days !== days) {
             const d = await api(`/api/review?${q({ days: String(days), queue })}`);
             // (0.6.75) Review → Suspicious opened while Ignore suspicious is on (an old link, before the page knew): the moved emails.
-            if (queue === 'suspicious' && d.suspiciousOff) { if (MEMORY) memRoute = '#/review'; else history.replaceState(null, '', '#/review'); return review(new URLSearchParams()); }
+            if (queue === 'suspicious' && d.suspiciousOff && !d.total) { if (MEMORY) memRoute = '#/review'; else history.replaceState(null, '', '#/review'); return review(new URLSearchParams()); }
             const groups = d.groups || (d.keys || []).map(k => ({ keys: [k], users: [], senders: [], count: 1 }));
             st = reviewStates[queue] = { queue, groups, open: groups.length ? 0 : -1, done: 0, days, counts: d.counts || {}, mode: d.mode, picked: new Set(), shown: 100 };
             for (const [k, other] of Object.entries(reviewStates)) if (k !== queue && other && other.days === days && d.counts) other.counts = d.counts;
@@ -2993,6 +2994,16 @@
         // (0.6.75) Off by default: suspicious mail that isn't moved is still recorded and looked at again, but not listed for review.
         { key: 'ignoreSuspicious', label: 'Ignore suspicious', show: (v, d) => (v ? `On: emails that are suspicious but not moved are still checked, recorded and looked at again an hour and a day later (and moved if they then should be), but Review doesn't list them (no Suspicious tab, not counted as waiting)${d.suspiciousLabel ? ', and they get no Suspicious label' : ''}. Moved emails are reviewed as before`
             : 'Off: emails that are suspicious but not moved are listed in Review → Suspicious for an answer (the default)') },
+        // (0.6.76) Sender standing (src/standing.js): off, show only (the default) or on.
+        { key: 'senderStanding', label: 'Sender standing', show: (v, d) => {
+            const w = d.standingWeek || {}, n = (x) => num(x || 0);
+            const week = v === 'on' ? ` Last 7 days: ${n(w.cleared)} not marked suspicious, ${n(w.held)} sent to Review instead of being moved.`
+                : v === 'show' ? ` Last 7 days it would have left ${n(w.wouldClear)} unmarked and sent ${n(w.wouldReview)} to Review instead of moving them.` : '';
+            const what = 'Only where the AI\'s score is the only thing that objects, from an outside sender whose DMARC check passed and that has standing: it has mailed you for 30 days or more (on 5 days or more, 10 clean emails or more) and nobody answered one of its emails Phishing, or an admin marked one of its emails safe; and the email must mail the way the sender usually does (the same signing domain and mail service, no new Reply-To domain, no links to a site it hasn\'t used, no attachment if it never sends one). Every other check judges it as before: DMARC, forged headers and Message-IDs, spam headers, threat lists, look-alikes, flagged links, Skip review. A Phishing answer ends the sender\'s standing.';
+            return v === 'on' ? `On: such an email is no longer marked suspicious, and one the AI would move goes to Review → Suspicious instead. ${what}${week}`
+                : v === 'off' ? 'Off: the AI\'s score judges every email the same way, and nothing is learned about senders'
+                : `Show only (the default): nothing changes; each email standing would have changed says so on its page. ${what}${week}`;
+        } },
         { key: 'recheck', label: 'Re-check delivered mail', show: (v, d) => (v ? `On: when a phishing list adds a site or sender that an email of the last ${num(d.recheckDays || 7)} days has, every copy still in an Inbox is checked again in full and ${d.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} if the checks now say so; suspicious mail is also looked at again an hour and a day after it arrived; so is mail from, replying to or linking to a look-alike of your domain once it is found or marked a threat${d.recheckAfterUpdateHours ? `, and the mail of the last ${num(d.recheckAfterUpdateHours)} hours still in the Inbox after an update that changes how email is checked (not one that only changes the dashboard or wording)` : ''}. Threats → Re-checked lists what was found`
             : 'Off: mail is checked once, when it arrives. Nothing is kept to find it again') },
         { key: 'brakePerHour', label: 'Brake (whole domain)', show: (v, d) => `${v ? `${num(v)} moves an hour, then moving stops everywhere until an admin resumes` : `Automatic: ${num(d.brakeLimit)} moves an hour now (half the watched mailboxes, at least 100), then moving stops until an admin resumes`}. (0.6.63) Spam is counted apart, with its own limit (${d.spamBrakePerHour ? `${num(d.spamBrakePerHour)} an hour, SPAM_BRAKE_PER_HOUR` : 'the same number, SPAM_BRAKE_PER_HOUR to change it'}): too much spam stops only spam, never phishing` },
@@ -3000,7 +3011,7 @@
         { key: 'retentionDays', label: 'Records kept', show: (v) => `${num(v)} days: each email's record is deleted ${num(v)} days after it arrived, the oldest first` }
     ];
     // Each setting's default, and how the page names it when it is in force (0.6.0).
-    const POLICY_DEFAULTS = { mode: ['monitor', 'Safe default'], aiMovesInside: [false, 'Safe default'], aiScansInside: [false, 'Default'], suspiciousLabel: [false, 'Default'], ignoreSuspicious: [false, 'Default'], recheck: [true, 'Default'], brakePerHour: [0, 'Safe default'] };
+    const POLICY_DEFAULTS = { mode: ['monitor', 'Safe default'], aiMovesInside: [false, 'Safe default'], aiScansInside: [false, 'Default'], suspiciousLabel: [false, 'Default'], ignoreSuspicious: [false, 'Default'], senderStanding: ['show', 'Default'], recheck: [true, 'Default'], brakePerHour: [0, 'Safe default'] };
     const entries = (l, none) => {
         const list = l || [];
         if (!list.length) return h('div', { text: none });
@@ -3013,7 +3024,7 @@
         // (0.5.73) Not a sender: link sites a phishing list's listing of the whole domain doesn't flag.
         { key: 'allowLinkDomains', label: 'Link domains', show: (v) => entries(v, 'None. Every phishing list counts for every link.') }
     ];
-    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', ignoreSuspicious: 'IGNORE_SUSPICIOUS', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', allowLinkDomains: 'ALLOW_LINK_DOMAINS', retentionDays: 'RETENTION_DAYS' };
+    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', ignoreSuspicious: 'IGNORE_SUSPICIOUS', senderStanding: 'SENDER_STANDING', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', allowLinkDomains: 'ALLOW_LINK_DOMAINS', retentionDays: 'RETENTION_DAYS' };
     function policyCard(d, ROWS, title, sub) {
         const P = d.policy || {};
         let openKey = null;
@@ -3028,6 +3039,7 @@
             // (install.sh doesn't pass these: off, or for recheck on, unless changed here or set in the services' environment)
             if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel' || key === 'ignoreSuspicious') return p.env ? `On in the services' environment (${ENV_NAME[key]}).` : `Off: the default (${ENV_NAME[key]}).`;
             if (key === 'recheck') return p.env ? `On: the default (${ENV_NAME[key]}).` : `Off in the services' environment (${ENV_NAME[key]}=false).`;
+            if (key === 'senderStanding') return p.env === 'show' || !p.env ? `Show only: the default (${ENV_NAME[key]}).` : `${p.env === 'on' ? 'On' : 'Off'} in the services' environment (${ENV_NAME[key]}).`;
             if (key === 'allowLinkDomains') return (p.env || []).length ? `From the services' environment (${ENV_NAME[key]}).` : 'None: the default. Added here.';
             return `From settings.env (${ENV_NAME[key]}).`;
         };
@@ -3120,6 +3132,12 @@
             const choices = h('div', { class: 'choices' }, radio(false, 'Off: suspicious emails stay in the Inbox as they arrived (the default)'), radio(true, `On: they get the label ${d.suspiciousLabelName || 'SPRUCE/Suspicious'}, which their reader sees`));
             read = () => choices.querySelector('input:checked').value === 'on';
             extra = [choices, h('div', { class: 'small muted', text: 'Only emails that are suspicious but not moved (Review → Suspicious, not moved) get it, in monitor mode too; nothing is moved by it. Marking one a false alarm takes the label off. Turning it off labels no more; the ones labeled keep it.' })];
+        } else if (key === 'senderStanding') {
+            // (0.6.76) Three choices; show only is the default.
+            const radio = (v, label) => h('label', { class: 'choice' }, h('input', { type: 'radio', name: 'policy-sender-standing', value: v, checked: (value || 'show') === v }), h('span', { text: label }));
+            const choices = h('div', { class: 'choices' }, radio('show', 'Show only: record and show what it would change, change nothing (the default)'), radio('on', 'On: where only the AI objects, a sender with standing isn\'t marked suspicious, and goes to Review instead of being moved'), radio('off', 'Off: don\'t use or learn sender standing'));
+            read = () => choices.querySelector('input:checked').value;
+            extra = [choices, h('div', { class: 'small muted', text: 'Standing is learned from clean mail whose DMARC check passed, and from Mark safe answers, and kept as one-way hashes only (no addresses, no content). Free-mail domains and your own never get it. A Phishing answer on any of a sender\'s emails ends it; Undo of that answer gives it back.' })];
         } else if (key === 'ignoreSuspicious') {
             // (0.6.75) Off by default; moves nothing, only what Review lists.
             const radio = (v, label) => h('label', { class: 'choice' }, h('input', { type: 'radio', name: 'policy-ignore-suspicious', value: v ? 'on' : 'off', checked: !!value === v }), h('span', { text: label }));

@@ -29,6 +29,7 @@ const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOK
 const sims = require('./simulations');
 const { promotionalSigns, aiMarketingSign } = require('./promotional');
 const remember = require('./remember');
+const ST = require('./standing');
 const RQ = require('./review-queues');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -76,6 +77,9 @@ const NOTED_EVERY_MS = 10 * 60 * 1000;
 const QUIET_POSITION_MS = 30 * 60 * 1000;
 // Senders remembered per instance (about 100 bytes each).
 const SENDERS_KEPT = 100000;
+// (0.6.76) Sender standing (src/standing.js): pending clean-mail counts written at this many senders at the latest; each
+// sender's standing read again after STANDING_CACHE_MS (an answer elsewhere reaches this instance by then).
+const STANDING_BUF_MAX = 2000, STANDING_CACHE_MS = 2 * 60 * 1000, STANDING_CACHE_MAX = 20000;
 // How often the worker writes the day's counters it added up (src/server.js; see Service.count).
 const STAT_FLUSH_MS = 5000;
 // The daily renewal of the watches (Gmail stops notifying for a mailbox whose watch isn't renewed for 7
@@ -224,7 +228,7 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 // by, at }) and applies to every instance within POLICY_REFRESH_MS. It records the settings.env value it
 // replaced (env): when settings.env later has another value for the same setting (changed, then
 // install.sh), that one is newer and applies. The most recent change wins, wherever it was made.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'ignoreSuspicious', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'ignoreSuspicious', 'senderStanding', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
 const LIST_KEYS = ['allowDomains', 'allowAddresses', 'allowLinkDomains'];
 // (0.6.59; 0.6.65) Settings → Policy → Skip review (policy.js strictWhy).
 const STRICT_WORDS = { 'forged-headers': 'forged headers', 'spam-headers': 'spam headers', 'sender-listed': 'sender on a threat list', 'dmarc-fail': 'failed sender check', 'dmarc-missing': 'no DMARC', 'dangerous-links': 'dangerous links' };
@@ -311,6 +315,7 @@ function policyValue(key, v, now = {}) {
         return wrong.length ? bad(`Skip review takes ${STRICT_KINDS.join(', ')} (or none).`) : strictKinds(items);
     }
     if (key === 'watchScope') return v === 'pilot' || v === 'domain' ? v : bad('Who is checked is the pilot or the whole domain.');
+    if (key === 'senderStanding') { const t = String(v || '').trim().toLowerCase(); return ['off', 'show', 'on'].includes(t) ? t : bad('Sender standing is off, show or on.'); }
     const pc = (x) => `${Math.round(Number(x) * 1000) / 10}%`;
     if (key === 'aiThreshold') {
         const n = Number(v), floor = typeof now.aiSuspicious === 'number' ? now.aiSuspicious : 0.5;
@@ -339,6 +344,7 @@ function policyWords(key, v) {
     if (key === 'strictSpam') { const l = strictKinds(v); return l.length ? l.map(x => STRICT_WORDS[x] || x).join(', ') : 'off'; }
     if (key === 'releasesRepo' || key === 'modelRepo') return String(v || '').trim() ? repos.shown(v) : 'not set';
     if (key === 'watchScope') return v === 'domain' ? 'the whole domain' : 'the pilot';
+    if (key === 'senderStanding') return v === 'on' ? 'on' : v === 'off' ? 'off' : 'show only';
     if (key === 'aiThreshold' || key === 'aiSuspicious') return `${Math.round(Number(v) * 1000) / 10}%`;
     if (key === 'brakePerHour') return Number(v) ? `${Number(v).toLocaleString('en-US')} moves an hour` : 'automatic (half the watched mailboxes, at least 100)';
     if (key === 'retentionDays') return `${Number(v)} days`;
@@ -374,6 +380,9 @@ class Service {
         // Kept per instance, as they never change once known: when each sender was first seen (a hash, as
         // in Firestore), and the campaigns whose alert has been sent.
         this.installedAt = null; this.senderSeen = new Map(); this.alerted = new Set();
+        // (0.6.76) Sender standing: clean mail's counts and profiles, added up and written with the day's counters; and each
+        // sender's standing as read, for STANDING_CACHE_MS.
+        this.standingBuf = new Map(); this.standingCache = new Map();
         this.emailSlots = new Slots(EMAIL_SLOTS); this.largeSlots = new Slots(LARGE_SLOTS); this.rescanSlots = new Slots(RESCAN_SLOTS);
     }
     // The day an instant falls on in the organization's time zone (TIME_ZONE, Settings → Policy).
@@ -394,6 +403,7 @@ class Service {
         if (Date.now() - this.statFlushedAt >= this.statFlushMs) await this.flushStats();
     }
     async flushStats() {
+        await this.flushStanding().catch((e) => this.log.error('sender standing:', e));
         if (!this.statBuf.size) return;
         const buf = this.statBuf;
         this.statBuf = new Map(); this.statFlushedAt = Date.now();
@@ -406,6 +416,79 @@ class Service {
                 this.log.error('writing the day\'s counters:', e);
             }
         }
+    }
+    // (0.6.76) Sender standing (src/standing.js). Clean mail from a sender Gmail confirmed (DMARC), outside the organization,
+    // not a free-mail domain, adds to its sender's history and profile: added up per sender and day here, written with the
+    // day's counters (at once when statFlushMs is 0). Only one-way hashes.
+    async learnStanding(facts, result, { relay = false, now, day }) {
+        if ((this.cfg.senderStanding || 'off') === 'off' || relay || !result || result.inside || result.status !== 'clean' || !result.verified || !facts.auth || facts.auth.dmarc !== 'pass') return;
+        const E = spruce.load();
+        const reg = ST.senderDomain(E, facts, this.cfg.orgDomains);
+        if (!reg) return;
+        const key = ST.keyOf(reg), id = `${key}|${day}`;
+        const d = this.standingBuf.get(id) || { key, first: now, now, day, n: 0, prof: {} };
+        d.n++; d.now = now; d.prof = ST.mergeProfile(d.prof, ST.profileOf(E, facts, result));
+        this.standingBuf.set(id, d);
+        if (!this.statFlushMs || this.standingBuf.size >= STANDING_BUF_MAX) await this.flushStanding();
+    }
+    async flushStanding() {
+        if (!this.standingBuf.size) return;
+        const buf = [...this.standingBuf.values()];
+        this.standingBuf = new Map();
+        await pool(buf, 8, async (d) => {
+            try { await this.store.updateStanding(d.key, (old) => ST.addTo(old, d)); this.standingCache.delete(d.key); }
+            catch (e) { this.log.error('sender standing:', e); }
+        });
+    }
+    async standingNow(key) {
+        const c = this.standingCache.get(key);
+        if (c && this.now() - c.at < STANDING_CACHE_MS) return c.doc;
+        const doc = await this.store.getStanding(key);
+        if (this.standingCache.size >= STANDING_CACHE_MAX) this.standingCache.delete(this.standingCache.keys().next().value);
+        this.standingCache.set(key, { at: this.now(), doc });
+        return doc;
+    }
+    // What standing does to a decision: { decision, note }. note (kept on the email's record): the sender's key and the
+    // email's profile (hashes), the standing found and why, its effect; null when standing can't apply (the AI isn't the
+    // only thing that objects, the sender check didn't pass, a free-mail sender…). Off: nothing. Show: the decision stands,
+    // its why says what standing would have done. On: suspicious → not flagged ('clear'); moved → Review ('review').
+    async applyStanding(facts, result, decision, { relay = false, now }) {
+        const mode = this.cfg.senderStanding || 'off';
+        if (mode === 'off' || ST.whyNotEligible(result, facts, decision, { relay })) return { decision, note: null };
+        const E = spruce.load();
+        const reg = ST.senderDomain(E, facts, this.cfg.orgDomains);
+        if (!reg) return { decision, note: null };
+        const key = ST.keyOf(reg), prof = ST.profileOf(E, facts, result);
+        const s = ST.standingFor(await this.standingNow(key), prof, now) || { kind: null, ok: false, why: 'the sender has no standing yet (no clean mail from it so far)' };
+        const note = { key, prof, kind: s.kind, ok: s.ok, why: s.why, mode, effect: s.ok ? ST.effectOf(decision) : null };
+        if (!s.ok) return { decision, note };
+        if (mode === 'show') return { decision: Object.assign({}, decision, { why: `${decision.why}; sender standing (show only) would have ${note.effect === 'clear' ? 'left it unflagged' : 'sent it to Review instead of moving it'}: ${s.why}` }), note };
+        if (note.effect === 'clear') return { decision: { action: 'none', trigger: null, why: '' }, note };
+        return { decision: { action: 'flag', trigger: decision.trigger, why: `${decision.why}; not moved: only the AI objects and the sender has standing (${s.why}), so it waits in Review`, standing: true }, note };
+    }
+    // An admin's answer and the sender's standing: Mark safe on an email standing could have changed gives its sender
+    // standing (and its profile, the outline of how it mails); Phishing ends it. { key, prev } for Undo, or null.
+    async standingAnswer(rec, by, kind) {
+        if (!rec || rec.inside || !(rec.auth && rec.auth.dmarc === 'pass') || !rec.sender) return null;
+        if (kind === 'safe' && !(rec.standing && rec.standing.prof)) return null;
+        const reg = ST.senderDomain(spruce.load(), { senderAddress: rec.sender.address }, this.cfg.orgDomains);
+        if (!reg) return null;
+        const key = (rec.standing && rec.standing.key) || ST.keyOf(reg), now = this.now();
+        let prev = null;
+        await this.store.updateStanding(key, (old) => {
+            const d = Object.assign({ first: now, last: now, lastDay: null, days: 0, count: 0, prof: {} }, old || {});
+            prev = { safe: d.safe || null, phishAt: d.phishAt || null, phishBy: d.phishBy || null };
+            if (kind === 'safe') { d.safe = { at: now, by, key: rec.key }; d.prof = ST.mergeProfile(d.prof, rec.standing.prof); }
+            else { d.phishAt = now; d.phishBy = by; }
+            return d;
+        });
+        this.standingCache.delete(key);
+        return { key, prev };
+    }
+    async standingUndo(u) {
+        if (!u || !u.key) return;
+        await this.store.updateStanding(u.key, (old) => (old ? Object.assign({}, old, { safe: u.prev.safe, phishAt: u.prev.phishAt, phishBy: u.prev.phishBy }) : null));
+        this.standingCache.delete(u.key);
     }
     // When a sender was first seen: Firestore's answer (a transaction on senders/{hash}) the first time on
     // this instance, then this instance's copy.
@@ -487,6 +570,10 @@ class Service {
             : key === 'suspiciousLabel' ? (value
                 ? `${by} turned on the Suspicious label on the dashboard (${how}): from now on, an email that is suspicious but not moved gets the label ${this.cfg.suspiciousLabelName} in its mailbox, so its reader sees it, in monitor mode too. Nothing is moved by it.`
                 : `${by} turned off the Suspicious label on the dashboard (${how}): no more emails get it; the ones that have it keep it.`)
+            : key === 'senderStanding' ? (value === 'on'
+                ? `${by} turned on sender standing on the dashboard (${how}): where only the AI objects to an email from a sender with standing (one that has mailed you the same way for a month, or one an admin marked safe), it is no longer marked suspicious, and it goes to Review instead of being moved. Every other check judges it as before.`
+                : value === 'off' ? `${by} turned off sender standing on the dashboard (${how}): the AI's score judges every email as before, and nothing more is learned about senders.`
+                : `${by} set sender standing to show only on the dashboard (${how}): what it would change is recorded and shown, and nothing changes.`)
             : key === 'ignoreSuspicious' ? (value
                 ? `${by} turned on Ignore suspicious on the dashboard (${how}): emails that are suspicious but not moved are still checked, recorded and looked at again later (and moved if they then should be), but Review no longer lists them (no Suspicious tab) and they get no Suspicious label.`
                 : `${by} turned off Ignore suspicious on the dashboard (${how}): Review lists suspicious emails that weren't moved again (Review → Suspicious)${this.cfg.suspiciousLabel ? `, and new ones get the label ${this.cfg.suspiciousLabelName}` : ''}.`)
@@ -920,6 +1007,7 @@ class Service {
             const learned = await this.learnSpam(user, facts, result, decision, allowlisted).catch((e) => { this.log.error('spam learning:', e); return null; });
             if (learned) decision = learned.action === 'move' && await this.brakeOn(now) ? Object.assign({}, learned, { action: 'would-move', why: `${learned.why}; the brake is on, so it was left in the Inbox` }) : learned;
         }
+        if ((decision.action === 'none' || decision.action === 'promo') && !alreadyMoved && !userPlaced) await this.learnStanding(facts, result, { relay: !!relay, now, day }).catch((e) => this.log.error('sender standing:', e));
         if (decision.action === 'none') return this.withIndex({ user, messageId: msg.id, action: 'none', status: result.status, ai: result.ai && result.ai.probability }, msg, facts, result);
         const senderDomain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
         const campaign = campaignOf(senderDomain, facts.subject, user);
@@ -928,6 +1016,16 @@ class Service {
         // the same way (recorded, never moved, no Suspicious label, not listed for review).
         const auto = !alreadyMoved && ['move', 'would-move', 'flag'].includes(decision.action) ? await this.autoAnswerOf(result, verified, decision, campaign.key).catch((e) => { this.log.error('remembered answer:', e); return null; }) : null;
         if (auto) decision = { action: 'flag', trigger: decision.trigger, why: `${decision.why}; ${auto.kind === 'remembered' ? `${auto.by} marked an identical email safe` : `${auto.by} dismissed this campaign as a false alarm`}, so it is answered the same way and left alone`, autoAnswer: auto };
+        // (0.6.76) Sender standing: only where the AI alone objects (src/standing.js).
+        let standingNote = null;
+        if (!alreadyMoved && !userPlaced && !auto) {
+            const st = await this.applyStanding(facts, result, decision, { relay: !!relay, now }).catch((e) => { this.log.error('sender standing:', e); return { decision, note: null }; });
+            decision = st.decision; standingNote = st.note;
+            if (decision.action === 'none') {
+                await this.count(day, 'standingCleared');
+                return this.withIndex({ user, messageId: msg.id, action: 'none', status: result.status, ai: result.ai && result.ai.probability, standing: 'clear' }, msg, facts, result);
+            }
+        }
         // The brake was already on (decide): held for the admin's resume.
         let held = decision.braked ? 'brake' : null;
         if (decision.action === 'move' && !alreadyMoved) ({ decision, held } = await this.brakes(decision, result, campaign.key, campaignLabel, now));
@@ -953,7 +1051,9 @@ class Service {
             catch (e) { this.log.error(`suspicious label ${user} ${msg.id}:`, e); }
         }
         const rec = this.recordOf(user, msg, facts, result, decision, { now, campaign, campaignLabel, senderDomain, held, state, userPlaced, labeled });
+        if (standingNote) rec.standing = Object.assign({}, standingNote, decision.standing ? { applied: 'review' } : {});
         await this.store.saveRecord(rec);
+        if (standingNote && standingNote.ok) await this.count(day, decision.standing ? 'standingHeld' : standingNote.effect === 'clear' ? 'standingWouldClear' : 'standingWouldReview');
         await this.count(day, decision.autoAnswer ? 'autoAnswered' : decision.action === 'move' ? 'moved' : decision.action === 'would-move' ? 'wouldMove' : decision.action === 'promo' ? 'promotional' : 'flagged');
         if (decision.action === 'move' && !this.alerted.has(campaign.key)) {
             // (counted until the campaign's alert is sent; after that this instance writes nothing more)
@@ -1882,6 +1982,8 @@ class Service {
         const learned = falseAlarm ? await this.learnBrandSender(rec, by).catch(e => { this.log.error('brand sender:', e); return null; }) : null;
         // (0.6.56) Remembered: identical copies to anyone are answered the same way (autoAnswerOf), and those waiting now too.
         const remembered = falseAlarm && !noRemember ? await this.rememberAnswer(rec, by).catch(e => { this.log.error('remember:', e); return null; }) : null;
+        // (0.6.76) Sender standing: Mark safe gives the sender standing (an email standing could have changed); Phishing ends it.
+        const standing = (falseAlarm && !noRemember) || (!falseAlarm && !spam) ? await this.standingAnswer(rec, by, falseAlarm ? 'safe' : 'phish').catch(e => { this.log.error('sender standing:', e); return null; }) : null;
         // (0.6.35) A Spam answer with "Also send future mail from this sender straight to Spam": a verified outside sender only.
         let spamSenderAdded = null;
         if (!falseAlarm && spam && addSender && rec.auth && rec.auth.dmarc === 'pass' && !rec.inside && rec.sender && rec.sender.address) {
@@ -1889,8 +1991,8 @@ class Service {
             if (r && r.ok) spamSenderAdded = r.key;
         }
         // (0.6.39) Undo takes back what this answer added to a list too.
-        if ((spamSenderAdded && !(await this.spamSenderWas(spamSenderAdded, rec))) || (learned && learned.added) || (remembered && remembered.added))
-            out = await this.store.updateRecord(key, { undo: Object.assign({}, out.undo, spamSenderAdded ? { spamSender: spamSenderAdded } : {}, learned && learned.added ? { brandSender: learned.key } : {}, remembered && remembered.added ? { remembered: rec.fingerprint } : {}) });
+        if ((spamSenderAdded && !(await this.spamSenderWas(spamSenderAdded, rec))) || (learned && learned.added) || (remembered && remembered.added) || standing)
+            out = await this.store.updateRecord(key, { undo: Object.assign({}, out.undo, spamSenderAdded ? { spamSender: spamSenderAdded } : {}, learned && learned.added ? { brandSender: learned.key } : {}, remembered && remembered.added ? { remembered: rec.fingerprint } : {}, standing ? { standing } : {}) });
         // A false alarm loses the Suspicious label it was given (0.5.33).
         if (falseAlarm && rec.suspiciousLabel) {
             try { await this.gmail.modify(rec.user, rec.messageId, [], [await this.gmail.labelId(rec.user, this.cfg.suspiciousLabelName)]); out = await this.store.updateRecord(key, { suspiciousLabel: false }); }
@@ -1936,6 +2038,7 @@ class Service {
         } catch (e) { this.log.error(`undo ${key}:`, e); return { error: 'Gmail didn\'t take the email back: try again.', status: 502 }; }
         if (u.spamSender) await this.removeSpamSender(u.spamSender, by).catch(() => {});
         if (u.remembered) await this.forgetAnswer(u.remembered, by, { quiet: true }).catch(() => {});
+        if (u.standing) await this.standingUndo(u.standing).catch(() => {});
         if (u.brandSender) {
             const all = Object.assign({}, (await this.store.getState('brandSenders')) || {});
             if (all[u.brandSender]) { delete all[u.brandSender]; await this.store.setState('brandSenders', all); this._brandSenders = null; }
@@ -2522,6 +2625,8 @@ class Service {
         result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
         await this.applySpamMemory(user, facts, result);
         let decision = decide(result, this.cfg, { brake: await this.brakeOn() });
+        // (0.6.76) Sender standing, as on arrival: a re-check doesn't move what standing keeps in Review.
+        if (!(before && before.userPlaced)) ({ decision } = await this.applyStanding(facts, result, decision, { relay: !!platformNotification(facts, this.cfg.orgDomains), now }).catch(() => ({ decision })));
         const was = before ? before.action : 'none';
         if ((RECHECK_RANK[decision.action] || 0) <= (RECHECK_RANK[was] || 0)) {
             if (before && item.source === 'later') await this.store.updateRecord(key, { laterChecks: (before.laterChecks || 0) + 1, laterCheckAt: now });
