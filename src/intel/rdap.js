@@ -6,6 +6,7 @@
 // An answer slower than WAIT_MS is "unknown" (and not kept): a slow registry never holds an email up.
 // (0.5.64) serverFor also gives the ownership lookups (src/intel/ownership.js) a registry's RDAP address.
 const { TtlCache } = require('./http');
+const timing = require('../timing');
 const BOOTSTRAP_URL = 'https://data.iana.org/rdap/dns.json';
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000, UNKNOWN_KEEP_MS = 24 * 60 * 60 * 1000;
 const WAIT_MS = 4000;
@@ -54,9 +55,11 @@ function createRdap({ http, store, engine, now = () => Date.now() }) {
     async function ageDays(domain) {
         const reg = engine.registrableDomain(String(domain || '').toLowerCase());
         if (!reg || !engine.SENDER_DOMAIN_RE.test(reg)) return null;
+        const t0 = Date.now();
         const mem = memo.get(reg);
         const hit = mem !== undefined ? mem : await store.getCached('age', reg).catch(() => null);
         let v = hit;
+        const from = mem !== undefined ? 'memory' : hit ? 'store' : 'network';
         if (!v) {
             if (!flights.has(reg)) {
                 flights.set(reg, (async () => {
@@ -71,6 +74,7 @@ function createRdap({ http, store, engine, now = () => Date.now() }) {
             v = await flights.get(reg);
         }
         if (v && mem === undefined) memo.set(reg, v, v.created ? MEMO_MS : Math.min(MEMO_MS, UNKNOWN_KEEP_MS));
+        timing.note('Domain age (RDAP)', Date.now() - t0, from);
         return v && v.created ? Math.max(0, Math.floor((now() - v.created) / DAY)) : null;
     }
     // (0.6.30) A domain's registration as the registry says it now (never cached), for the allow lists' 30-day check

@@ -80,13 +80,13 @@ async function networkChecks(E, intel, facts, judged, ctx) {
 
     const [hostResults, urlResults, ages, senderAge, senderOnList, senderDomainListed, linkListed, shResults, allowedListed] = await Promise.all([
         intel.threats ? intel.threats.checkHosts(hosts) : new Map(),
-        intel.threats && (!intel.threats.enabled || intel.threats.enabled.safeBrowsing) ? intel.threats.checkUrls(web.map(j => ({ url: j.finalUrl && j.finalUrl !== j.url ? j.finalUrl : j.url, text: j.text })).concat(web.filter(j => j.finalUrl && j.finalUrl !== j.url).map(j => ({ url: j.url, text: j.text })))) : new Map(),
+        intel.threats && (!intel.threats.enabled || intel.threats.enabled.safeBrowsing) ? intel.threats.checkUrls(web.map(j => ({ url: j.finalUrl && j.finalUrl !== j.url ? j.finalUrl : j.url, text: j.text })).concat(web.filter(j => j.finalUrl && j.finalUrl !== j.url).map(j => ({ url: j.url, text: j.text }))), { staleOk: !!ctx.staleOk }) : new Map(),
         intel.rdap ? Promise.all(ageDomains.map(async d => ({ domain: d, days: await intel.rdap.ageDays(d).catch(() => null), signIn: signInOf.get(d) }))) : [],
         intel.rdap && senderReg ? intel.rdap.ageDays(senderReg).catch(() => null) : null,
         intel.feeds && facts.senderAddress ? intel.feeds.addressHit(facts.senderAddress).catch(() => null) : null,
         intel.feeds && senderDomain && !personal && !ours(senderDomain) ? intel.feeds.domainHit(senderDomain).catch(() => null) : null,
         intel.feeds ? Promise.all(web.map(async j => [j, (await listHit(j.finalUrl || j.url)) || (j.finalUrl && j.finalUrl !== j.url ? await listHit(j.url) : null)])) : [],
-        intel.spamhaus && shDomains.length ? intel.spamhaus.checkDomains(shDomains).catch(() => new Map()) : new Map(),
+        intel.spamhaus && shDomains.length ? intel.spamhaus.checkDomains(shDomains, { staleOk: !!ctx.staleOk }).catch(() => new Map()) : new Map(),
         allowedHits
     ]);
     checks.lists = !!intel.feeds;

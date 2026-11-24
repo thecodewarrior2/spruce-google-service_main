@@ -20,6 +20,7 @@
 // registry and registrar (RDAP). Answers are kept in the shared store for 30 days (unknown: a day), and by each
 // instance for MEMO_MS; one lookup at a time per domain and brand.
 const { TtlCache } = require('./http');
+const timing = require('../timing');
 
 const DOH = 'https://cloudflare-dns.com/dns-query';
 // (0.6.46) Answers kept: proof (owned) and likely 60 days, refreshed in the background once REFRESH_MS old so a busy
@@ -353,7 +354,9 @@ function createOwnership({ http, store, engine: E, rdapServer, whois = null, lea
         }
         return flights.get(key);
     }
-    return { of, ofCompany, sameOwner };
+    // (0.6.77) Each answer timed (src/timing.js), for the re-check card's slowest steps.
+    const timedFn = (fn) => (...a) => timing.timed('Domain ownership', () => fn(...a));
+    return { of: timedFn(of), ofCompany: timedFn(ofCompany), sameOwner: timedFn(sameOwner) };
 }
 
 module.exports = { createOwnership, sameOperatorNs, registrantNamesBrand, reportMailboxes, accountMailbox, ownNameServer, CORPORATE_REGISTRARS };

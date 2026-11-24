@@ -247,7 +247,13 @@ async function buildDemo({ now = Date.now(), cfg }) {
     await store.setState('recheckQueue', Array.from({ length: 1240 }, (_, i) => ({ queuedAt: now - 2 * H, user: staff[i % staff.length], id: `demo-recheck-${i}`, receivedAt: now - 3 * H - i * 60000,
         source: i < 1180 ? 'update' : i < 1225 ? 'later' : 'lists', version: '0.6.70' })));
     await store.setState('recheckProgress', { startedAt: now - 2 * H, checked: 640, moved: 0, wouldMove: 2, suspicious: 5, notInInbox: 31, errors: 0,
-        mailboxes: Array.from({ length: 41 }, (_, i) => `demo${i}`), lastRun: { at: now - 37 * 60 * 1000, checked: 210, ms: 52000, slowestMs: 9000 }, perHour: 330,
+        mailboxes: Array.from({ length: 41 }, (_, i) => `demo${i}`), lastRun: { at: now - 37 * 60 * 1000, checked: 210, ms: 52000, slowestMs: 9000,
+            // (0.6.77) Where the run's time went (made up).
+            steps: [{ step: 'One email, in all', n: 210, totalMs: 520000, avgMs: 2476, maxMs: 9000, memory: 0, store: 0, network: 0 },
+                { step: 'Checks (all)', n: 210, totalMs: 300000, avgMs: 1429, maxMs: 7000, memory: 0, store: 0, network: 0 },
+                { step: 'Gmail fetch', n: 210, totalMs: 160000, avgMs: 762, maxMs: 3100, memory: 0, store: 0, network: 0 },
+                { step: 'Safe Browsing', n: 210, totalMs: 61000, avgMs: 290, maxMs: 1200, memory: 12, store: 150, network: 48 },
+                { step: 'Domain age (RDAP)', n: 380, totalMs: 22000, avgMs: 58, maxMs: 4000, memory: 230, store: 141, network: 9 }] }, perHour: 330,
         runs: [{ at: now - 38 * 60 * 1000, checked: 120, ms: 36000 }, { at: now - 37 * 60 * 1000, checked: 210, ms: 52000 }], endedAt: null });
     await store.setState('spamRescued', { 'coupon-blast.example': { users: ['demo-a', 'demo-b', 'demo-c', 'demo-d'], first: now - 12 * DAY, last: now - 2 * DAY, shared: true, keep: false } });
     // (the colleague-name check read the demo directory while the made-up mail was judged: as of now)

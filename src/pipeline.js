@@ -30,6 +30,7 @@ const sims = require('./simulations');
 const { promotionalSigns, aiMarketingSign } = require('./promotional');
 const remember = require('./remember');
 const ST = require('./standing');
+const timing = require('./timing');
 const RQ = require('./review-queues');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -2526,10 +2527,11 @@ class Service {
         // (0.6.73) RECHECK_PARALLEL at a time, each slot taking the next email as soon as its own is done (before, a batch of 12
         // waited for its slowest email: about 24 emails an hour were checked). No email is started once budgetMs is spent.
         let taken = 0, slowestMs = 0;
+        const snap = timing.snapshot();
         await pool(queue, RECHECK_PARALLEL, async (it) => {
             taken++;
             const t0 = Date.now();
-            const out = await this.emailSlots.run(() => this.recheckMessage(it)).catch(e => {
+            const out = await this.emailSlots.run(() => { timing.note('Waiting for a free slot', Date.now() - t0); return timing.timed('One email, in all', () => this.recheckMessage(it)); }).catch(e => {
                 this.log.error(`re-check ${it.user} ${it.id}:`, e);
                 if ((it.tries || 1) < 3) retry.push(Object.assign({}, it, { tries: (it.tries || 1) + 1 }));
                 return { item: it, outcome: 'error', error: String((e && e.message) || e).slice(0, 200) };
@@ -2541,14 +2543,14 @@ class Service {
         await this.store.setState('recheckQueue', queue.concat(retry).slice(0, RECHECK_QUEUE_MAX));
         await this.recheckReport(results);
         const count = (o) => results.filter(r => r.outcome === o).length;
-        try { await this.recheckProgressAdd(results, queue.length + retry.length, { ms: Date.now() - started, slowestMs }); } catch (e) { this.log.error('re-check progress:', e); }
+        try { await this.recheckProgressAdd(results, queue.length + retry.length, { ms: Date.now() - started, slowestMs, steps: timing.since(snap) }); } catch (e) { this.log.error('re-check progress:', e); }
         return { checked: results.length, left: queue.length + retry.length, moved: count('moved'), wouldMove: count('would-move') + count('held'), notInInbox: count('not-in-inbox'), suspicious: count('flag') };
     }
 
     // (0.6.70) The re-checks under way, for Today (state/recheckProgress): since the queue last started filling, how many
     // emails were checked, in how many mailboxes (counted by a short hash, never kept readable), what was found, the last
     // run; ended when the queue is empty. A new batch after that starts a new count.
-    async recheckProgressAdd(results, left, { ms = null, slowestMs = null } = {}) {
+    async recheckProgressAdd(results, left, { ms = null, slowestMs = null, steps = null } = {}) {
         const now = this.now();
         let p = await this.store.getState('recheckProgress');
         if (!p || p.endedAt) p = { startedAt: now, checked: 0, moved: 0, wouldMove: 0, suspicious: 0, notInInbox: 0, errors: 0, mailboxes: [], endedAt: null };
@@ -2569,7 +2571,8 @@ class Service {
         const hourAgo = now - HOUR;
         const recent = (p.runs || []).filter(r => r.at > hourAgo).concat([{ at: now, checked: results.length, ms }]).slice(-6);
         p.runs = recent;
-        p.lastRun = { at: now, checked: results.length, ms, slowestMs };
+        // (0.6.77) steps: where the run's time went (src/timing.js), the slowest first.
+        p.lastRun = Object.assign({ at: now, checked: results.length, ms, slowestMs }, steps && steps.length ? { steps } : {});
         p.perHour = recent.reduce((a, r) => a + r.checked, 0);
         if (!left) p.endedAt = now;
         await this.store.setState('recheckProgress', p);
@@ -2600,27 +2603,30 @@ class Service {
     async recheckMessage(item) {
         const { user, id } = item;
         const key = recordKey(user, id), now = this.now();
-        const before = await this.store.getRecord(key);
+        const before = await timing.timed('Record read', () => this.store.getRecord(key));
         // A decision already made stands: moved or released, an admin's mark, the reader's own choice, a
         // re-check that already moved it or would; (0.6.59) promotional mail an admin kept in Review → Promotional.
         // (A copy held by a brake waits for the admins: the brake's resume on Today, or the campaign's decision
         // on Threats → Campaigns.) Reviewed mail is never judged again, by an update's re-check or any other.
         if (before && (before.state !== 'inbox' || settled(before) || (before.recheck && before.recheck.outcome !== 'flag'))) return { item, outcome: 'skipped' };
         let msg;
-        try { msg = await this.gmail.raw(user, id); }
+        try { msg = await timing.timed('Gmail fetch', () => this.gmail.raw(user, id)); }
         catch (e) { if (e instanceof GoogleApiError && e.status === 404) return { item, outcome: 'gone' }; throw e; }
         if (!msg || !msg.raw || !msg.raw.length || isSummary(msg.raw)) return { item, outcome: 'gone' };
         const labels = msg.labelIds || [];
         const where = labels.includes('INBOX') ? 'inbox' : labels.includes('SPAM') ? 'spam' : labels.includes('TRASH') ? 'trash' : 'archived';
         // Opened: Gmail's UNREAD label is gone (its reader opened it, or marked it read).
         const opened = !labels.includes('UNREAD');
-        const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
+        const facts = await timing.timed('Reading the email', () => readMessage(msg.raw, { ownDomains: this.cfg.orgDomains }));
         if (ownSentCopy(user, msg, facts)) return { item, outcome: 'skipped' };   // (its owner's own sent mail: 0.6.3)
         if (await this.trainingOf(facts)) return { item, outcome: 'skipped' };   // (a phishing-training email: 0.5.44)
         const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
         // A new sender on arrival stays one (as for an admin's re-scan); unknown for mail not recorded then.
         const firstTime = before ? (before.arrival ? !!before.arrival.firstTime : (before.signals || []).some(x => x && x.kind === 'first-time')) : false;
-        const result = await analyze(facts, await this.analyzeCtx(user, msg, facts, { trusted: allowlisted && verified, firstTime }));
+        // (0.6.77) A re-check after an update may use lookup answers up to 6 hours old (Safe Browsing's clean answers,
+        // Spamhaus): it is about the service's new checks, not about lists that changed since.
+        const ctx = await timing.timed('Lists and thread (context)', () => this.analyzeCtx(user, msg, facts, { trusted: allowlisted && verified, firstTime }));
+        const result = await timing.timed('Checks (all)', () => analyze(facts, Object.assign(ctx, { staleOk: item.source === 'update' })));
         result.allowlistedUnverified = allowlisted && !verified;
         result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
         await this.applySpamMemory(user, facts, result);
@@ -2665,11 +2671,11 @@ class Service {
             const patch = Object.fromEntries(Object.entries(rec).filter(([k, v]) => !keep.has(k) && v !== undefined));
             patch.arrival = before.arrival || { at: before.processedAt, score: before.score, status: before.status, action: before.action, firstTime,
                 ai: before.ai && typeof before.ai.probability === 'number' ? { probability: before.ai.probability, model: before.ai.model || null } : null };
-            await this.store.updateRecord(key, patch);
+            await timing.timed('Record write', () => this.store.updateRecord(key, patch));
         } else {
             // Clean on arrival (nothing was recorded then): recorded now.
             rec.arrival = { at: rec.receivedAt, action: 'none' };
-            await this.store.saveRecord(rec);
+            await timing.timed('Record write', () => this.store.saveRecord(rec));
         }
         await this.count(this.dayOf(now), state === 'moved' ? 'moved' : decision.action === 'would-move' ? 'wouldMove' : 'flagged');
         return { item, outcome, key, user, opened, where, sender: rec.sender.address, campaign: campaign.key, campaignLabel, site: item.site || '', list: item.list || '', source: item.source, version: item.version || null };

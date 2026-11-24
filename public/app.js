@@ -595,6 +595,17 @@
         const hoursLeft = perHour ? Math.ceil(r.queued / perHour) : 0;
         const left = !hoursLeft ? '' : hoursLeft <= 1 ? 'the rest within the next hour' : hoursLeft < 48 ? `about ${num(hoursLeft)} hours more` : `about ${num(Math.round(hoursLeft / 24))} days more`;
         const last = cur && cur.lastRun;
+        const secs = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s` : `${num(ms)} ms`);
+        const stepWords = (x) => {
+            const from = [x.memory ? `${num(x.memory)} from memory` : '', x.store ? `${num(x.store)} from the shared store` : '', x.network ? `${num(x.network)} asked over the network` : ''].filter(Boolean);
+            return `${x.step}: ${num(x.n)} × ${secs(x.avgMs)} on average (${secs(x.totalMs)} in all)${from.length ? `; ${from.join(', ')}` : ''}`;
+        };
+        // The headline: an email's whole time, and its slowest part (not the totals that hold the others).
+        const WHOLE = ['One email, in all', 'Checks (all)'];
+        const stepHeadline = (list) => {
+            const all = list.find(x => x.step === 'One email, in all'), part = list.find(x => !WHOLE.includes(x.step));
+            return `Where the last run's time went: ${all ? `about ${secs(all.avgMs)} an email` : ''}${all && part ? '; ' : ''}${part ? `slowest part: ${stepWords(part)}` : ''}`;
+        };
         const stalled = running && ((last && now - last.at > 2.5 * 3600 * 1000) || (!last && r.sweep && r.sweep.startedAt && now - r.sweep.startedAt > 2.5 * 3600 * 1000));
         const startedAt = cur ? cur.startedAt : (r.sweep && !r.sweep.doneAt ? r.sweep.startedAt : null);
         const sweepOpen = r.sweep && !r.sweep.doneAt;
@@ -605,6 +616,9 @@
             h('div', { class: 'small recheck-times' }, startedAt ? `Started ${when(startedAt)}` : 'Starts at the next hourly run',
                 last ? ` · last run ${when(last.at)}: ${num(last.checked)} checked${last.ms ? ` in ${Math.round(last.ms / 1000)} s` : ''}` : '',
                 perHour ? ` · ${num(perHour)} in the last hour, ${left}` : ''),
+            // (0.6.77) Where the last run's time went (src/timing.js): the slowest steps, and where lookups' answers came from.
+            last && (last.steps || []).length ? h('details', { class: 'small recheck-steps' }, h('summary', { text: stepHeadline(last.steps) }),
+                h('ul', {}, last.steps.map(x => h('li', { text: stepWords(x) })))) : null,
             stalled ? h('div', { class: 'alert warning small', role: 'alert' }, h('span', { class: 'icon', 'aria-hidden': 'true', text: '!' }),
                 h('div', { class: 'grow' }, `No re-check has run since ${when(last ? last.at : r.sweep.startedAt)}: the hourly job (spruce-sync-feeds) may not be running. `, h('a', { href: '#/status', text: 'Service status' }), ' says whether it does.')) : null,
             h('div', { class: 'small muted' }, why.length ? `Waiting: ${why.join('; ')}. ` : '',

@@ -104,7 +104,10 @@ It also keeps, shared by every instance:
 - **the phishing lists:** gzipped in Firestore, replaced daily (a download with the same entries isn't written again, 0.6.7), with each list's last download (when, and the error if it failed: `state/feedHealth`);
 - **registry dates of domains:** 30 days; an unknown one, a day;
 - **Safe Browsing's answers** (0.6.54): a one-way hash of each link address looked up (never the address) and Google's
-  verdict, a listed link a day, a clean one 30 minutes, so an update or another instance doesn't ask again;
+  verdict, a listed link a day, a clean one 30 minutes (kept 6 hours, for a re-check after an update only), so an update or
+  another instance doesn't ask again; (0.6.77) the same for **Spamhaus's answers** and **Cloudflare's site checks**: a
+  one-way hash of the domain or host (never the name) and the answer, an hour (Spamhaus; 6 hours for that re-check) or 6
+  hours (Cloudflare; a blocked site a day);
 - **brand-ownership answers** (whose a domain is, 0.5.64): 30 days; an unknown one, a day. (0.6.56) Also whether two
   domains belong to the same company (a link's text and its destination, a sender and its Reply-To), the same way.
 - **remembered answers** (0.6.56): each recorded email's **fingerprint**, a one-way hash (SHA-256) of its sender, subject,

@@ -21,6 +21,7 @@
 // of the address is kept there, with the answer, never the address.
 const crypto = require('crypto');
 const { TtlCache } = require('./http');
+const timing = require('../timing');
 
 const SINKHOLE_RE = /^(0\.0\.0\.0|127\.|::$|::1$|0:0:0:0:0:0:0:0)/;
 const CF_SECURITY = 'https://security.cloudflare-dns.com/dns-query';
@@ -29,6 +30,8 @@ const SB_URL = 'https://safebrowsing.googleapis.com/v4/threatMatches:find';
 const SB_TYPES = { MALWARE: 'malware', SOCIAL_ENGINEERING: 'phishing or a deceptive site', UNWANTED_SOFTWARE: 'unwanted software', POTENTIALLY_HARMFUL_APPLICATION: 'a harmful app' };
 const CLEAN_TTL = 6 * 60 * 60 * 1000, BAD_TTL = 24 * 60 * 60 * 1000;
 const SB_BATCH_MS = 50, SB_BATCH_MAX = 500;
+// (0.6.77) How long a re-check after an update may use a clean answer from the shared store (checkUrls staleOk).
+const STALE_OK_MS = 6 * 60 * 60 * 1000;
 // A lookup service whose every lookup has failed for this long is "down" (0.5.28): the admins are alerted
 // (setAlert: the service's, at most once a day). Our own request limits ("service busy") don't count.
 const OUTAGE_MS = 30 * 60 * 1000;
@@ -98,11 +101,27 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, store =
         const list = [...new Set(hosts.map(h => String(h || '').toLowerCase().replace(/\.$/, '')).filter(h => HOST_RE.test(h)))].slice(0, 50);
         if (!useCf) { for (const h of list) out.set(h, { verdict: 'unknown', by: 'none', reason: 'DNS threat checks are off' }); return out; }
         await Promise.all(list.map(async (h) => {
+            const t0 = Date.now();
             const hit = hostCache.get(h);
-            if (hit) { out.set(h, hit); return; }
+            if (hit) { out.set(h, hit); timing.note('Site check (Cloudflare)', 0, 'memory'); return; }
+            // (0.6.77) Another instance's answer, kept in the shared store as long as in memory (a one-way hash of the host).
+            const stored = store && store.getCached ? await store.getCached('cf', cfId(h)).catch(() => null) : null;
+            if (stored && stored.verdict && stored.until > now()) {
+                const { until, ...r } = stored;
+                hostCache.set(h, r, until - now()); out.set(h, r);
+                timing.note('Site check (Cloudflare)', Date.now() - t0, 'store');
+                return;
+            }
             try {
-                out.set(h, await lookHost(h));
+                const r = await lookHost(h);
+                out.set(h, r);
+                timing.note('Site check (Cloudflare)', Date.now() - t0, 'network');
+                if (store && store.setCached && r.verdict !== 'unknown') {
+                    const ttl = r.verdict === 'unsafe' ? BAD_TTL : CLEAN_TTL;
+                    await store.setCached('cf', cfId(h), Object.assign({}, r, { until: now() + ttl }), ttl).catch(() => {});
+                }
             } catch (e) {
+                timing.note('Site check (Cloudflare)', Date.now() - t0, 'network');
                 out.set(h, { verdict: 'unknown', by: 'Cloudflare Security', reason: `not checked (${e.name === 'ServiceBusyError' ? 'service busy' : 'lookup failed'})` });
                 if (e.name !== 'ServiceBusyError') await outcome('cloudflare', false);
             }
@@ -123,16 +142,23 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, store =
     }
     // (0.6.54) An address's key in the shared store: a one-way hash, so no address is kept there.
     const sbId = (s) => crypto.createHash('sha256').update(`spruce-sb|${s}`).digest('hex').slice(0, 32);
+    const cfId = (h) => crypto.createHash('sha256').update(`spruce-cf|${h}`).digest('hex').slice(0, 32);
     const sbTtl = (r) => (r.verdict === 'unsafe' ? BAD_TTL : 30 * 60 * 1000);
-    async function sharedAnswers(addresses) {
+    // (0.6.77) A clean answer is kept in the shared store for STALE_OK_MS, but used for an email arriving, or looked at
+    // again an hour or a day later, only for sbTtl (30 minutes): those want Google's newest answer. A re-check after an
+    // update (staleOk) may use it for longer: it is about the service's new checks, not about lists that changed.
+    const sbKeep = (r) => (r.verdict === 'unsafe' ? BAD_TTL : STALE_OK_MS);
+    async function sharedAnswers(addresses, { staleOk = false } = {}) {
         if (!store || !store.getCached) return new Map();
         const got = await Promise.all(addresses.map(s => store.getCached('sb', sbId(s)).catch(() => null)));
         const out = new Map();
         addresses.forEach((s, i) => {
             const v = got[i];
-            if (!v || !v.verdict || !(v.until > now())) return;
-            const { until, ...r } = v;
-            urlCache.set(s, r, until - now());
+            if (!v || !v.verdict) return;
+            const fresh = v.until > now(), usable = fresh || (staleOk && (v.keep || 0) > now());
+            if (!usable) return;
+            const { until, keep, ...r } = v;
+            if (fresh) urlCache.set(s, r, until - now());
             out.set(s, r);
         });
         return out;
@@ -194,13 +220,20 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, store =
         // Kept for every instance (a failure is not: it is asked again next time).
         if (store && store.setCached) {
             await Promise.all(sent.filter(s => answers.get(s) && answers.get(s).verdict !== 'unknown').map(s => {
-                const r = answers.get(s), ttl = sbTtl(r);
-                return store.setCached('sb', sbId(s), Object.assign({}, r, { until: now() + ttl }), ttl).catch(() => {});
+                const r = answers.get(s), ttl = sbTtl(r), keep = sbKeep(r);
+                return store.setCached('sb', sbId(s), Object.assign({}, r, { until: now() + ttl, keep: now() + keep }), Math.max(ttl, keep)).catch(() => {});
             }));
         }
     }
     // links: [{ url, text }] → Map(url → { verdict: 'unsafe'|'clean'|'unknown', by, reason })
-    async function checkUrls(links) {
+    // opts.staleOk (0.6.77): a re-check after an update may use a clean answer up to STALE_OK_MS old (sharedAnswers).
+    async function checkUrls(links, opts = {}) {
+        const t0 = Date.now();
+        let from = 'memory';
+        try { return await checkUrlsNow(links, opts, (f) => { from = f; }); }
+        finally { timing.note('Safe Browsing', Date.now() - t0, from); }
+    }
+    async function checkUrlsNow(links, { staleOk = false } = {}, source = () => {}) {
         const out = new Map();
         const sent = new Map();                                   // address sent → original urls
         const key = sbOn() ? await keyNow() : null;
@@ -216,8 +249,10 @@ function createThreats({ http, cfg, engine, version = '0', sbKey = null, store =
         }
         if (!sent.size) return out;
         // Answers another instance (or this one before an update) already got from Google.
-        for (const [s, r] of await sharedAnswers([...sent.keys()])) { for (const o of sent.get(s)) out.set(o, r); sent.delete(s); }
+        source('store');
+        for (const [s, r] of await sharedAnswers([...sent.keys()], { staleOk })) { for (const o of sent.get(s)) out.set(o, r); sent.delete(s); }
         if (!sent.size) return out;
+        source('network');
         const addresses = [...sent.keys()];
         const answers = await Promise.all(addresses.map(s => ask(s, key)));
         addresses.forEach((s, k) => { for (const o of sent.get(s)) out.set(o, answers[k]); });

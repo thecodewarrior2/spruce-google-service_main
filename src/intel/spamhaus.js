@@ -18,10 +18,16 @@
 // (each name costs 2: DBL and ZRD), and asks each name at most once an hour (a campaign's copies share it).
 const dns = require('dns');
 const { TtlCache } = require('./http');
+const timing = require('../timing');
+const crypto = require('crypto');
 
 const KEY_RE = /^[a-z0-9]{20,40}$/i;   // (Spamhaus's are 26 characters)
 const ZONES = { dbl: 'dbl.dq.spamhaus.net', zrd: 'zrd.dq.spamhaus.net' };
 const TTL_MS = 60 * 60 * 1000;
+// (0.6.77) Answers are also kept in the shared store (cache/sh|…, a one-way hash of the domain) for STALE_OK_MS: used for
+// TTL_MS like this instance's own, and by a re-check after an update (staleOk) for the whole STALE_OK_MS.
+const STALE_OK_MS = 6 * 60 * 60 * 1000;
+const shId = (d) => crypto.createHash('sha256').update(`spruce-sh|${d}`).digest('hex').slice(0, 32);
 const PER_EMAIL = 6;
 const QUOTA_READ_MS = 5 * 60 * 1000;
 const DBL = {
@@ -88,9 +94,19 @@ function createSpamhaus({ cfg, store, resolver = undefined, now = () => Date.now
     }
     // One domain: { dbl: { list, severity: 'danger' | 'spam' | 'abused' } | null, zrdHours: n | null } or { error }.
     // Kept TTL_MS when both zones answered.
-    async function lookup(domain, k) {
+    async function lookup(domain, k, { staleOk = false } = {}) {
+        const t0 = Date.now();
         const hit = cache.get(domain);
-        if (hit) return hit;
+        if (hit) { timing.note('Spamhaus', 0, 'memory'); return hit; }
+        const stored = store && store.getCached ? await store.getCached('sh', shId(domain)).catch(() => null) : null;
+        if (stored && stored.out && (now() - stored.at < TTL_MS || (staleOk && now() - stored.at < STALE_OK_MS))) {
+            if (now() - stored.at < TTL_MS) cache.set(domain, stored.out, TTL_MS - (now() - stored.at));
+            timing.note('Spamhaus', Date.now() - t0, 'store');
+            return stored.out;
+        }
+        try { return await lookupNow(domain, k); } finally { timing.note('Spamhaus', Date.now() - t0, 'network'); }
+    }
+    async function lookupNow(domain, k) {
         const [d, z] = await Promise.all([ask(`${domain}.${k}.${ZONES.dbl}`), ask(`${domain}.${k}.${ZONES.zrd}`)]);
         await counted(2);
         const err = [...(d.ips || []), ...(z.ips || [])].map(errorOf).find(Boolean);
@@ -101,18 +117,21 @@ function createSpamhaus({ cfg, store, resolver = undefined, now = () => Date.now
         const dbl = (d.ips || []).map(ip => DBL[ip]).filter(Boolean).sort((a, b) => order[a.severity] - order[b.severity])[0] || null;
         const zip = (z.ips || []).find(ip => /^127\.0\.2\.\d+$/.test(ip));
         const out = { dbl, zrdHours: zip ? Number(zip.split('.')[3]) : null };
-        if (!d.error && !z.error) cache.set(domain, out, TTL_MS);
+        if (!d.error && !z.error) {
+            cache.set(domain, out, TTL_MS);
+            if (store && store.setCached) await store.setCached('sh', shId(domain), { out, at: now() }, STALE_OK_MS).catch(() => {});
+        }
         return out;
     }
     // Every domain at once: Map domain → result; nothing when off, without a key, or past the day's limit.
-    async function checkDomains(domains) {
+    async function checkDomains(domains, { staleOk = false } = {}) {
         const out = new Map();
         if (!cfg.spamhaus || !key) return out;
         const k = await key.get().catch(() => null);
         if (!k) return out;
         const list = [...new Set(domains.filter(Boolean))].slice(0, PER_EMAIL);
         if (usedToday() + list.length * 2 > cfg.spamhausDailyMax) return out;
-        const results = await Promise.all(list.map(d => lookup(d, k)));
+        const results = await Promise.all(list.map(d => lookup(d, k, { staleOk })));
         let problem = null;
         list.forEach((d, i) => { if (results[i].error) problem = results[i].error; else out.set(d, results[i]); });
         if (problem && /key|zone name|IP address|error from Spamhaus/.test(problem)) await key.noteResult(false, problem, { alertText: `Spamhaus didn't accept the service's lookups (${problem}): domains aren't looked up with Spamhaus meanwhile (the other checks still run). Settings → Spamhaus says more. More: docs/ALERTS.md, "Spamhaus or abuse.ch refused the key".` });

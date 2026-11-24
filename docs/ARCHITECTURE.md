@@ -144,7 +144,7 @@ Firestore, in your own project and region (`src/store/firestore.js`). Each docum
 | `moveCounts` | the brake's hourly counters; the mass-share counters | 2 days |
 | `events` | Activity: alerts, admins' actions, errors | `AUDIT_DAYS` |
 | `blobs` | the phishing lists, gzipped, shared by every instance | replaced daily |
-| `cache` | registry dates of domains; brand-ownership answers (0.5.64); Safe Browsing's answers (0.6.54: a hash of the link address, never the address, and the verdict) | 30 days (an unknown answer: 1 day); Safe Browsing: a listed link 1 day, a clean one 30 minutes |
+| `cache` | registry dates of domains; brand-ownership answers (0.5.64); Safe Browsing's answers (0.6.54: a hash of the link address, never the address, and the verdict); (0.6.77) Spamhaus's answers and Cloudflare's site checks (a hash of the domain or host, and the answer) | 30 days (an unknown answer: 1 day); Safe Browsing: a listed link 1 day, a clean one 30 minutes (kept 6 hours for a re-check after an update); Spamhaus: an hour (6 hours for that re-check); Cloudflare: a blocked site 1 day, others 6 hours |
 | `state` | one document per setting or state: the policy changed on the dashboard (`policy-*`), the brake, the lists' health, each optional service's key metadata (never the key) and health, the re-check queue, the look-alike watch, the phishing-training rules (secret values as hashes), the last update, the weekly summary and retraining switches… | until changed |
 
 Secrets (the Safe Browsing, Spamhaus and abuse.ch keys) are only in Secret Manager.

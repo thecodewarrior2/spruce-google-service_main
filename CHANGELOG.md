@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.77: why re-checks are slow, shown; lookups shared between instances
+
+- **Today → Re-checking delivered mail says where the last run's time went:** each step (waiting for a free slot,
+  reading the email's record, fetching it from Gmail, reading it, the lists and thread, all the checks, writing the
+  record) and each lookup (domain age, domain ownership, Cloudflare's site check, Safe Browsing, Spamhaus), how many,
+  how long on average and in all, and where the answers came from (this instance's memory, the shared store, or the
+  network). The slowest step is on the card; the rest under it (`src/timing.js`: counts and milliseconds only).
+- **Lookups shared between instances:** Spamhaus's answers and Cloudflare's site checks are now kept in the shared store
+  too (as a one-way hash of the domain or host, like Safe Browsing's), for as long as each instance keeps them: the hourly
+  job, often on a fresh instance, no longer asks them all again.
+- **A re-check after an update may use older answers:** Safe Browsing's "clean" and Spamhaus's answers up to 6 hours old
+  (otherwise 30 minutes and an hour). That re-check is about the service's new checks, not lists that changed; an email
+  arriving, the looks an hour and a day later, and re-checks because a list added a site still ask for fresh answers. A
+  site found dangerous is always taken as such.
+- No rule or verdict changed (checks level kept; nothing is re-checked for this update); no installation change.
+
 ## 0.6.76: Sender standing
 
 - **Settings → Policy → Sender standing** (`SENDER_STANDING`: off, **show** (the default) or on): fewer false alarms on
