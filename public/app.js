@@ -600,8 +600,16 @@
             const from = [x.memory ? `${num(x.memory)} from memory` : '', x.store ? `${num(x.store)} from the shared store` : '', x.network ? `${num(x.network)} asked over the network` : ''].filter(Boolean);
             return `${x.step}: ${num(x.n)} × ${secs(x.avgMs)} on average (${secs(x.totalMs)} in all)${from.length ? `; ${from.join(', ')}` : ''}`;
         };
+        const outcomeWords = (l) => {
+            const o = l.outcomes || {}, n = (k) => o[k] || 0;
+            const checked = n('moved') + n('would-move') + n('held') + n('flag') + n('not-in-inbox') + n('unchanged');
+            const why = Object.entries(l.errorKinds || {}).sort((a, b) => b[1] - a[1]).map(([k, c]) => `${k}: ${num(c)}`).join('; ');
+            const bits = [`${num(checked)} checked again`, n('gone') ? `${num(n('gone'))} no longer in the mailbox` : '', n('skipped') ? `${num(n('skipped'))} skipped (answered or moved since)` : '',
+                n('error') ? `${num(n('error'))} failed (${why || 'no reason given'}; each is tried again, 3 times in all)` : ''].filter(Boolean);
+            return `Last run's emails: ${bits.join(', ')}.`;
+        };
         // The headline: an email's whole time, and its slowest part (not the totals that hold the others).
-        const WHOLE = ['One email, in all', 'Checks (all)'];
+        const WHOLE = ['One email, in all', 'Checks (all)', 'Gmail fetch'];
         const stepHeadline = (list) => {
             const all = list.find(x => x.step === 'One email, in all'), part = list.find(x => !WHOLE.includes(x.step));
             return `Where the last run's time went: ${all ? `about ${secs(all.avgMs)} an email` : ''}${all && part ? '; ' : ''}${part ? `slowest part: ${stepWords(part)}` : ''}`;
@@ -616,6 +624,8 @@
             h('div', { class: 'small recheck-times' }, startedAt ? `Started ${when(startedAt)}` : 'Starts at the next hourly run',
                 last ? ` · last run ${when(last.at)}: ${num(last.checked)} checked${last.ms ? ` in ${Math.round(last.ms / 1000)} s` : ''}` : '',
                 perHour ? ` · ${num(perHour)} in the last hour, ${left}` : ''),
+            // (0.6.78) What became of the last run's emails, and why the failed ones failed.
+            last && last.outcomes ? h('div', { class: 'small recheck-outcomes', text: outcomeWords(last) }) : null,
             // (0.6.77) Where the last run's time went (src/timing.js): the slowest steps, and where lookups' answers came from.
             last && (last.steps || []).length ? h('details', { class: 'small recheck-steps' }, h('summary', { text: stepHeadline(last.steps) }),
                 h('ul', {}, last.steps.map(x => h('li', { text: stepWords(x) })))) : null,

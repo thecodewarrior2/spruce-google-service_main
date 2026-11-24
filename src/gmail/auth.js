@@ -4,6 +4,7 @@
 // service account (iamcredentials signJwt). No private key is ever downloaded or stored, so there is
 // none to leak; the right to sign is an IAM role that can be revoked at any time (docs/DEPLOY.md).
 const { GoogleAuth } = require('google-auth-library');
+const timing = require('../timing');
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SCOPES = {
@@ -30,9 +31,10 @@ class DelegatedAuth {
     async tokenFor(user, scope = SCOPES.gmail) {
         const key = `${scope}|${user}`;
         const hit = this.cache.get(key);
-        if (hit && hit.exp - Date.now() > 5 * 60 * 1000) return hit.token;
+        if (hit && hit.exp - Date.now() > 5 * 60 * 1000) { timing.note('Gmail: access token for the mailbox', 0, 'memory'); return hit.token; }
+        const t0 = Date.now();
         if (!this.asking.has(key)) this.asking.set(key, this.newToken(user, scope, key).finally(() => this.asking.delete(key)));
-        return this.asking.get(key);
+        try { return await this.asking.get(key); } finally { timing.note('Gmail: access token for the mailbox', Date.now() - t0, 'network'); }
     }
     async newToken(user, scope, key) {
         const now = Math.floor(Date.now() / 1000);

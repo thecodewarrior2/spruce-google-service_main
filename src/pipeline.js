@@ -362,6 +362,19 @@ function ownSentCopy(user, msg, facts) {
     return !!me && String((facts && facts.senderAddress) || '').toLowerCase() === me && !(facts && facts.auth) && !/^received:/im.test(String((facts && facts.rawHead) || ''));
 }
 
+// (0.6.78) Why a re-check failed, in a few plain words and never with an address (Today's re-check card).
+function recheckErrorKind(msg) {
+    const t = String(msg || '');
+    if (/no answer from Gmail within/.test(t)) return 'Gmail gave no answer';
+    if (/signJwt/.test(t)) return 'signing in as the service failed (IAM)';
+    let m = /token for [^:]*: HTTP (\d{3})/.exec(t);
+    if (m) { const why = (/(invalid_grant|unauthorized_client|access_denied)/.exec(t) || [])[1]; return `Google refused to sign in to the mailbox (HTTP ${m[1]}${why ? `, ${why}` : ''})`; }
+    m = /HTTP (\d{3})/.exec(t);
+    if (m) return `Gmail answered HTTP ${m[1]}${/failedPrecondition/i.test(t) ? ' (mailbox not available)' : /rateLimit/i.test(t) ? ' (too many requests)' : ''}`;
+    if (/abort|timeout/i.test(t)) return 'no answer in time';
+    return 'another error';
+}
+
 class Service {
     // statFlushMs: the day's counters of checked emails are added up here and written at most this often
     // (one write for all of them; 0, as in the tests: each at once). The worker uses STAT_FLUSH_MS.
@@ -2572,7 +2585,14 @@ class Service {
         const recent = (p.runs || []).filter(r => r.at > hourAgo).concat([{ at: now, checked: results.length, ms }]).slice(-6);
         p.runs = recent;
         // (0.6.77) steps: where the run's time went (src/timing.js), the slowest first.
-        p.lastRun = Object.assign({ at: now, checked: results.length, ms, slowestMs }, steps && steps.length ? { steps } : {});
+        // (0.6.78) And what became of each email of the run, with why the ones that failed did (in plain words, never an
+        // address): 22 of 24 emails fetched in a run once went no further than Gmail.
+        const outcomes = {}, errorKinds = {};
+        for (const r of results) {
+            outcomes[r.outcome] = (outcomes[r.outcome] || 0) + 1;
+            if (r.outcome === 'error') { const k = recheckErrorKind(r.error); errorKinds[k] = (errorKinds[k] || 0) + 1; }
+        }
+        p.lastRun = Object.assign({ at: now, checked: results.length, ms, slowestMs, outcomes }, Object.keys(errorKinds).length ? { errorKinds } : {}, steps && steps.length ? { steps } : {});
         p.perHour = recent.reduce((a, r) => a + r.checked, 0);
         if (!left) p.endedAt = now;
         await this.store.setState('recheckProgress', p);
@@ -3293,4 +3313,4 @@ class Service {
 
 require('./allowwatch').install(Service, { isAllowed });
 
-module.exports = { Service, ownSentCopy, campaignOf, senderHash, recordKey, dayOf, POLICY_KEYS, policyValue, STAT_FLUSH_MS, Slots, EMAIL_SLOTS, LARGE_SLOTS };
+module.exports = { Service, ownSentCopy, campaignOf, senderHash, recordKey, dayOf, POLICY_KEYS, policyValue, STAT_FLUSH_MS, Slots, EMAIL_SLOTS, LARGE_SLOTS, recheckErrorKind };

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.78: Gmail reads that hang are tried again sooner
+
+- **Re-checks were slow because of Gmail:** the re-check card (0.6.77) showed fetching an email from Gmail taking 21 s on
+  average, just past the 20 s after which a call Gmail leaves unanswered is given up and tried again: most first tries
+  seem to hang and the next to answer at once. A read's first try is now given up after **8 s** (later tries keep 20 s,
+  which a large email may need); writes (moves, labels) keep 20 s throughout.
+- **The card shows Gmail's part in detail:** the access token for each mailbox (from memory, or asked for), the download
+  itself, how many tries were given up for no answer, and how many times Gmail said it was busy. The next run tells
+  whether the hanging first tries were the cause.
+- **And what became of each email of the last run:** how many were checked again, were no longer in the mailbox, were
+  skipped (answered or moved since), or failed, with why in a few words (Gmail gave no answer, Google refused to sign in to
+  the mailbox, an HTTP error…; never an address). In the run that showed the 21 s, only 2 of the 24 emails fetched went on
+  to be checked: most of the run's time went to emails that then failed or were gone.
+- No rule or verdict changed (checks level kept; nothing is re-checked for this update); no installation change.
+
 ## 0.6.77: why re-checks are slow, shown; lookups shared between instances
 
 - **Today → Re-checking delivered mail says where the last run's time went:** each step (waiting for a free slot,

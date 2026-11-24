@@ -247,7 +247,7 @@ async function buildDemo({ now = Date.now(), cfg }) {
     await store.setState('recheckQueue', Array.from({ length: 1240 }, (_, i) => ({ queuedAt: now - 2 * H, user: staff[i % staff.length], id: `demo-recheck-${i}`, receivedAt: now - 3 * H - i * 60000,
         source: i < 1180 ? 'update' : i < 1225 ? 'later' : 'lists', version: '0.6.70' })));
     await store.setState('recheckProgress', { startedAt: now - 2 * H, checked: 640, moved: 0, wouldMove: 2, suspicious: 5, notInInbox: 31, errors: 0,
-        mailboxes: Array.from({ length: 41 }, (_, i) => `demo${i}`), lastRun: { at: now - 37 * 60 * 1000, checked: 210, ms: 52000, slowestMs: 9000,
+        mailboxes: Array.from({ length: 41 }, (_, i) => `demo${i}`), lastRun: { at: now - 37 * 60 * 1000, checked: 210, ms: 52000, slowestMs: 9000, outcomes: { unchanged: 190, flag: 3, gone: 9, skipped: 5, error: 3 }, errorKinds: { 'Gmail gave no answer': 2, 'Google refused to sign in to the mailbox (HTTP 400, invalid_grant)': 1 },
             // (0.6.77) Where the run's time went (made up).
             steps: [{ step: 'One email, in all', n: 210, totalMs: 520000, avgMs: 2476, maxMs: 9000, memory: 0, store: 0, network: 0 },
                 { step: 'Checks (all)', n: 210, totalMs: 300000, avgMs: 1429, maxMs: 7000, memory: 0, store: 0, network: 0 },

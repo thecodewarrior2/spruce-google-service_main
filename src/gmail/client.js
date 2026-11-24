@@ -2,10 +2,15 @@
 // The few Gmail and Directory API calls the service makes, over plain HTTPS. Every Gmail call names the
 // user it is for (quotaUser), so quota is counted per mailbox and not all against the service account.
 const { SCOPES } = require('./auth');
+const timing = require('../timing');
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users';
 // (0.6.44) How long one Gmail call may take before it is given up (and tried again, up to its tries).
 const CALL_TIMEOUT_MS = 20000;
+// (0.6.78) A read's first try is given up sooner: re-checks showed Gmail fetches taking 21 s on average, just past
+// CALL_TIMEOUT_MS, as if a first try hung and the next one answered at once. A read that hangs is now tried again after
+// FIRST_TRY_MS; the later tries keep CALL_TIMEOUT_MS (a large email may need it). Writes keep CALL_TIMEOUT_MS throughout.
+const FIRST_TRY_MS = 8000;
 const DIRECTORY = 'https://admin.googleapis.com/admin/directory/v1/users';
 const GROUPS = 'https://admin.googleapis.com/admin/directory/v1/groups';
 const REPORTS = 'https://admin.googleapis.com/admin/reports/v1/activity/users';
@@ -17,7 +22,7 @@ class GoogleApiError extends Error {
 }
 
 class GmailClient {
-    constructor(auth, opts = {}) { this.auth = auth; this.fetch = opts.fetch || fetch; this.labelIds = new Map(); this.timeoutMs = opts.timeoutMs || CALL_TIMEOUT_MS; }
+    constructor(auth, opts = {}) { this.auth = auth; this.fetch = opts.fetch || fetch; this.labelIds = new Map(); this.timeoutMs = opts.timeoutMs || CALL_TIMEOUT_MS; this.firstTryMs = opts.firstTryMs || FIRST_TRY_MS; }
 
     // One API call as user (or as an admin, with another scope and base), tried up to `tries` times while Google
     // is busy, waiting about 1 s, then 2 s between tries.
@@ -27,12 +32,15 @@ class GmailClient {
         for (const [k, v] of Object.entries(Object.assign({ quotaUser: user }, query))) for (const x of [].concat(v)) q.append(k, x);
         for (let i = 0; ; i++) {
             const token = await this.auth.tokenFor(user, scope);
+            const limit = method === 'GET' && i === 0 ? Math.min(this.timeoutMs, this.firstTryMs) : this.timeoutMs;
+            const t0 = Date.now();
             // (0.6.44) A call Google leaves hanging is given up after this.timeoutMs (CALL_TIMEOUT_MS) and tried again, like a busy one:
             // before, one stuck connection held an admin's answer (and everything waiting on it) until the request's limit.
             let res;
             try {
-                res = await this.fetch(`${base}${path}?${q}`, { method, headers: Object.assign({ authorization: `Bearer ${token}` }, body ? { 'content-type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(this.timeoutMs) });
+                res = await this.fetch(`${base}${path}?${q}`, { method, headers: Object.assign({ authorization: `Bearer ${token}` }, body ? { 'content-type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(limit) });
             } catch (e) {
+                if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) timing.note(`Gmail: no answer within ${Math.round(limit / 1000)} s, tried again`, Date.now() - t0);
                 if (e && (e.name === 'TimeoutError' || e.name === 'AbortError') && i < tries - 1) continue;
                 throw e && (e.name === 'TimeoutError' || e.name === 'AbortError') ? new GoogleApiError(504, `no answer from Gmail within ${this.timeoutMs / 1000} s`, `${method} ${path}`) : e;
             }
@@ -40,6 +48,7 @@ class GmailClient {
             const text = await res.text();
             // Busy or rate-limited (Gmail answers 403 rateLimitExceeded / userRateLimitExceeded too): wait, try again.
             const busy = res.status === 429 || res.status >= 500 || (res.status === 403 && /rateLimitExceeded/i.test(text));
+            if (busy) timing.note(`Gmail: busy (${res.status}), waited and tried again`, Date.now() - t0);
             if (busy && i < tries - 1) { await new Promise(r => setTimeout(r, 1000 * 2 ** i + Math.random() * 500)); continue; }
             throw new GoogleApiError(res.status, text, `${method} ${path}`);
         }
@@ -68,7 +77,9 @@ class GmailClient {
     }
     // A message whole (format raw: its RFC 822 bytes), with its thread, labels and dates.
     async raw(user, id) {
+        const t0 = Date.now();
         const r = await this.call(user, 'GET', `/messages/${encodeURIComponent(id)}`, { query: { format: 'raw' } });
+        timing.note('Gmail: the download itself (with any tries again)', Date.now() - t0);
         return { id: r.id, threadId: r.threadId, labelIds: r.labelIds || [], historyId: r.historyId ? String(r.historyId) : null, internalDate: Number(r.internalDate) || null, raw: Buffer.from(String(r.raw || ''), 'base64url') };
     }
     // A message's labels now (to check a held email is still in the Inbox before moving it).

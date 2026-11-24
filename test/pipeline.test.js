@@ -752,6 +752,27 @@ test('a Gmail call left hanging is given up after its time limit, tried again, t
     assert.deepEqual(await once.modify('pat.madeup@maple-schools.example', 'm1', ['INBOX'], []), { id: 'm1' }, 'the second try answers');
 });
 
+// 0.6.78: a read's first try is given up sooner (Gmail fetches took 21 s on average: a first try hanging, the next answering),
+// and each try given up is counted for Today's re-check card.
+test('a Gmail read that hangs is tried again after the shorter first-try limit; writes keep the full limit; counted', async () => {
+    const { GmailClient } = require('../src/gmail/client');
+    const timing = require('../src/timing');
+    const hang = (url, init) => new Promise((resolve, reject) => { const keep = setTimeout(() => {}, 2000); init.signal.addEventListener('abort', () => { clearTimeout(keep); reject(init.signal.reason); }); });
+    const seen = [];
+    let n = 0;
+    const c = new GmailClient({ tokenFor: async () => 'tok' }, { timeoutMs: 1500, firstTryMs: 60, fetch: (url, init) => { seen.push(init.method); return ++n === 1 ? hang(url, init) : Promise.resolve({ ok: true, status: 200, json: async () => ({ id: 'm1', raw: '' }) }); } });
+    const snap = timing.snapshot();
+    const t0 = Date.now();
+    await c.raw('pat.madeup@maple-schools.example', 'm1');
+    assert.ok(Date.now() - t0 < 1000, 'retried after the first-try limit, not the full one');
+    assert.ok(timing.since(snap).some(x => /no answer within/.test(x.step)), 'counted');
+    n = 0;
+    const w = new GmailClient({ tokenFor: async () => 'tok' }, { timeoutMs: 300, firstTryMs: 30, fetch: (url, init) => (++n === 1 ? hang(url, init) : Promise.resolve({ ok: true, status: 200, json: async () => ({ id: 'm1' }) })) });
+    const t1 = Date.now();
+    await w.modify('pat.madeup@maple-schools.example', 'm1', ['INBOX'], []);
+    assert.ok(Date.now() - t1 >= 250, 'a write waits the full limit before trying again');
+});
+
 test('a mailbox another watch of this Google Cloud project holds: stopped and watched again, once, and said in Activity (0.6.57)', async () => {
     const { svc, store, gmail } = await setup();
     const watch = gmail.watch;

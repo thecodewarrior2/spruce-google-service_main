@@ -98,3 +98,13 @@ test('Spamhaus: shared between instances for an hour; for an update re-check, 6 
     assert.ok(asked.length > first, 'otherwise asked again after an hour');
     assert.ok(!JSON.stringify([...store.cached.entries()]).includes('madeup-sender'), 'no domain kept in the clear');
 });
+
+test('0.6.78: why a re-check failed, in plain words and never with an address', () => {
+    const { recheckErrorKind } = require('../src/pipeline');
+    assert.equal(recheckErrorKind('GET /messages/x: HTTP 504 no answer from Gmail within 20 s'), 'Gmail gave no answer');
+    const k = recheckErrorKind('token for pat.madeup@maple-schools.example: HTTP 400 {"error":"invalid_grant"} (is domain-wide delegation set up?)');
+    assert.equal(k, 'Google refused to sign in to the mailbox (HTTP 400, invalid_grant)');
+    assert.ok(!/maple-schools/.test(k));
+    assert.equal(recheckErrorKind('GET /messages/x: HTTP 400 failedPrecondition'), 'Gmail answered HTTP 400 (mailbox not available)');
+    assert.equal(recheckErrorKind('something odd'), 'another error');
+});
