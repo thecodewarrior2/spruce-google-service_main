@@ -79,7 +79,7 @@ test('DMARC must pass: a forged allowlisted or staff address is judged like mail
         insideNoResult: { raw: mail('helpdesk@maple-schools.example', null) }
     };
     // Any AI score counts as high here, so only the exemptions decide.
-    const { store, gmail, svc } = await setup({ MODE: 'enforce', ALLOW_DOMAINS: 'vendor.example', AI_MOVE_THRESHOLD: '0.0001' }, msgs);
+    const { store, gmail, svc } = await setup({ MODE: 'enforce', ALLOW_DOMAINS: 'vendor.example', AI_MOVE_THRESHOLD: '0.0000001' }, msgs);
     await store.putUser(USER, { historyId: '1' });
     gmail.history = { ids: Object.keys(msgs), historyId: '2' };
     await svc.handleNotification({ emailAddress: USER, historyId: '2' });
@@ -94,7 +94,7 @@ test('DMARC must pass: a forged allowlisted or staff address is judged like mail
     }
     assert.deepEqual(gmail.modified.map(m => m.id).sort(), ['allowForged', 'insideForged', 'insideNoResult']);
     // With AI_SCANS_INSIDE on, the AI reads staff mail too, and its score alone still never moves it.
-    const on = await setup({ MODE: 'enforce', ALLOW_DOMAINS: 'vendor.example', AI_MOVE_THRESHOLD: '0.0001', AI_SCANS_INSIDE: 'on' }, { insideOk: msgs.insideOk });
+    const on = await setup({ MODE: 'enforce', ALLOW_DOMAINS: 'vendor.example', AI_MOVE_THRESHOLD: '0.0000001', AI_SCANS_INSIDE: 'on' }, { insideOk: msgs.insideOk });
     await on.store.putUser(USER, { historyId: '1' });
     on.gmail.history = { ids: ['insideOk'], historyId: '2' };
     await on.svc.handleNotification({ emailAddress: USER, historyId: '2' });

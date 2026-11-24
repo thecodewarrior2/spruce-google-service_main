@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.74: phish-tiny 0.28.0
+
+- **The AI model is phish-tiny 0.28.0** (TinyPhishLLM `6942a2c`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.27.0),
+  the same input format 3 and spam answer (the sync checked all 95 reference cases). Trained from 0.27.0, five runs
+  averaged, kept close to 0.27.0's answers only where 0.27.0 is right; also trained on published research collections
+  (never published) and a district's de-identified examples (never published). It passes every one of the model's
+  release checks, which 0.27.0 didn't.
+- **What changes**, against 0.27.0 at the 65% line (held-out sets, never trained on; TinyPhishLLM's changelog): research
+  collections' phishing missed 236 of 2,936 → 57, their spam missed 145 of 3,759 → 111, their genuine mail called
+  phishing 93 of 4,072 → 86; a district's held-out phishing or spam missed 18 of 188 → 15, and 13 of 32 → 12 in its
+  newer held-out set, where its one genuine email is now called phishing (0 → 1); its held-out genuine mail called
+  phishing 9 of 54 → 9; published phishing missed 15 of 954 → 15, published genuine called phishing 7 of 834 → 7.
+- **The first-time vendor asking to "update our bank details"** (the demo's "Quote for the reading program", DMARC
+  passing), 0.27.0's known weakness, is now 81% phishing: flagged as suspicious and left in the Inbox (the AI score
+  alone doesn't move it), so it shows in Review's "Suspicious (not moved)". The model's own runs score such an email
+  from 48% to 99%, so the sender checks stay the main defense against payment-change requests.
+- **On this project's other made-up test emails** every action is the same as with 0.27.0, and every score within 5
+  points but one: the garden centre's "Big spring sale" is 35% spam (was 89%), still 0% phishing. The newsletters,
+  the credit-card offer and the IPTV offer stay under 1% phishing and above 99% spam; the "90% off, claim your reward"
+  newsletter, the demo's false alarm, is 96% phishing (was 92%).
+- Tests only: the tests that make any AI score count as high now set the move line to 0.00001% (was 0.01%: 0.28.0 scores
+  a plain bulletin under that), and the backup test's tampered file always changes a byte (it failed 1 run in 256).
+- The checks level is raised to 54: after this update the service checks recent delivered mail again with the new model.
+  No installation change (installLevel stays the same).
+
 ## 0.6.73: re-checks of delivered mail go faster; Today says when they started
 
 - **Faster re-checks.** Re-checks run in the hourly job's 2-minute window, and they had at most 40 seconds of it, in

@@ -10,7 +10,7 @@ What the service doesn't do yet, roughly in the order it would help.
    - **Safe Browsing's Update API:** local hash prefixes, so link addresses are not sent at all.
 2. **Retraining from real mail.** In since 0.3.2: the retraining export (Health → Retraining examples) and
    `docs/RETRAINING.md`. Training with the district's examples is done: its retraining exports were used for
-   phish-tiny 0.19.0 and later (the latest, phish-tiny 0.27.0, in 0.6.69; a spam answer since 0.26.0). Still to do: a held-out set that
+   phish-tiny 0.19.0 and later (the latest, phish-tiny 0.28.0, in 0.6.74; a spam answer since 0.26.0). Still to do: a held-out set that
    grows with each round.
 3. **Campaign actions** are in (0.3.0). Still out: a campaign search over more than the last 7 days.
 4. **Notifications.** Email alerts to IT are in (0.3.0: brakes, paused campaigns, large campaigns, Gmail

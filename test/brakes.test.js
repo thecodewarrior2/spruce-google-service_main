@@ -69,7 +69,7 @@ test('weak evidence: the copies of one campaign beyond CAMPAIGN_HOLD_AFTER are h
     const list = users(12);
     const raw = plain('news@bulletins.example', 'Weekly bulletin');
     const boxes = boxesWith(list.slice(0, 10), raw);
-    const { store, gmail, svc, alerts } = await setup({ CAMPAIGN_HOLD_AFTER: '5', AI_MOVE_THRESHOLD: '0.0001', BRAKE_PER_HOUR: '1000' }, boxes, list);
+    const { store, gmail, svc, alerts } = await setup({ CAMPAIGN_HOLD_AFTER: '5', AI_MOVE_THRESHOLD: '0.0000001', BRAKE_PER_HOUR: '1000' }, boxes, list);
     await deliver(svc, gmail, list.slice(0, 10), raw);
     assert.equal(gmail.modified.length, 5, 'five moved, then held');
     const recs = await store.listRecords({});
@@ -98,7 +98,7 @@ test('weak evidence: the copies of one campaign beyond CAMPAIGN_HOLD_AFTER are h
 test('releasing a campaign as a false alarm: every moved copy back in the Inbox, later copies not moved', async () => {
     const list = users(4);
     const raw = plain('news@bulletins.example', 'Weekly bulletin');
-    const { store, gmail, svc } = await setup({ AI_MOVE_THRESHOLD: '0.0001' }, boxesWith(list, raw), list);
+    const { store, gmail, svc } = await setup({ AI_MOVE_THRESHOLD: '0.0000001' }, boxesWith(list, raw), list);
     await deliver(svc, gmail, list.slice(0, 3), raw);
     assert.equal(gmail.modified.length, 3);
     const key = (await store.listRecords({}))[0].campaign;
@@ -162,7 +162,7 @@ test('finding copies the service didn\'t record: same sender domain and subject,
     const list = users(3);
     const raw = plain('billing@invoices.example', 'Invoice 4471 overdue');
     const boxes = { [list[0]]: { m1: { raw } } };
-    const { store, gmail, svc } = await setup({ AI_MOVE_THRESHOLD: '0.0001' }, boxes, list);
+    const { store, gmail, svc } = await setup({ AI_MOVE_THRESHOLD: '0.0000001' }, boxes, list);
     gmail.addedSince = async () => ({ ids: ['m1'], historyId: '2' });
     await svc.handleNotification({ emailAddress: list[0], historyId: '2' });
     const key = (await store.listRecords({}))[0].campaign;

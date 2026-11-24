@@ -29,7 +29,8 @@ test('the keys are encrypted with the passphrase: never in the clear, and only t
     assert.ok(!JSON.stringify(box).includes(FAKE_SB), 'not in the clear');
     assert.deepEqual(B.decryptKeys(box, 'a long made-up passphrase'), { safeBrowsing: FAKE_SB });
     assert.throws(() => B.decryptKeys(box, 'another made-up passphrase'), /doesn't open/);
-    const changed = Object.assign({}, box, { data: Buffer.from('x' + Buffer.from(box.data, 'base64').toString('latin1').slice(1), 'latin1').toString('base64') });
+    const bytes = Buffer.from(box.data, 'base64'); bytes[0] ^= 0xff; // always a different first byte
+    const changed = Object.assign({}, box, { data: bytes.toString('base64') });
     assert.throws(() => B.decryptKeys(changed, 'a long made-up passphrase'), /doesn't open/, 'a changed file is refused');
     assert.throws(() => B.encryptKeys({}, 'short'), /12 characters/);
 });
