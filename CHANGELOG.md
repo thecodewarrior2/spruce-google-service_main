@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.79: what the AI's line about the sender means
+
+- **Show the email → What the AI reads → About the sender and links** now has **What these words mean** under the line:
+  each term it uses, in plain words. "(shared mailbox)" was read as "sent to a shared mailbox": it means the SENDER's
+  address is a team or role address (alerts@, no-reply@, info@…), not one person's; the line never describes the reader's
+  mailbox. Also "outside your organization", "identity", "sender check" (DMARC), "reply-to", "links", "attachments",
+  "layout", and how addresses and numbers are hidden from the AI.
+- The line itself keeps the model's own words: the AI model was trained on them, so changing them means a new model (and
+  the extension's copy of the input format). Dashboard only: nothing is judged differently; no installation change.
+
 ## 0.6.78: Gmail reads that hang are tried again sooner
 
 - **Re-checks were slow because of Gmail:** the re-check card (0.6.77) showed fetching an email from Gmail taking 21 s on

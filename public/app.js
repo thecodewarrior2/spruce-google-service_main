@@ -1027,6 +1027,22 @@
             e.pictures ? h('div', { class: 'small muted', text: `${num(e.pictures)} picture${e.pictures === 1 ? '' : 's'} in the email (not loaded here).` }) : null,
             h('div', { class: 'small muted', text: 'Shown as text: nothing in it is opened, loaded or clickable here. Read from Gmail just now; nothing is kept.' }));
     }
+    // (0.6.79) The terms of the line about the sender and links that the AI reads (vendor/spruce/ai.js modelInputParts), in plain
+    // words: [term, meaning] for those this line has.
+    function headTerms(head) {
+        const t = String(head || ''), out = [];
+        if (/\(outside your organization\)/.test(t)) out.push(['outside your organization', 'the sender\'s domain isn\'t one of yours']);
+        if (/\(your organization\)/.test(t)) out.push(['your organization', 'the sender\'s address is one of your domains']);
+        if (/\(shared mailbox\)/.test(t)) out.push(['shared mailbox', 'the SENDER\'s address is a team or role address (alerts@, no-reply@, info@, support@…), not one person\'s own. It says nothing about who received the email: the reader\'s mailbox is never described here']);
+        if (/identity: /.test(t)) out.push(['identity', 'who the sender\'s name claims to be (a brand, a colleague) and whether the address\'s domain is really theirs']);
+        if (/sender check: /.test(t)) out.push(['sender check', 'Gmail\'s DMARC check: "pass" means the address really belongs to that domain (not forged); "fail" or "none" means it couldn\'t be confirmed. SPF or DKIM are named only when they failed']);
+        if (/reply-to: /.test(t)) out.push(['reply-to', 'replies would go to this domain, not the sender\'s']);
+        if (/links: /.test(t)) out.push(['links', 'each link\'s visible text (or a picture\'s description) and the site it goes to; "then" is where it leads after a redirect; a warning is what the link checks found']);
+        if (/attachments: /.test(t)) out.push(['attachments', 'the kinds of files attached (their endings and types), never their names']);
+        if (/layout: /.test(t)) out.push(['layout', 'how the email shows its text (only pictures, text after a large blank gap…)']);
+        out.push(['addresses and numbers', 'only an address\'s domain is given to the AI; phone numbers and long numbers are replaced by "number", your name by "your name"']);
+        return out;
+    }
     // "…show more" and Show the email: the email as received (0.6.6), then what the model reads of it, read from
     // Gmail now (nothing is kept; Activity notes the look), in a popup.
     async function showAiReading(m) {
@@ -1061,6 +1077,10 @@
                     h('div', { class: 'ctx muted', text: c.after ? c.after.text : '(the end of the text)' }))));
             // (0.6.54) With a Copy button: the exact line the AI read, to paste into a report.
             body.append(h('h3', {}, 'About the sender and links ', copyButton(r.head, 'line about the sender and links')), h('div', { class: 'reading-line' }, h('div', { class: 'mono small', text: r.head }), badge(r.headWeight)));
+            // (0.6.79) The line is written in the model's own words (what it was trained on: changing them means a new model):
+            // what each of its terms means, for the ones this line has.
+            const terms = headTerms(r.head);
+            if (terms.length) body.append(h('details', { class: 'small head-terms' }, h('summary', { text: 'What these words mean' }), h('ul', {}, terms.map(([t, d]) => h('li', {}, h('b', { text: t }), `: ${d}`)))));
             const shown = r.sentences.map((x, i) => [x, i]).filter(([x]) => !x.filler);
             const left = r.sentences.length - shown.length;
             body.append(...[h('h3', { text: `The whole text, sentence by sentence${weighed.size ? ' (what weighed most is marked)' : ''}` }),
