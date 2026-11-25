@@ -1560,6 +1560,31 @@ class Service {
         const brand = brandSign.brand || (BRAND_RE.exec(String(brandSign.text || '')) || [])[1];
         return brand ? { brand, domain: reg, key: `${String(brand).toLowerCase()}|${reg}` } : null;
     }
+    // (0.6.81) Why a false alarm with a brand's name on it wasn't added to Brand senders: { brand, domain, why } (in plain
+    // words), or null (no brand's name among its signs, or it was added). For Settings → Sender lists → Brand senders.
+    brandSenderWhyNot(rec) {
+        if (!rec || !rec.sender) return null;
+        const signs = (rec.signals || []).filter(x => x && (x.weight || 0) > 0);
+        const BRAND_RE = /^The sender's name says “[^”]*”, but \S+ isn't (.+)'s address\.$/;
+        const NAME_RE = /^The sender's name says “([^”]*)”/;
+        const brandSign = signs.find(x => /^brand-name/.test(String(x.kind || '')) || BRAND_RE.test(String(x.text || '')));
+        if (!brandSign || this.brandSenderOf(rec)) return null;
+        const E = spruce.load();
+        const domain = String(rec.sender.address || '').split('@')[1] || '';
+        const reg = (E.registrableDomain(domain.toLowerCase()) || domain).toLowerCase();
+        const brand = (BRAND_RE.exec(String(brandSign.text || '')) || [])[1] || (NAME_RE.exec(String(brandSign.text || '')) || [])[1] || 'a brand';
+        let why;
+        if (rec.inside) why = 'it came from inside your organization';
+        else if (!rec.auth || rec.auth.dmarc !== 'pass') why = 'Gmail didn\'t confirm the sender (DMARC didn\'t pass)';
+        else if (E.isPersonalMailDomain(domain)) why = 'it came from a free-mail address, which anyone can have';
+        else if (rec.auth.headerFrom && (E.registrableDomain(String(rec.auth.headerFrom).toLowerCase()) || rec.auth.headerFrom) !== reg) why = 'the address\'s domain isn\'t the one DMARC confirmed';
+        else if (brandSign.kind === 'brand-name-likely') why = 'public records say the domain is likely the brand\'s own, so it was only a caution, not "isn\'t the brand\'s address"';
+        else {
+            const others = signs.filter(x => x !== brandSign && !['outside-org', 'first-time'].includes(x.kind));
+            why = others.length ? `it had other signs too (${[...new Set(others.map(x => String(x.text || x.kind || '').replace(/\s+/g, ' ').slice(0, 90)))].slice(0, 3).join('; ')})` : 'its sign wasn\'t the one this list learns from';
+        }
+        return { brand, domain: reg, why };
+    }
     // (0.6.56) Remembered Not phishing answers (src/remember.js), state rememberedSafe: fingerprint → { sender, label, by,
     // at, last, hits, key }. Read at most once a minute; answers older than remember.KEEP_MS are dropped.
     async rememberedMap() {

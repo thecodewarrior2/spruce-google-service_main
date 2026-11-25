@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.81: Brand senders says why a false alarm wasn't added
+
+- **Settings → Sender lists → Brand senders** now lists, under the brands added, **the false alarms of the last 90 days
+  that had a brand's name but weren't added**, grouped by brand and sender domain, with why: it had other signs too
+  (named), Gmail didn't confirm the sender (DMARC), a free-mail address, the domain isn't the one DMARC confirmed, or public
+  records say the domain is likely the brand's own (only a caution then). The list learns from one case only (an email
+  whose one warning was "the sender's name says the brand, but the address isn't the brand's", from a confirmed sender), so
+  it could stay empty with no word on why. Remembered answers and sender standing still learn from those answers.
+- Dashboard only: nothing is judged differently; no installation change.
+
 ## 0.6.80: phish-tiny 0.29.0
 
 - **The AI model is phish-tiny 0.29.0** (TinyPhishLLM `5d8fc19`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.28.0),

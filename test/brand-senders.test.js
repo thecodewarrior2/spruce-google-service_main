@@ -59,4 +59,11 @@ test('not learned when the email had another sign, failed its sender check, or w
     const phish = await judge(svc, SAM);
     await svc.mark(phish.key, false, ADMIN);
     assert.deepEqual(await svc.brandSenderList(), []);
+    // (0.6.81) Why not, for the page: the other sign, and the failed sender check; nothing for the Phishing answer's email.
+    const store = svc.store;
+    const why = async (k) => svc.brandSenderWhyNot(await store.getRecord(k));
+    assert.match((await why(placeholder.key)).why, /other signs too/);
+    assert.equal((await why(placeholder.key)).brand, 'Walmart');
+    assert.match((await why(forged.key)).why, /DMARC/);
+    assert.ok(!/@/.test(JSON.stringify(await why(placeholder.key))), 'no address');
 });

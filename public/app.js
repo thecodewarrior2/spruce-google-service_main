@@ -1519,13 +1519,18 @@
     // (0.6.29) Brand senders the reviewers confirmed: a "False alarm" on an email whose only sign was a brand's name from
     // another verified domain. An admin removes one; moderators see the list.
     async function brandSendersCard() {
-        let list = [];
-        try { list = (await api('/api/brand-senders')).list || []; } catch (e) { return null; }
+        let list = [], missed = [];
+        try { const d = await api('/api/brand-senders'); list = d.list || []; missed = d.missed || []; } catch (e) { return null; }
         const card = h('section', { class: 'card spaced' }, h('h2', { text: 'Brand senders' }),
             h('p', { class: 'sub', text: 'A company that sends for a brand from its own domain (Walmart Business\'s invoices from TreviPay, a bank\'s mail about the card it issues in a store\'s name) gets "the sender\'s name says the brand, but the address isn\'t the brand\'s". When a reviewer answers False alarm on such an email, and that was its only sign and Gmail confirmed the sender is real, the brand and the domain are listed here: from then on its verified mail under that brand\'s name isn\'t counted as an imitation, and the AI is told it is the brand\'s sender. Every other check still applies, and a forged copy is judged as before. Remove one to undo it.' }));
-        if (!list.length) { card.append(h('p', { class: 'empty', text: 'None yet: no false alarm of this kind has been answered.' })); return card; }
+        // (0.6.81) False alarms with a brand's name that weren't added, and why: the list learns from one case only.
+        const missedPart = missed.length ? h('div', { class: 'missed-brands' }, h('h3', { text: 'Marked safe, with a brand\'s name, but not added' }),
+            h('p', { class: 'small muted', text: 'The last 90 days. This list only learns from an email whose one warning was "the sender\'s name says the brand, but the address isn\'t the brand\'s", from a sender Gmail confirmed. These weren\'t added, for the reason given; Remembered answers and sender standing (Settings → Policy) still learn from them.' }),
+            h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Brand', 'Sender domain', 'Emails', 'Why not added'].map(t => h('th', { text: t })))),
+                h('tbody', {}, missed.map(m => h('tr', {}, h('td', { text: m.brand }), h('td', { text: m.domain }), h('td', { class: 'num', text: num(m.count) }), h('td', { class: 'small', text: m.why })))))) : null;
+        if (!list.length) { card.append(h('p', { class: 'empty', text: missed.length ? 'None added yet.' : 'None yet: no false alarm of this kind has been answered.' })); if (missedPart) card.append(missedPart); return card; }
         const draw = (rows) => {
-            card.querySelectorAll('table, p.empty').forEach(t => t.remove());
+            card.querySelectorAll(':scope > table, :scope > p.empty').forEach(t => t.remove());
             if (!rows.length) { card.append(h('p', { class: 'empty', text: 'None left.' })); return; }
             card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Brand', 'Sender domain', 'Confirmed by', 'Last', ''].map(t => h('th', { text: t })))),
                 h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.brand }), h('td', { text: r.domain }), h('td', { text: `${r.by || '–'}${r.count > 1 ? ` (${num(r.count)} emails)` : ''}` }), h('td', { 'data-sort': String(r.last || r.at || 0), text: dayOf(r.last || r.at) }),
@@ -1535,6 +1540,7 @@
                         catch (err) { toast(`Couldn't save that: ${err.message}`, { error: true }); e.target.disabled = false; } } }, 'Remove')))))));
         };
         draw(list);
+        if (missedPart) card.append(missedPart);
         return card;
     }
     // (0.6.30) The allow lists' 30-day check: the domains whose registration or reputation changed. A suspended one isn't

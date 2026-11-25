@@ -813,7 +813,21 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'GET /api/company-domains': async () => service.companyDomainList(),
         'POST /api/company-domains': async (q, body, admin) => (body.remove ? service.removeConfirmedDomain(String(body.domain || ''), admin.email)
             : service.addConfirmedDomain(String(body.domain || ''), String(body.name || ''), String(body.note || ''), admin.email)),
-        'GET /api/brand-senders': async () => ({ list: await service.brandSenderList() }),
+        // (0.6.81) missed: the last 90 days' false alarms with a brand's name that weren't added, and why (grouped by brand and
+        // domain, the 30 most recent).
+        'GET /api/brand-senders': async () => {
+            const records = await cache.list(Date.now() - 90 * A.DAY).catch(() => []);
+            const missed = new Map();
+            for (const r of records) {
+                if (r.falseAlarm !== true || !r.markedBy || (r.autoAnswered && r.autoAnswered.kind)) continue;
+                const w = service.brandSenderWhyNot ? service.brandSenderWhyNot(r) : null;
+                if (!w) continue;
+                const k = `${w.brand.toLowerCase()}|${w.domain}|${w.why}`, m = missed.get(k) || Object.assign({ count: 0, last: 0 }, w);
+                m.count++; m.last = Math.max(m.last, (r.undo && r.undo.at) || r.processedAt || 0);
+                missed.set(k, m);
+            }
+            return { list: await service.brandSenderList(), missed: [...missed.values()].sort((a, b) => b.last - a.last).slice(0, 30) };
+        },
         'POST /api/brand-senders': async (q, body, admin) => service.removeBrandSender(String(body.key || ''), admin.email),
         // (0.5.60) Ignore, treat as suspicious: reviewed, left as it is, not used for retraining.
         'POST /api/unclear': async (q, body, admin) => service.setAside(String(body.key || ''), admin.email),
