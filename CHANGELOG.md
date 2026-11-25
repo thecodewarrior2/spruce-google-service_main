@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.80: phish-tiny 0.29.0
+
+- **The AI model is phish-tiny 0.29.0** (TinyPhishLLM `5d8fc19`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.28.0),
+  the same input format 3 and spam answer (the sync checked all 95 reference cases): fifteen runs trained from 0.28.0,
+  averaged into one model; also trained on published research collections (never published) and a district's
+  de-identified examples (never published). It passes every one of the model's release checks.
+- **What changes**, against 0.28.0 at the 65% line (held-out sets, never trained on; TinyPhishLLM's changelog): research
+  collections' phishing missed 57 of 2,936 → 33, their genuine mail called phishing 86 of 4,072 → 77, their spam missed
+  111 of 3,759 → 101; a district's held-out genuine mail called phishing 9 of 54 → 9, its marketing called phishing 15 of
+  133 → 15, and 3 of 32 → 3 in its newest held-out export; published phishing missed 15 of 954 → 16, published genuine
+  called phishing 7 of 834 → 7.
+- **The first-time vendor asking to "update our bank details"** (the demo's "Quote for the reading program", DMARC
+  passing) is now 96% phishing (0.28.0: 81%), over the move line: **moved on the AI score alone** (from an outside
+  sender), where 0.28.0 left it flagged in the Inbox. A genuine vendor email the AI scores that high is moved too: Review
+  lists it, and Mark safe brings it back (and teaches remembered answers and sender standing).
+- **On this project's other made-up test emails** every action is the same as with 0.28.0; the scores move by under 1
+  point, except the garden centre's "Big spring sale" (15% spam, was 35%; 0% phishing) and the made-up pay-statement
+  lure (9% phishing, was 1%: still moved by the rules).
+- The checks level is raised to 55: after this update the service checks recent delivered mail again with the new model.
+  No installation change (installLevel stays the same).
+
 ## 0.6.79: what the AI's line about the sender means
 
 - **Show the email → What the AI reads → About the sender and links** now has **What these words mean** under the line:

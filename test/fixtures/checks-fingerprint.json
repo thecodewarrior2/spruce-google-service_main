@@ -1,5 +1,5 @@
 {
-  "checksLevel": 54,
-  "fingerprint": "0e00bf075123a20d0b0d0d96ab10d6f232799e59e3d42174313b29f7eb78417c",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.77: lookups timed and shared between instances (Spamhaus, Cloudflare); the same answers, no rule changed"
+  "checksLevel": 55,
+  "fingerprint": "73bc185200379c94a96cf1f3abafa1e0abb5464f2ff11c1150f98e1952ff098b",
+  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
 }

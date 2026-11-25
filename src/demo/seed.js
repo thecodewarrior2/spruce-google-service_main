@@ -87,6 +87,7 @@ function campaignTemplates() {
         // A new vendor asking to update bank details: the rules see little. (0.6.58) phish-tiny 0.26.0 scores it 13% (0.25.0: 92%),
         // so it is no longer recorded: a known weakness of that model (CHANGELOG.md). (0.6.69) phish-tiny 0.27.0: 13% still.
         // (0.6.74) phish-tiny 0.28.0: 81%, flagged and left in the Inbox (suspicious, not moved: DMARC passes).
+        // (0.6.80) phish-tiny 0.29.0: 96%, over the move line: moved on the AI score alone (an outside sender).
         { id: 'newvendor', recipients: 6, daysAgo: 9, spread: 0.4, make: (to) => eml({ fromName: 'Pat Fictional', from: 'pat@brightpath-learning.example', to, dmarc: 'pass',
             subject: 'Quote for the reading program',
             html: '<p>Hi,</p><p>Following up on the conference. Could you send me the purchase order number and update our bank details on file for the invoice?</p><p>Thanks, Pat Fictional, Account Executive</p>' }) },
