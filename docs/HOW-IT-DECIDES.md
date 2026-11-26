@@ -20,7 +20,7 @@ Thresholds as shipped: rule points 3 = suspicious, 5 = move. The AI lines are se
 | **Phishing** | Moved to the Spam folder (monitor mode: recorded as "would move") | Rule points 5 or more, or the AI's phishing score at the move line for an outside sender, or a Skip review sign you chose |
 | **Spam** | Moved to the Spam folder as spam | A sender on Spam senders, padded list mail, or the AI's spam score at the move line from a sender Gmail couldn't confirm; never mail from inside |
 | **Suspicious** | Stays in the Inbox, listed in Review; looked at again an hour and a day later | Rule points 3 or more, or the AI at the suspicious line (under the move line) |
-| **Promotional** | Never moved; Review → Promotional, one answer per company | Marketing from a sender Gmail confirmed (Gmail's Promotions tab, or a signed one-click unsubscribe) |
+| **Promotional** | Never moved; Review → Promotional, one answer per company (a company answered Spam: its later promotional mail goes to Spam, 0.6.90) | Marketing from a sender Gmail confirmed (Gmail's Promotions tab, or a signed one-click unsubscribe) |
 | **Safe** | Left alone; nothing is recorded about an ordinary safe email | Nothing to act on, or a sender on Trusted senders that Gmail confirms (DMARC) and the 30-day check hasn't suspended |
 
 ## What the rule checks look at

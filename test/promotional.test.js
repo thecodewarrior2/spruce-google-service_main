@@ -97,7 +97,64 @@ test('Spam: each waiting email answered Spam (moved in enforce mode), its sender
     assert.deepEqual(out.spamSendersAdded, ['em.bigstore.example'], 'the mailing subdomain, not the whole company: its receipts stay checked');
     const later = await judge(svc, SAM);
     assert.deepEqual([later.action, later.trigger], ['move', 'spam']);
-    assert.equal((await judge(svc, SAM, { from: 'receipts@bigstore.example' })).trigger, 'promotional', 'its main domain\'s mail: checked as usual');
+    // (0.6.90) Its promotional mail from its other addresses goes to Spam too (the company was answered); a receipt (no
+    // unsubscribe marker, not in Promotions) from its main domain is still checked as usual.
+    const receipt = await judge(svc, SAM, { from: 'receipts@bigstore.example', oneClick: false, subject: 'Your order receipt' });
+    assert.ok(!['move', 'would-move'].includes(receipt.action), `a receipt: checked as usual (${receipt.action})`);
+});
+
+test('0.6.90: a company answered Spam in Review → Promotional: its promotional mail from any of its addresses goes to Spam, not back to Review', async () => {
+    const svc = make();
+    await judge(svc, PAT, { from: 'news@bigstore.example' });
+    const out = await svc.answerPromotional('bigstore.example', 'spam', ADMIN, { addSender: true });
+    assert.equal(out.promoSpamAdded, true);
+    assert.deepEqual(out.spamSendersAdded, ['news@bigstore.example'], 'Spam senders: only the address answered');
+    assert.deepEqual((await svc.promoSpamList()).map(x => x.company), ['bigstore.example']);
+    // Another address and a mailing subdomain of the same company: straight to Spam, as spam; not listed in Review.
+    for (const from of ['offers@bigstore.example', 'deals@em.bigstore.example']) {
+        const r = await judge(svc, SAM, { from, dkimDomain: 'bigstore.example' });
+        assert.deepEqual([r.action, r.trigger], ['move', 'spam'], from);
+        const rec = await svc.store.getRecord(r.key);
+        assert.equal(rec.promoSpam, 'bigstore.example');
+        assert.match(rec.why, /answered Spam in Review → Promotional/);
+        assert.equal((await svc.senderListTest())(rec), 'Promotional senders sent to Spam', 'not waiting in Review → Moved');
+    }
+    assert.equal((await svc.promoWaiting('bigstore.example')).length, 0, 'nothing back in Review → Promotional');
+    // A forged copy is judged as usual; another company is untouched.
+    assert.notEqual((await judge(svc, SAM, { from: 'offers@bigstore.example', dmarc: 'fail' })).trigger, 'spam');
+    assert.equal((await judge(svc, SAM, { from: 'news@otherstore.example', dkimDomain: 'otherstore.example' })).action, 'promo');
+    // Someone who takes it back out of Spam keeps getting it (as with Spam senders).
+    const r = await judge(svc, PAT, { from: 'offers@bigstore.example' });
+    await svc.rememberSpamRescue(PAT, 'offers@bigstore.example');
+    assert.notEqual((await judge(svc, PAT, { from: 'hello@bigstore.example' })).trigger, 'spam', 'Pat took it back');
+    assert.ok(r.key);
+    // Monitor mode: recorded as would move. Removed: listed in Review again.
+    const mon = make('monitor');
+    await judge(mon, PAT, { from: 'news@bigstore.example' });
+    await mon.answerPromotional('bigstore.example', 'spam', ADMIN, { addSender: true });
+    assert.equal((await judge(mon, SAM, { from: 'offers@bigstore.example' })).action, 'would-move');
+    assert.deepEqual((await mon.removePromoSpam('bigstore.example', ADMIN)).list, []);
+    assert.equal((await judge(mon, SAM, { from: 'offers2@bigstore.example' })).action, 'promo', 'removed: listed in Review again');
+    // Keep takes a company off the list; Spam without the box doesn't add it.
+    await mon.answerPromotional('bigstore.example', 'spam', ADMIN, { addSender: true });
+    await judge(mon, SAM, { from: 'offers3@bigstore.example' });
+    await mon.answerPromotional('bigstore.example', 'keep', ADMIN);
+    assert.deepEqual(await mon.promoSpamList(), [], 'Keep: off the list');
+    const plain = make();
+    await judge(plain, PAT, { from: 'news@bigstore.example' });
+    assert.equal((await plain.answerPromotional('bigstore.example', 'spam', ADMIN, { addSender: false })).promoSpamAdded, false);
+    assert.deepEqual(await plain.promoSpamList(), []);
+});
+
+test('0.6.90: companies answered Spam before the update (their sender put on Spam senders) are added once, from the records', async () => {
+    const svc = make();
+    const a = await judge(svc, PAT, { from: 'news@bigstore.example' });
+    const b = await judge(svc, PAT, { from: 'news@otherstore.example', dkimDomain: 'otherstore.example' });
+    await svc.mark(a.key, false, ADMIN, { move: true, spam: true, addSender: true });   // as before 0.6.90: the address only
+    await svc.mark(b.key, false, ADMIN, { move: true, spam: true, addSender: false });  // the box not ticked: not added
+    await svc.store.setState('promoSpam', null); svc._promoSpam = null;
+    assert.deepEqual((await svc.promoSpamList()).map(x => [x.company, x.from]), [['bigstore.example', 'earlier']]);
+    assert.deepEqual([(await judge(svc, SAM, { from: 'offers@bigstore.example' })).trigger], ['spam']);
 });
 
 test('0.6.59: Spam learning: for the days chosen, promotional mail goes to Spam and its sender to Spam senders; taking it back out trusts the sender again', async () => {

@@ -323,7 +323,13 @@ share, its company (`spamSenderKey`: the From's registrable domain, or the addre
 action `promo`, trigger `promotional` and `promotional: { company, signs }`, counted as `promotional`, never moved; in
 enforce mode it gets `PROMOTIONAL_LABEL_NAME`. Review's `promotional` queue (`GET /api/review?queue=promotional`) is
 `promoUnreviewed` grouped by `aggregate.js promoGroups`. `POST /api/promotional` (admins): `spam` runs `bulk(keys, 'spam')`
-on the company's waiting emails (Undo: `/api/undo`); `keep` adds the company to `promoKept` and marks those records
+on the company's waiting emails (Undo: `/api/undo`), and with `addSender` (0.6.90) adds the company to state `promoSpam`
+(Undo: `undo: 'spam'`, `removePromoSpam`; `GET`/`POST /api/promotional-spam` list and remove): a later email `promotionalOf`
+files under that company gets action `move` (monitor: `would-move`; the brake: `would-move`), trigger `spam` and
+`promoSpam: company`, skips the campaign hold like an admin's Spam sender, and `senderListTest` keeps it out of Review →
+Moved. Spam senders still hold only the addresses answered, so the company's receipts (no promotional signs) stay checked.
+The first read after the update fills `promoSpam` once from the last 90 days' promotional records answered Spam whose sender
+is on Spam senders (`backfillPromoSpam`). `keep` adds the company to `promoKept` and marks those records
 `promoKept` (Undo: `undo: 'keep'`, `removePromoKept`). `aggregate.js` leaves `promo` records out of the summary counts, the
 trend, campaigns, users and model health.
 

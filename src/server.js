@@ -774,11 +774,16 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'POST /api/promotional': async (q, body, admin) => {
             const company = String(body.company || '').toLowerCase();
             if (body.undo === 'keep') return service.removePromoKept(company, admin.email, { undoKeys: Array.isArray(body.keys) ? body.keys.map(String).slice(0, 2000) : [] }).then(r => { cache.stale(); return r; });
+            // (0.6.90) A Spam answer taken back: the company comes off Promotional senders sent to Spam too (the emails' Undo is its own).
+            if (body.undo === 'spam') return service.removePromoSpam(company, admin.email, { quiet: true }).then(r => { cache.stale(); return r; });
             const out = await service.answerPromotional(company, String(body.answer || ''), admin.email, { addSender: body.addSender === true, records: await cache.list(Date.now() - 35 * A.DAY) });
             if (!out.error) cache.stale();
             return out;
         },
         'GET /api/promotional-kept': async () => ({ list: await service.promoKeptList() }),
+        // (0.6.90) Promotional senders sent to Spam: companies answered Spam in Review → Promotional; an admin removes one.
+        'GET /api/promotional-spam': async () => ({ list: await service.promoSpamList() }),
+        'POST /api/promotional-spam': async (q, body, admin) => service.removePromoSpam(String(body.company || ''), admin.email).then(r => { cache.stale(); return r; }),
         // (0.6.56) Remembered Not phishing answers: the list (moderators see it), and an admin removes one.
         'GET /api/remembered': async () => ({ list: await service.rememberedList() }),
         'POST /api/remembered': async (q, body, admin) => service.forgetAnswer(String(body.id || ''), admin.email).then(r => { cache.stale(); return r; }),

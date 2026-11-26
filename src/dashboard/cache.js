@@ -47,7 +47,7 @@ function slimmer() {
         heldMovedBy: I(r.heldMovedBy), heldMovedAt: r.heldMovedAt, inside: r.inside,
         // (0.6.44) The sender check (Review's tag and filter, the Sender lists' and the suspicious line's tests: 0.6.40),
         // a Spam answer and when an answer was given (Re-checked's "answered", 0.6.43), and why it went to Spam.
-        auth: r.auth ? Object.freeze({ dmarc: I(r.auth.dmarc), headerFrom: I(r.auth.headerFrom) }) : r.auth, spam: r.spam, spamSender: I(r.spamSender),
+        auth: r.auth ? Object.freeze({ dmarc: I(r.auth.dmarc), headerFrom: I(r.auth.headerFrom) }) : r.auth, spam: r.spam, spamSender: I(r.spamSender), promoSpam: I(r.promoSpam),
         platformNote: r.platformNote, undo: r.undo && r.undo.at ? Object.freeze({ at: r.undo.at }) : null,
         // (0.6.52) Review → Promotional: the company and why, and an admin's Keep.
         promotional: r.promotional ? Object.freeze({ company: I(r.promotional.company), signs: Object.freeze((r.promotional.signs || []).map(I)) }) : undefined,

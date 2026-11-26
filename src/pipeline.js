@@ -599,7 +599,7 @@ class Service {
     // import (every other instance reads them again within a minute, as after any change).
     policyKeys() { return POLICY_KEYS.slice(); }
     forgetSettingsCaches() {
-        for (const k of ['_spamSenders', '_spamRemoved', '_senderListTest', '_remembered', '_brandSenders', '_promoKept', '_spamLearning', '_userReportsOn', '_learnedKeys']) this[k] = null;
+        for (const k of ['_spamSenders', '_spamRemoved', '_senderListTest', '_remembered', '_brandSenders', '_promoKept', '_promoSpam', '_spamLearning', '_userReportsOn', '_learnedKeys']) this[k] = null;
         this.lookalikeCache = null; this.scopeCache = null;
     }
     async setPolicy(key, raw, by) {
@@ -1069,6 +1069,18 @@ class Service {
         if (decision.action === 'none' && !alreadyMoved && !userPlaced) {
             const promo = await this.promotionalOf(user, msg, facts, result, { allowlisted, relay }).catch((e) => { this.log.error('promotional:', e); return null; });
             if (promo) decision = { action: 'promo', trigger: 'promotional', why: `promotional: ${promo.signs.join('; ')} (not moved: an admin answers in Review → Promotional)`, promotional: promo };
+            // (0.6.90) A company an admin answered Spam in Review → Promotional: its later promotional mail goes straight to Spam,
+            // as spam, from whichever of its addresses or mailing subdomains it comes (Spam senders holds only the addresses
+            // answered, so its receipts stay checked; this is only its promotional mail). Not for a person who took its spam
+            // back (promotionalOf), and the brake holds it as any move.
+            const ps = promo ? (await this.promoSpamMap().catch(() => ({})))[promo.company] : null;
+            if (ps) {
+                result.promoSpam = promo.company;
+                const monitor = this.cfg.mode !== 'enforce';
+                decision = { action: monitor ? 'would-move' : 'move', trigger: 'spam', promotional: promo,
+                    why: `spam: promotional mail (${promo.signs.slice(0, 2).join('; ')}) from ${promo.company}, which ${ps.by} answered Spam in Review → Promotional (Settings → Sender lists → Promotional senders sent to Spam)${monitor ? ' (monitor mode: not moved)' : ''}` };
+                if (!monitor && await this.brakeOn(now)) decision = Object.assign({}, decision, { action: 'would-move', why: `${decision.why}; the brake is on, so it was left in the Inbox` });
+            }
         }
         // (0.6.59) Spam learning: for the days an admin set, promotional mail, and mail the AI is all but sure is spam, from a
         // verified sender go to Spam, and the sender to Spam senders, until someone takes its mail back out of Spam.
@@ -1161,7 +1173,7 @@ class Service {
             subject: this.cfg.storeSubjects ? facts.subject.slice(0, 300) : '',
             campaign: campaign.key, campaignLabel,
             status: result.status, score: result.score, signals: result.signals.slice(0, 20), links: result.links.slice(0, 10), checks: result.checks || null,
-            ai: aiRecord(result.ai, this.cfg), ...(result.allowSuspended ? { allowSuspended: result.allowSuspended } : {}), ...(result.spamSender ? { spamSender: result.spamSender } : {}), ...(result.platformNote ? { platformNote: true } : {}), ...(result.gmailPromotions ? { gmailPromotions: true } : {}),
+            ai: aiRecord(result.ai, this.cfg), ...(result.allowSuspended ? { allowSuspended: result.allowSuspended } : {}), ...(result.spamSender ? { spamSender: result.spamSender } : {}), ...(result.promoSpam ? { promoSpam: result.promoSpam } : {}), ...(result.platformNote ? { platformNote: true } : {}), ...(result.gmailPromotions ? { gmailPromotions: true } : {}),
             auth: facts.auth ? Object.assign({ dmarc: facts.auth.dmarc, spf: facts.auth.spf, dkim: facts.auth.dkim }, facts.auth.headerFrom ? { headerFrom: facts.auth.headerFrom } : {}, facts.auth.derived ? { derived: facts.auth.derived } : {}) : null,
             attachments: facts.attachments.slice(0, 10).map(a => ({ name: a.name.slice(0, 120), type: a.type })),
             attachmentFindings: (result.attachmentFindings || []).slice(0, 12),
@@ -1202,7 +1214,8 @@ class Service {
         const released = (d) => ({ decision: { action: 'flag', trigger: d.trigger, why: `${d.why}; an admin dismissed this campaign as a false alarm, so its copies aren't moved` }, held: null });
         if (cs && cs.decision === 'released') return released(decision);
         const spam = decision.trigger === 'spam';
-        const adminSpamSender = spam && !!result.spamSender && result.spamSenderFrom !== 'learning';
+        // (0.6.90) A company an admin answered Spam in Review → Promotional is the admin's decision too.
+        const adminSpamSender = spam && ((!!result.spamSender && result.spamSenderFrom !== 'learning') || !!result.promoSpam);
         if (!result.strong && !adminSpamSender && !(cs && cs.decision === 'confirmed')) {
             const h = await this.store.campaignHold(campaignKey, this.cfg.campaignHoldAfter, now, campaignLabel);
             if (h.decision === 'released') return released(decision);
@@ -1489,6 +1502,50 @@ class Service {
         const all = (await this.store.getState('promoKept')) || {};
         return Object.entries(all).map(([company, v]) => ({ company, by: v.by, at: v.at })).sort((a, b) => (b.at || 0) - (a.at || 0));
     }
+    // (0.6.90) Promotional senders sent to Spam (state promoSpam: company → { by, at, from }): companies an admin answered Spam
+    // in Review → Promotional with "also send future mail straight to Spam". Read at most once a minute. The first read
+    // after the update adds the companies answered that way before (backfillPromoSpam).
+    async promoSpamMap() {
+        if (!this._promoSpam || this.now() - this._promoSpam.at > 60000) {
+            let all = await this.store.getState('promoSpam');
+            if (!all) all = await this.backfillPromoSpam();
+            this._promoSpam = { at: this.now(), all: all || {} };
+        }
+        return this._promoSpam.all;
+    }
+    // Before 0.6.90 a company's Spam answer put only the addresses answered on Spam senders. Its promotional emails answered
+    // Spam in the last 90 days whose sender is on Spam senders (the box was ticked) name the companies; written once.
+    async backfillPromoSpam() {
+        const spam = (await this.store.getState('spamSenders')) || {};
+        const out = {};
+        const recs = await this.store.listRecords({ sinceMs: this.now() - 90 * DAY, limit: 20000 }).catch(() => []);
+        for (const r of recs) {
+            const c = r && r.promotional && r.promotional.company;
+            if (!c || !r.spam || !r.markedBy || r.inside || !r.sender || !this.spamListMatch(spam, r.sender.address)) continue;
+            if (!out[c] || (r.undo && r.undo.at && r.undo.at < out[c].at)) out[c] = { by: r.markedBy, at: (r.undo && r.undo.at) || r.processedAt || this.now(), from: 'earlier' };
+        }
+        const kept = (await this.store.getState('promoKept')) || {};
+        for (const c of Object.keys(out)) if (kept[c]) delete out[c];
+        await this.store.setState('promoSpam', out);
+        const n = Object.keys(out).length;
+        if (n) await this.store.addEvent({ kind: 'settings', text: `Promotional senders sent to Spam: ${n} compan${n === 1 ? 'y' : 'ies'} answered Spam in Review → Promotional before this update (${Object.keys(out).slice(0, 5).join(', ')}${n > 5 ? '…' : ''}): their promotional mail now goes straight to Spam from any of their addresses (Settings → Sender lists).` });
+        return out;
+    }
+    async promoSpamList() {
+        const all = await this.promoSpamMap();
+        return Object.entries(all).map(([company, v]) => ({ company, by: v.by, at: v.at, from: v.from || '' })).sort((a, b) => (b.at || 0) - (a.at || 0));
+    }
+    async removePromoSpam(company, by, { quiet = false } = {}) {
+        const c = String(company || '').toLowerCase();
+        await this.promoSpamMap();
+        const all = Object.assign({}, (await this.store.getState('promoSpam')) || {});
+        if (!all[c]) return { error: 'That company isn\'t on the list.', status: 404 };
+        delete all[c];
+        await this.store.setState('promoSpam', all);
+        this._promoSpam = null; this._senderListTest = null;
+        if (!quiet) await this.store.addEvent({ kind: 'settings', text: `${by} removed ${c} from Promotional senders sent to Spam: its promotional mail is listed in Review → Promotional again (addresses on Spam senders still go to Spam).` });
+        return { ok: true, list: await this.promoSpamList() };
+    }
     // The promotional emails of one company still waiting in Review (nobody answered them). records: the dashboard's cache.
     async promoWaiting(company, records = null) {
         const c = String(company || '').toLowerCase();
@@ -1507,8 +1564,25 @@ class Service {
         const waiting = (await this.promoWaiting(c, records)).slice(0, 2000);
         if (answer === 'spam') {
             const out = await this.bulk(waiting.map(r => r.key), 'spam', by, { addSender });
-            return Object.assign(out, { keys: waiting.map(r => r.key) });
+            // (0.6.90) The company itself, so its promotional mail from its other addresses and mailing subdomains goes to Spam too.
+            let promoSpamAdded = false;
+            if (addSender) {
+                await this.promoSpamMap();
+                const ps = Object.assign({}, (await this.store.getState('promoSpam')) || {});
+                if (!ps[c] && Object.keys(ps).length < PROMO_KEPT_MAX) {
+                    ps[c] = { by, at: this.now(), from: 'review' };
+                    await this.store.setState('promoSpam', ps);
+                    promoSpamAdded = true;
+                    await this.store.addEvent({ kind: 'settings', text: `${by} answered Spam for ${c}'s promotional mail (Review → Promotional): its later promotional mail goes straight to Spam, from any of its addresses (Settings → Sender lists → Promotional senders sent to Spam). Its other mail is checked as usual.` });
+                }
+                const kept = Object.assign({}, (await this.store.getState('promoKept')) || {});
+                if (kept[c]) { delete kept[c]; await this.store.setState('promoKept', kept); this._promoKept = null; }
+                this._promoSpam = null; this._senderListTest = null;
+            }
+            return Object.assign(out, { keys: waiting.map(r => r.key), promoSpamAdded });
         }
+        // (0.6.90) Keep takes a company off Promotional senders sent to Spam.
+        if ((await this.promoSpamMap())[c]) await this.removePromoSpam(c, by, { quiet: true });
         const all = Object.assign({}, (await this.store.getState('promoKept')) || {});
         if (!all[c] && Object.keys(all).length >= PROMO_KEPT_MAX) return { error: `The list is full (${PROMO_KEPT_MAX} companies).`, status: 409 };
         all[c] = Object.assign({ by, at: this.now() }, all[c]);
@@ -1959,12 +2033,14 @@ class Service {
         const spam = (await this.store.getState('spamSenders')) || {};
         const brands = new Set(Object.values((await this.store.getState('brandSenders')) || {}).map(v => v && String(v.domain || '').toLowerCase()).filter(Boolean));
         const suspended = [...(await this.allowSuspendedSet())];
+        const promoSpam = await this.promoSpamMap().catch(() => ({}));
         return (r) => {
             if (!r || !r.sender || !r.auth || r.auth.dmarc !== 'pass') return null;
             const a = String(r.sender.address || '').toLowerCase(), d = a.split('@')[1] || '';
             if (!d || (r.auth.headerFrom && !sameOrgDomain(r.auth.headerFrom, d))) return null;   // (0.6.51) as DMARC compares them
             if (isAllowed(this.cfg, a) && !suspended.some(x => d === x || d.endsWith('.' + x))) return 'Trusted senders';
             if (!r.inside && this.spamListMatch(spam, a)) return 'Spam senders';
+            if (!r.inside && r.promoSpam && promoSpam[r.promoSpam]) return 'Promotional senders sent to Spam';   // (0.6.90)
             if (!r.inside && brands.has(E.registrableDomain(d) || d)) return 'Brand senders';
             return null;
         };

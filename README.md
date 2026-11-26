@@ -270,8 +270,10 @@ it is never moved for that. **Review → Promotional** (admins only) lists it on
 (never the platform it was sent through), most emails first; (0.6.55) each row shows the sender check (DMARC), the AI's
 spam and phishing scores, and up to 5 of the emails, each opening its own page (the whole email under "…show more"). **Spam** answers the company's waiting emails Spam (moved to
 the Spam folder in enforce mode; with the box ticked, their senders go on Spam senders, a mailing subdomain or the address,
-so the company's receipts stay checked); from then on, people taking its mail back out of Spam and the 3-person rule below
-work as for any spam. **Keep** leaves them in the Inbox and puts the company on **Settings → Sender lists → Promotional
+so the company's receipts stay checked, and (0.6.90) the company goes on **Settings → Sender lists → Promotional senders sent
+to Spam**: its later promotional mail goes straight to Spam from any of its addresses or mailing subdomains, while its
+receipts and other mail without the promotional signs are checked as usual; Undo or Keep takes it off, and an admin removes
+it there); from then on, people taking its mail back out of Spam and the 3-person rule below work as for any spam. **Keep** leaves them in the Inbox and puts the company on **Settings → Sender lists → Promotional
 senders kept**: its later promotional mail isn't listed (it is still checked, and moved if it is phishing or spam); an
 admin removes it there. Mail from your own domains (staff and school newsletters), Trusted senders, platform shares, and a
 sender the reader took back out of Spam are never listed. In enforce mode the email also gets the Gmail label

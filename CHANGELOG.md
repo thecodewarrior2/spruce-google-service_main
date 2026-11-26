@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.90: a company answered Spam in Review → Promotional stays answered
+
+- **The problem:** answering Spam for a company in Review → Promotional (with "also send future mail straight to Spam") put
+  only the addresses answered on Spam senders: the address itself for mail from the company's own domain
+  (`news@shopco.example`), or the mailing subdomain (`email.shopco.example`), so its receipts stay checked. Its promotional
+  mail from any other address or subdomain (`offers@shopco.example`, `deals@em.shopco.example`) was listed under the same
+  company in Review → Promotional again, however often it was answered.
+- **Now the company itself is kept**, on the new **Settings → Sender lists → Promotional senders sent to Spam**: its later
+  promotional mail (Gmail's Promotions tab, a signed one-click unsubscribe, or the AI's spam answer) goes straight to Spam,
+  as spam, from any of its addresses (monitor mode: recorded as would move; the brake holds it like any move). Its receipts
+  and other mail without those signs are checked as usual, a forged copy is judged as usual, and a person who takes its mail
+  back out of Spam keeps getting it. These emails aren't listed in Review.
+- **Undo** of the answer takes the company off the list again; **Keep** takes it off too; an admin removes one on the list.
+  Spam without the box ticked adds nothing, as before. The list is in Settings → Backup.
+- **Companies answered Spam before this update** (promotional emails answered Spam in the last 90 days whose sender went on
+  Spam senders) are added once, when the service first reads the list; Health → Activity names them.
+- This changes how such emails are judged: **the checks level is raised** (recent delivered mail is checked again).
+
 ## 0.6.89: phish-tiny 0.30.0, the first model that reads the facts beyond the email
 
 - **The AI model is phish-tiny 0.30.0** (TinyPhishLLM `37a6a70`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.29.0):
