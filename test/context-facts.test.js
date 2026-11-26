@@ -104,9 +104,13 @@ test('analyze: the facts reach aiFacts.extra and the result, the model\'s input 
     assert.equal(withFacts.aiFacts.extra.category, 'updates');
     assert.equal(withFacts.aiFacts.extra.attachmentText, '');
     assert.equal(base.aiFacts, undefined, 'the words of documents and pictures only for the retraining export');
-    assert.equal(withFacts.ai.probability, base.ai.probability, 'format 3 doesn\'t read them: the same score');
+    // (0.6.89) The released model reads format 4 (phish-tiny 0.30.0): the facts are part of its input; a format-3 model's input
+    // is the same with or without them.
     const fmt = E.model.meta.inputFormat;
-    assert.equal(E.modelInputText(withFacts.aiFacts, fmt), E.modelInputText(Object.assign({}, withFacts.aiFacts, { extra: undefined }), fmt), 'the same input for the format the model reads');
+    const sameIn3 = (f) => E.modelInputText(f, 3) === E.modelInputText(Object.assign({}, f, { extra: undefined }), 3);
+    assert.ok(sameIn3(withFacts.aiFacts), 'format 3: the same input');
+    if (fmt >= 4) assert.match(E.modelInputText(withFacts.aiFacts, fmt), /context: gmail tab updates;/, 'format 4: the facts are read');
+    else assert.equal(withFacts.ai.probability, base.ai.probability, 'format 3 doesn\'t read them: the same score');
 });
 
 test('the pipeline: recorded on the email (aiContext), copies counted across the organization, the export carries them', async () => {
@@ -163,7 +167,8 @@ test('format 4: the context line and the documents\' and pictures\' words, exact
     assert.equal(E.modelInputText(plain, 4), E.modelInputText(plain, 3), 'no facts beyond the email: format 3\'s text');
     assert.equal(E.modelInputText(f, 3), E.modelInputText(plain, 3), 'a format-3 model never reads them');
     // The released model's own format (model.json) is what the service builds.
-    assert.equal(E.model.parts(f).head, E.modelInputText(f, E.model.meta.inputFormat).replace(/ text: .*$/, ''));
+    const full = E.modelInputText(f, E.model.meta.inputFormat);
+    assert.equal(E.model.parts(f).head, full.slice(0, full.lastIndexOf(' text: ')), 'everything before the email\'s own text');
 });
 
 test('a format-4 model: an email of pictures has its picture\'s words read on arrival; a format-3 model: never', async () => {
@@ -178,6 +183,7 @@ test('a format-4 model: an email of pictures has its picture\'s words read on ar
     const realAnalyze = E.model.analyze, realFormat = E.model.meta.inputFormat;
     E.model.analyze = async (aiFacts) => { seen.push(E.model.parts(aiFacts).head); return { probability: 0.5, spam: 0, reasons: [], model: 'x', version: 'y' }; };
     try {
+        E.model.meta.inputFormat = 3;
         await analyze(facts, { mailbox: PAT, orgDomains: [ORG] });
         assert.ok(!/picture text:/.test(seen[0]), 'format 3: not read');
         E.model.meta.inputFormat = 4;

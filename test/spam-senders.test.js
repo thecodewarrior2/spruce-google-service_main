@@ -23,7 +23,8 @@ const judge = async (svc, user, opts) => svc.judge(user, { id: `m${n}-${user}`, 
 test('a sender on Spam senders: its verified mail goes straight to Spam, as spam, whatever the checks find', async () => {
     const svc = make();
     const before = await judge(svc, PAT);
-    assert.equal(before.action, 'none', 'an ordinary newsletter: left alone');
+    // (0.6.89) phish-tiny 0.30.0 calls it marketing: listed in Review → Promotional, never moved.
+    assert.ok(['none', 'promo'].includes(before.action), `an ordinary newsletter: not moved (${before.action})`);
     assert.equal((await svc.addSpamSender('email.recipe-site.example', ADMIN)).key, 'email.recipe-site.example', 'kept as typed (0.6.40)');
     const r = await judge(svc, PAT);
     assert.deepEqual([r.action, r.trigger], ['move', 'spam']);

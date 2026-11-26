@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.89: phish-tiny 0.30.0, the first model that reads the facts beyond the email
+
+- **The AI model is phish-tiny 0.30.0** (TinyPhishLLM `37a6a70`, `vendor/spruce/VENDOR.json` `modelSource`; was 0.29.0):
+  **input format 4**, which the service builds since 0.6.86 (the sync checked all 102 reference cases). Five runs trained
+  from 0.29.0, averaged into one model; also trained on published research collections (never published) and a district's
+  de-identified examples (never published). It passes every one of the model's release checks.
+- **What it reads now** (gathered since 0.6.85): Gmail's category, the unsubscribe marker and mailing service, the sender's
+  history with your organization and what differs this time, the conversation, how many of your people got the email that
+  day, the sender domain's age, and the words of attached documents. An email made only of pictures has the words in up to
+  two of its pictures read as it arrives (OCR on the service, a few seconds at most, never stored; pictures it only links to
+  are never fetched).
+- **What changes**, against 0.29.0 at the 65% line (held-out sets, never trained on; TinyPhishLLM's changelog): research
+  collections' phishing missed 33 of 2,936 → 26, their spam missed 101 of 3,759 → 79, their genuine mail called phishing
+  8 of 4,072 → 7 but called spam more often (76 → 87 at 50%); a district's held-out emails missed 14 / 10 / 4 / 5 → 14 / 8 /
+  2 / 3 (four exports) with its genuine mail called phishing or spam 14 / 1 / 1 / 4 → 13 / 1 / 1 / 4; published phishing
+  missed 16 of 954 → 16, published genuine called phishing 7 of 834 → 7.
+- **What it hasn't learned:** that a long clean history with a sender lowers the risk of the same words. Sender standing
+  (Settings → Policy) still does that.
+- **On this project's made-up demo emails** every action is the same as with 0.29.0. The scores move by under 4 points,
+  except the made-up pay-statement lure (78% phishing, was 9%: suspicious, under the move line) and the garden centre's
+  "Big spring sale" (7% spam, was 15%; 0% phishing). A made-up recipe newsletter in the tests is now called marketing
+  (Review → Promotional; never moved).
+- The model changes how email is judged: **the checks level is raised** (recent delivered mail is checked again).
+
 ## 0.6.88: the AI no longer told a card bank or a brand's own other domain is an impostor
 
 - **What the AI is told about who the sender claims to be** now agrees with the rule checks. Mail a district had confirmed
