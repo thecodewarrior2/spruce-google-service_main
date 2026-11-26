@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.84: how it decides, in diagrams
+
+- **`docs/HOW-IT-DECIDES.md`:** an overview to present to colleagues, with three diagrams (`docs/images/`): the decision
+  map (in order: phishing-training mail, both readers, Trusted senders, the move rules, spam, suspicious, promotional,
+  safe), how the AI reads an email (what it is given, word pieces, its layers, two answers, three shares, the lines), and
+  how it learned (the four kinds of examples, fifteen runs averaged, the release checks). Linked from the README.
+  Also what the rule checks look at (your Workspace directory's staff names, the sender checks, imitation and the daily
+  look-alike watch, links, attachments, first emails and shares) and what can still change an outcome (monitor mode,
+  remembered answers, sender standing, the brakes, re-checks, staff mail, readers' reports, Spam learning, alerts).
+- Documentation only: nothing is judged differently; no installation change.
+
 ## 0.6.83: Mail → Emails filters by an admin's answer
 
 - **Mail → Emails** (and its CSV download): the action filter also has **Admin confirmed phishing**, **Admin confirmed

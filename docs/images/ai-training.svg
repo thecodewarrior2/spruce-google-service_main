@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="260" viewBox="0 0 1000 260" role="img" aria-label="Training: four sources of examples (made-up emails, published warnings paraphrased, research collections with people removed, and the district's own reviewed emails kept on one computer) train fifteen runs, which are averaged into one model; it must pass the release checks on held-out emails before a program uses it."><style>
+.bg{fill:#ffffff}
+.box{fill:#ffffff;stroke:#c9d3d0;stroke-width:1.5}
+.spinebox{fill:#ffffff;stroke:#2f6b5f;stroke-width:2}
+.checks{fill:#e8ecea;stroke:#c9d3d0;stroke-width:1.5}
+.o-phish{fill:#fde9dc;stroke:#c2410c;stroke-width:2}
+.o-spam{fill:#fbefcf;stroke:#a16207;stroke-width:2}
+.o-safe{fill:#e1ecfb;stroke:#1d5fb8;stroke-width:2}
+.o-review{fill:#ece4fb;stroke:#6d28d9;stroke-width:2}
+.o-neutral{fill:#e8ecea;stroke:#c9d3d0;stroke-width:2}
+text{font-family:"Public Sans","Segoe UI",Arial,sans-serif}
+.t{fill:#17211f;font-size:13px}
+.tb{fill:#17211f;font-size:14px;font-weight:600}
+.tt{fill:#17211f;font-size:15px;font-weight:700}
+.tm{fill:#55635f;font-size:12px}
+.tphish{fill:#c2410c;font-size:12px;font-weight:700;letter-spacing:.06em}
+.tspam{fill:#a16207;font-size:12px;font-weight:700;letter-spacing:.06em}
+.tsafe{fill:#1d5fb8;font-size:12px;font-weight:700;letter-spacing:.06em}
+.treview{fill:#6d28d9;font-size:12px;font-weight:700;letter-spacing:.06em}
+.tneutral{fill:#55635f;font-size:12px;font-weight:700;letter-spacing:.06em}
+.yes{fill:#2f6b5f;font-size:12px;font-weight:700}
+.wire{stroke:#2f6b5f;stroke-width:2;fill:none}
+.wire2{stroke:#55635f;stroke-width:1.5;fill:none;stroke-dasharray:5 4}
+.head{fill:#2f6b5f}
+.bar-g{fill:#1d5fb8}.bar-s{fill:#a16207}.bar-p{fill:#c2410c}
+</style><rect class="bg" x="0" y="0" width="1000" height="260"/>
+          <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+          <rect class="box" x="10" y="10" width="270" height="52" rx="8"/><text class="tb" x="24" y="32">Made-up emails</text><text class="tm" x="24" y="50">generated lures and their genuine twins</text>
+          <rect class="box" x="10" y="72" width="270" height="52" rx="8"/><text class="tb" x="24" y="94">Published warnings</text><text class="tm" x="24" y="112">from schools, the FTC, FBI; paraphrased</text>
+          <rect class="box" x="10" y="134" width="270" height="52" rx="8"/><text class="tb" x="24" y="156">Research collections</text><text class="tm" x="24" y="174">published sets; names and numbers removed</text>
+          <rect class="box" x="10" y="196" width="270" height="52" rx="8"/><text class="tb" x="24" y="218">Your reviewed emails</text><text class="tm" x="24" y="236">de-identified; never leave one computer</text>
+          <path class="wire" d="M280,36 L330,36 L330,129 L366,129" marker-end="url(#ah3)"/>
+          <path class="wire" d="M280,98 L330,98"/><path class="wire" d="M280,160 L330,160"/><path class="wire" d="M280,222 L330,222 L330,129"/>
+          <rect class="spinebox" x="370" y="84" width="190" height="90" rx="10"/>
+          <text class="tb" x="465" y="110" text-anchor="middle">15 training runs</text>
+          <text class="t" x="465" y="132" text-anchor="middle">start from the last model,</text>
+          <text class="t" x="465" y="150" text-anchor="middle">different random seeds</text>
+          <line class="wire" x1="560" y1="129" x2="596" y2="129" marker-end="url(#ah3)"/>
+          <rect class="box" x="600" y="84" width="160" height="90" rx="10"/>
+          <text class="tb" x="680" y="110" text-anchor="middle">Averaged</text>
+          <text class="t" x="680" y="132" text-anchor="middle">into one model:</text>
+          <text class="t" x="680" y="150" text-anchor="middle">steadier than any one</text>
+          <line class="wire" x1="760" y1="129" x2="796" y2="129" marker-end="url(#ah3)"/>
+          <rect class="o-safe" x="800" y="64" width="190" height="130" rx="10"/>
+          <text class="tsafe" x="814" y="86">RELEASE CHECKS</text>
+          <text class="t" x="814" y="108">Held-out emails never</text>
+          <text class="t" x="814" y="125">trained on, past mistakes,</text>
+          <text class="t" x="814" y="142">look-alike genuine mail</text>
+          <text class="tm" x="814" y="166">Better, or it isn't used</text>
+          <text class="tm" x="814" y="182">Approved before release</text>
+        </svg>

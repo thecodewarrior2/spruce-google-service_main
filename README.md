@@ -712,7 +712,7 @@ and abuse.ch (their Settings pages), and who is checked (Settings → Mailboxes)
 See `docs/DEPLOY.md` (each piece, by hand) and `docs/PRIVACY.md` (what is read, kept and shown).
 `docs/COSTS.md` is what it costs a month, by district size. `docs/SCALING.md` is what a district of
 10,000 mailboxes and 100,000 emails a day asks of it, measured, and the plan beyond.
-`docs/ARCHITECTURE.md` explains the pieces. `docs/ALERTS.md` says what each alert the admins can receive means
+`docs/HOW-IT-DECIDES.md` shows, in three diagrams, how an email is judged phishing, spam or safe and how the AI reads it and learned (an overview to present). `docs/ARCHITECTURE.md` explains the pieces. `docs/ALERTS.md` says what each alert the admins can receive means
 and what to do. `docs/WORKSPACE.md` lists Google Workspace settings that work alongside the service (an outbound
 recipient limit for a staff account taken over, Gmail's own Safety settings, DMARC). `docs/RETRAINING.md` turns the emails admins and moderators marked into
 training examples, and a better AI model.
