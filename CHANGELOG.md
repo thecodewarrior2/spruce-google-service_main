@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.87: look-alikes of the companies that mail you
+
+- **A new check:** a sender, Reply-To or link domain one small change away from a company that mails your organization
+  (`src/correspondents.js`): a letter dropped, added, changed or swapped, "rn" for "m", a hyphen, another ending, or a word
+  such as "billing" or "invoice" added (`tallpine-furniture.example`, `tallpinefurnlture.example`,
+  `tallpinefurniture-billing.example` for the vendor `tallpinefurniture.example`). Invoice and bank-change fraud against
+  districts writes from such domains, and no brand list knows a district's local vendors.
+- **The companies that mail you** are the senders with sender standing (Settings → Policy → Sender standing, show or on):
+  at least 3 clean emails Gmail confirmed, or an admin's Mark safe, and no Phishing answer since. No list of them is kept in
+  the clear: standing is kept under one-way hashes, and the near-misses of each new domain are hashed and looked up.
+- **Points:** the sender's domain 5 when it was registered under 180 days ago or Gmail couldn't confirm the sender (enough to
+  move it; the brakes never hold it), 3 when Gmail confirmed it and its age isn't known or under two years (suspicious), 1
+  when it is confirmed and older (said on the email, likely the same company's other domain; sender standing never applies
+  to it); a Reply-To 3; a link 2. Domains of fewer than 6 letters are matched only by another ending (two real companies'
+  short names are often one letter apart). Never for free mail, your own domains or a platform's notification.
+- The set is read every 6 hours per instance (one Firestore read per company); with Sender standing off it stays empty and
+  nothing is checked. **The checks level is raised:** recent delivered mail is checked again after the update.
+
 ## 0.6.86: ready for the AI's input format 4
 
 - **`vendor/spruce/ai.js` builds input format 4** (copied unchanged from the model's training, TinyPhishLLM_Private_Training

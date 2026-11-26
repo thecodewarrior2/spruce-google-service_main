@@ -202,6 +202,18 @@ class FirestoreStore {
         const d = await this.col('standing').doc(safeId(hash)).get();
         return d.exists ? d.data() : null;
     }
+    // (0.6.87) The keys of the senders with at least minCount clean emails, or an admin's Mark safe, and no Phishing answer
+    // after it (src/correspondents.js). Two queries, only the fields needed.
+    async listStandingKeys({ minCount = 3 } = {}) {
+        const [a, b] = await Promise.all([this.col('standing').where('count', '>=', minCount).select('phishAt', 'safe').get(),
+            this.col('standing').where('safe.at', '>', 0).select('phishAt', 'safe').get()]);
+        const out = new Set();
+        for (const d of [...a.docs, ...b.docs]) {
+            const v = d.data(), phish = v.phishAt || 0;
+            if (!phish || (v.safe && v.safe.at > phish)) out.add(d.id);
+        }
+        return [...out];
+    }
     async updateStanding(hash, fn) {
         const ref = this.col('standing').doc(safeId(hash));
         return this.db.runTransaction(async (t) => {

@@ -123,6 +123,9 @@ class MemoryStore {
         const v = this.standing.get(hash);
         return v ? JSON.parse(JSON.stringify(v)) : null;
     }
+    async listStandingKeys({ minCount = 3 } = {}) {
+        return [...(this.standing || new Map())].filter(([k, v]) => ((v.count || 0) >= minCount || (v.safe && v.safe.at)) && (!v.phishAt || (v.safe && v.safe.at > v.phishAt))).map(([k]) => k);
+    }
     async updateStanding(hash, fn) {
         this.standing = this.standing || new Map();
         const next = fn(await this.getStanding(hash));

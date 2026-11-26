@@ -118,7 +118,8 @@ function senderVerified(facts) {
 // aiInside: bool (the AI model also reads mail from inside the organization; off: the rules alone do),
 // intel: src/intel (null: no network checks), allowLinkDomains: the allowed link domains (network.js, 0.5.73),
 // threadSize: the Gmail thread's size (replychain.js), lookalikes: Map domain → 'strong' | 'weak' (the look-alike
-// watch), readAttachments: false to skip the attachments,
+// watch), readAttachments: false to skip the attachments, correspondents: the Set of standing keys of the companies that
+// mail you (0.6.87, src/correspondents.js) and correspondentCache: a Map of its answers per domain,
 // (0.6.85, for the AI's next input format: src/context-facts.js) extraFacts: what the pipeline knew before the checks
 // (Gmail's category, the unsubscribe marker, the conversation, how many of your people got it), standingDoc: the sender's
 // standing record (null: none; undefined: not read), firstSeenAt: when the address first wrote to the organization,
@@ -208,7 +209,11 @@ async function analyze(facts, ctx = {}) {
         ...safe(() => watchedLookalikeSigns(E, facts, judged, ctx.lookalikes)),
         // (0.6.32) The organization's own domain written inside another domain, and a hidden decoy link.
         ...safe(() => orgDomainInsideSigns(E, facts, judged, ctx.orgDomains || [])),
-        ...safe(() => hiddenDecoyLinkSigns(E, judged, facts, verified))
+        ...safe(() => hiddenDecoyLinkSigns(E, judged, facts, verified)),
+        // (0.6.87) A look-alike of a company that mails you (src/correspondents.js): ctx.correspondents, the standing keys of
+        // the companies with clean mail here. Not for a platform's notification, nor mail from inside.
+        ...safe(() => (relay || inside ? [] : require('../correspondents').lookalikeSigns(E, facts, judged, { keys: ctx.correspondents || null, orgDomains: ctx.orgDomains || [],
+            senderAge: typeof net.senderAge === 'number' ? net.senderAge : null, verified, cache: ctx.correspondentCache || null })))
     ];
     // A colleague's name with a title or the organization's name added ("Misty Samplefield, Principal", "Misty
     // Samplefield - Maple Schools"), which impersonators write and the exact match misses (0.5.43).
@@ -231,6 +236,8 @@ async function analyze(facts, ctx = {}) {
     const WATCH_CONFIRMS = new Set(['watched-lookalike-sender', 'watched-lookalike-reply-to']);
     const confirmedBy = [
         signals.some(s => WATCH_CONFIRMS.has(s.kind)) ? 'the sender or the reply address is a newly registered look-alike of your domain' : '',
+        // (0.6.87) a sender's domain registered under 180 days ago, one small change away from a company that mails you
+        signals.some(s => s.kind === 'correspondent-lookalike' && s.weight >= 5 && /was registered \d+ days ago/.test(String(s.text))) ? 'the sender\'s domain is a newly registered look-alike of a company that mails you' : '',
         judged.some(j => j.network && j.severity === 'danger') ? 'a link is blocked or on a phishing list' : '',
         net.signals.some(s => SENDER_CONFIRMS.has(s.kind)) ? 'the sender is on a list, blocked, or a new look-alike' : '',
         facts.auth && facts.auth.dmarc === 'fail' ? 'Gmail\'s DMARC check failed' : ''

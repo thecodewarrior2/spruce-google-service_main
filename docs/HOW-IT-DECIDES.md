@@ -36,7 +36,10 @@ nothing else: a link on a phishing list or an imitated brand is enough to move a
 - **Sender:** Gmail's DMARC, SPF and DKIM results, forged or spam-flagged headers, a forged Message-ID, and a "RE:" that
   answers nothing in the mailbox (a fake reply chain).
 - **Imitation:** a brand's name on an address that isn't the brand's (unless your reviewers confirmed that sender: Brand
-  senders), and look-alikes of your own domain, which a daily watch finds as soon as they are registered.
+  senders), look-alikes of your own domain, which a daily watch finds as soon as they are registered, and (since 0.6.87)
+  look-alikes of the companies that mail you: a sender, reply address or link one small change away from a vendor with
+  clean mail here (`tallpine-furniture.example` for `tallpinefurniture.example`). A new such domain, or one Gmail couldn't
+  confirm, counts 5 points, enough to move it.
 - **Links:** phishing lists downloaded daily, Google Safe Browsing, Cloudflare's malware blocking, Spamhaus and abuse.ch
   when turned on, the site's age, hidden decoy links, and link text that names a different site.
 - **Attachments:** the kinds of files, and the links inside them: QR codes in pictures and links in documents are read and
@@ -143,4 +146,4 @@ used only on the computer that trains the model. The published model carries wha
 - **It knows mail, not your history:** a real company's statement and a lure with the same words look alike to it. Sender
   standing and Review answers supply what it can't know.
 
-*Describes S.P.R.U.C.E Mail Protection Service 0.6.86 with the phish-tiny 0.29.0 model.*
+*Describes S.P.R.U.C.E Mail Protection Service 0.6.87 with the phish-tiny 0.29.0 model.*

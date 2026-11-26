@@ -1,5 +1,5 @@
 {
-  "checksLevel": 56,
-  "fingerprint": "18c9e98f01208412a3c77f714727710d82ead25eeaf63779838fbcf68ed888aa",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.86: input format 4 in vendor/spruce/ai.js and picture reading on arrival, both only for a model that reads format 4; the released model reads format 3, so nothing is judged differently"
+  "checksLevel": 57,
+  "fingerprint": "c5c498430b416486bcd0ce09a26706feff51f41bb85b96ccc06fa34ac14c2a43",
+  "note": "Recorded by tools/checks-level.js --raised: this level changed how email is checked."
 }
