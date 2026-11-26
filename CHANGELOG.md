@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.85: more for the AI to learn from (facts beyond the email, words in documents and pictures)
+
+- **Gathered for the AI's next input format** (`src/context-facts.js`), on every email the service records
+  (`aiContext` on the record: labels, counts and yes/no answers, never content): Gmail's category (Primary, Updates,
+  Promotions, Social, Forums), the unsubscribe marker (a signed one-click unsubscribe, or a plain List-Unsubscribe), the
+  mailing service that sent it for the company, the sender's history with the organization (a first email; or its days,
+  clean emails and days with mail, an admin's Mark safe or Phishing, and what differs this time: a new signing domain,
+  mail service, Reply-To domain or link site, an attachment), the conversation (a reply; its size; whether the reader
+  wrote in it, from Gmail's SENT label), how many of your people got the same email that day so far, and the sender's
+  domain age.
+- **The words in documents** (PDF pages already read for links and QR codes, Word, Excel's shared strings, PowerPoint's
+  slides) and, for the retraining export only, **in up to two pictures** (OCR with tesseract.js and its English data,
+  installed with the service: nothing is downloaded and no picture leaves your project). Never stored.
+- **The retraining export** carries them (`facts.extra`, `docs/RETRAINING.md`): the facts as they were on arrival, the
+  documents' and pictures' words cleaned like the email's text, at most 1,000 characters each, and checked for leftover
+  addresses and numbers like the body. An email recorded before 0.6.85 has only Gmail's category and the unsubscribe
+  marker.
+- **The copy count** is kept per day in Firestore (`copies`, one document per day and part, a counter per campaign;
+  deleted after three days), written with the day's counters.
+- **No verdict changes:** the current model (input format 3) doesn't read these facts, and no rule uses them. A model
+  trained on them comes as its own update, which says so. The image is about 60 MB larger (the OCR engine and its data).
+- Links: already given to the AI as where they really go (Safe Links, Proofpoint, Google and Bing redirects and the other
+  wrappers the link checks decode). The page behind a link isn't fetched.
+
 ## 0.6.84: how it decides, in diagrams
 
 - **`docs/HOW-IT-DECIDES.md`:** an overview to present to colleagues, with three diagrams (`docs/images/`): the decision

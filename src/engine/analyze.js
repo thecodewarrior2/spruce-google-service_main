@@ -118,7 +118,11 @@ function senderVerified(facts) {
 // aiInside: bool (the AI model also reads mail from inside the organization; off: the rules alone do),
 // intel: src/intel (null: no network checks), allowLinkDomains: the allowed link domains (network.js, 0.5.73),
 // threadSize: the Gmail thread's size (replychain.js), lookalikes: Map domain → 'strong' | 'weak' (the look-alike
-// watch), readAttachments: false to skip the attachments }
+// watch), readAttachments: false to skip the attachments,
+// (0.6.85, for the AI's next input format: src/context-facts.js) extraFacts: what the pipeline knew before the checks
+// (Gmail's category, the unsubscribe marker, the conversation, how many of your people got it), standingDoc: the sender's
+// standing record (null: none; undefined: not read), firstSeenAt: when the address first wrote to the organization,
+// readPictures: also read the words in pictures (OCR; the retraining export) }
 async function analyze(facts, ctx = {}) {
     const E = spruce.load();
     const mailbox = String(ctx.mailbox || '').toLowerCase();
@@ -145,7 +149,7 @@ async function analyze(facts, ctx = {}) {
     // (it needs only the sender): it waited for them first, up to 6 s more for an email whose name claims a brand.
     const ownershipP = relay ? Promise.resolve(null) : senderOwnership(E, facts, ctx.trusted ? null : (ctx.intel || null)).catch(() => null);
     const att = ctx.readAttachments === false ? { links: [], signals: [], found: [], skipped: 0 }
-        : await readAttachments(facts.attachmentFiles || [], { outside: !inside }).catch(() => ({ links: [], signals: [], found: [], skipped: 0 }));
+        : await readAttachments(facts.attachmentFiles || [], { outside: !inside, readPictures: !!ctx.readPictures }).catch(() => ({ links: [], signals: [], found: [], skipped: 0 }));
     const judged = await judgeLinks(E, [...(facts.links || []), ...att.links]);
     // The network checks (they may flag links, so they come before the link signs are counted).
     // Allowlisted senders (ctx.trusted) are never moved, so their mail costs no lookups (nor the ownership one).
@@ -261,6 +265,18 @@ async function analyze(facts, ctx = {}) {
         }
         aiFacts.replyTo = keep.concat(aiFacts.replyTo.slice(3));
     }
+    // (0.6.85) What the service knows beyond the email's text (src/context-facts.js): for the next input format (format 4);
+    // a format-3 model doesn't read aiFacts.extra, so nothing it decides changes. The documents' and pictures' words only go
+    // to the retraining export (aiFacts, with keepAiFacts); the record keeps the rest (extraFacts: labels and counts).
+    const linkUrls = [...new Set(judged.flatMap(j => [j.url, j.finalUrl]).filter(Boolean))].slice(0, 80);
+    const extraFacts = safeOne(() => {
+        const CF = require('../context-facts');
+        // (what the caller already knew wins: the retraining export passes the facts as they were on arrival)
+        const out = CF.checkFacts(E, facts, { linkUrls }, { standingDoc: ctx.standingDoc, firstSeenAt: ctx.firstSeenAt, now: ctx.now || Date.now(), senderAge: net.senderAge });
+        for (const [k, v] of Object.entries(ctx.extraFacts || {})) if (v !== null && v !== undefined) out[k] = v;
+        return CF.cleanContext(out);
+    });
+    aiFacts.extra = Object.assign({}, extraFacts || {}, ctx.keepAiFacts ? { attachmentText: att.attachmentText || '', pictureText: att.pictureText || '' } : {});
     if (aiFacts.identity && signals.some(s => s && s.kind === 'brand-name-likely' && s.weight === 0 && /counts as that company writing about a product it runs/.test(String(s.text || '')))) aiFacts.identity = null;
     // The model was trained on English only: on an email clearly in another language its score means little,
     // so it gives none, and says why (the rule checks above don't depend on the language).
@@ -293,7 +309,9 @@ async function analyze(facts, ctx = {}) {
         links: judged.filter(j => j.severity).slice(0, 20).map(j => ({ url: j.url.slice(0, 300), finalUrl: String(j.finalUrl || '').slice(0, 300), severity: j.severity, reason: j.reason, from: j.from || undefined })),
         linkCount: judged.length,
         // Every link's address and where it leads (in memory only): the re-check index (src/recheck.js).
-        linkUrls: [...new Set(judged.flatMap(j => [j.url, j.finalUrl]).filter(Boolean))].slice(0, 80),
+        linkUrls,
+        // (0.6.85) The facts for the AI's next input format, never content (src/context-facts.js cleanContext).
+        extraFacts: extraFacts || null,
         // What the attachment checks found (0.5.34): file names and what was in them (a host, a sign), no content.
         attachmentFindings: att.found, attachmentsSkipped: att.skipped || 0,
         checks: net.checks,

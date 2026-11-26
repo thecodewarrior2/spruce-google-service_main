@@ -26,7 +26,9 @@ const LIMITS = {
     zipEntries: 400,
     zipBytes: 40 * 1024 * 1024,    // unpacked, for an Office file
     htmlBytes: 2 * 1024 * 1024,
-    budgetMs: 10000
+    budgetMs: 10000,
+    ocrPictures: 2,                // (0.6.85) pictures read for words per email (readPictures: the retraining export)
+    ocrMs: 4000
 };
 const HEAVY_AT_ONCE = 2;
 
@@ -55,7 +57,7 @@ function memoSet(k, calls) { if (readMemo.size >= READ_MEMO_MAX) readMemo.delete
 // out's calls, recorded to be replayed for the same file.
 function recording(out) {
     const calls = [];
-    return { calls, out: { link: (...a) => { calls.push(['link', a]); out.link(...a); }, qr: (...a) => { calls.push(['qr', a]); out.qr(...a); }, sign: (...a) => { calls.push(['sign', a]); out.sign(...a); } } };
+    return { calls, out: { link: (...a) => { calls.push(['link', a]); out.link(...a); }, qr: (...a) => { calls.push(['qr', a]); out.qr(...a); }, sign: (...a) => { calls.push(['sign', a]); out.sign(...a); }, text: (...a) => { calls.push(['text', a]); out.text(...a); } } };
 }
 
 const extOf = (name) => (/\.([a-z0-9]{1,8})$/i.exec(String(name || '')) || [])[1]?.toLowerCase() || '';
@@ -150,7 +152,9 @@ async function readPdf(f, out, deadline) {
             const page = await pdf.getPage(n);
             for (const a of await page.getAnnotations().catch(() => [])) if (a && a.url) out.link(a.url, `a link in ${f.name}`);
             const text = await page.getTextContent().catch(() => ({ items: [] }));
-            for (const m of text.items.map(i => i.str || '').join(' ').match(URL_IN_TEXT) || []) out.link(m, `an address written in ${f.name}`);
+            const words = text.items.map(i => i.str || '').join(' ');
+            for (const m of words.match(URL_IN_TEXT) || []) out.link(m, `an address written in ${f.name}`);
+            out.text(words);
             const ops = await page.getOperatorList().catch(() => null);
             if (!ops) continue;
             let images = 0;
@@ -173,13 +177,24 @@ async function readPdf(f, out, deadline) {
     } finally { try { await pdf.destroy(); } catch (e) { /* gone */ } }
 }
 
+// (0.6.85) The words of an Office XML part: its text runs (Word's w:t, PowerPoint's a:t, Excel's shared strings' t), a
+// paragraph or a cell a line.
+const XML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+function xmlText(xml) {
+    return String(xml || '').replace(/<\/(?:w:p|a:p|si)>/g, '\n').replace(/<(?:w:tab|w:br)\b[^>]*\/>/g, ' ')
+        .replace(/<(?:w:t|a:t|t)(?:\s[^>]*)?>([^<]*)<\/(?:w:t|a:t|t)>|<[^>]+>/g, (m, t) => (t === undefined ? '' : t))
+        .replace(/&(amp|lt|gt|quot|apos);/g, (m, e) => XML_ENTITIES[e]).replace(/&#(\d+);/g, (m, n) => String.fromCodePoint(Math.min(Number(n), 0x10FFFF)))
+        .replace(/[^\S\n]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+}
+
 // An Office file (a zip): macros (vbaProject.bin, or a .docm/.xlsm/.pptm name), and only what can hold a link or a
 // QR code is unpacked: the relationship files (external hyperlinks), Word's document.xml (HYPERLINK fields) and the
 // pictures in its media folder. At most LIMITS.zipEntries entries and LIMITS.zipBytes unpacked.
 function readOffice(f, out) {
     const { unzipSync } = require('fflate');
     let total = 0, count = 0, macros = false;
-    const want = (n) => /(^|\/)_rels\/[^/]*\.rels$/.test(n) || /^word\/document\.xml$/.test(n) || /^(word|xl|ppt)\/media\/[^/]+\.(png|jpe?g)$/i.test(n);
+    // (0.6.85) and the words: Word's document, Excel's shared strings, PowerPoint's slides (for the AI's next input format)
+    const want = (n) => /(^|\/)_rels\/[^/]*\.rels$/.test(n) || /^word\/document\.xml$/.test(n) || /^(word|xl|ppt)\/media\/[^/]+\.(png|jpe?g)$/i.test(n) || /^xl\/sharedStrings\.xml$/.test(n) || /^ppt\/slides\/slide\d{1,3}\.xml$/.test(n);
     let files;
     try {
         files = unzipSync(new Uint8Array(f.content), { filter: (e) => {
@@ -203,6 +218,9 @@ function readOffice(f, out) {
         } else if (/document\.xml$/.test(name)) {
             const xml = Buffer.from(data).toString('utf8');
             for (const m of xml.matchAll(/HYPERLINK\s+(?:&quot;|")(https?:[^"&]+)/gi)) out.link(m[1], `a link in ${f.name}`);
+            out.text(xmlText(xml));
+        } else if (/\.xml$/.test(name)) {
+            out.text(xmlText(Buffer.from(data).toString('utf8')));
         } else {
             const kind = /\.png$/i.test(name) ? 'png' : 'jpeg';
             try { const code = qrInImage(kind, Buffer.from(data)); if (code) out.qr(code, `a QR code in ${f.name}`); } catch (e) { /* not a picture */ }
@@ -268,10 +286,15 @@ function readZip(f, out) {
 // files: [{ name, type, size, content: Buffer, inline }]. Options: { outside (an outside sender; a forged inside
 // address counts as outside), budgetMs }. Returns { links: [{ href, text, from }] (at most 60), signals (each kind
 // once), found: [{ name, what }] (at most 20), skipped (too big, past the time budget, or unreadable) }.
-async function readAttachments(files, { outside = true, budgetMs = LIMITS.budgetMs } = {}) {
+// (0.6.85) Also the words in documents (attachmentText: PDF, Word, Excel, PowerPoint), and with readPictures the words in up
+// to LIMITS.ocrPictures pictures (pictureText, OCR: src/engine/ocr.js), each at most TEXT_MAX characters, for the AI's next
+// input format. Never stored: only the retraining export reads them.
+const TEXT_MAX = 2000;
+async function readAttachments(files, { outside = true, budgetMs = LIMITS.budgetMs, readPictures = false } = {}) {
     const deadline = Date.now() + budgetMs;
     const links = [], signals = [], found = [], seenLinks = new Set(), seenSigns = new Set();
-    let skipped = 0, qrs = 0;
+    let skipped = 0, qrs = 0, attachmentText = '', pictureText = '', ocrRead = 0;
+    const addText = (cur, t) => { const x = String(t || '').replace(/[^\S\n]+/g, ' ').trim(); return !x || cur.length >= TEXT_MAX ? cur : (cur ? `${cur}\n${x}` : x).slice(0, TEXT_MAX); };
     for (const f of (files || []).slice(0, LIMITS.files)) {
         const name = String(f.name || '').slice(0, 120) || (f.inline ? 'a picture in the email' : 'an attachment');
         const ext = extOf(f.name);
@@ -287,7 +310,8 @@ async function readAttachments(files, { outside = true, budgetMs = LIMITS.budget
                 if (/^https?:\/\//i.test(code)) this.link(code, from);
                 else found.push({ name, what: `${from}: ${code.slice(0, 80)}` });
             },
-            sign(kind, weight, text) { if (!seenSigns.has(kind)) { seenSigns.add(kind); signals.push({ weight, kind, text }); found.push({ name, what: text }); } }
+            sign(kind, weight, text) { if (!seenSigns.has(kind)) { seenSigns.add(kind); signals.push({ weight, kind, text }); found.push({ name, what: text }); } },
+            text(t) { attachmentText = addText(attachmentText, t); }
         };
         // The name, whatever is inside.
         const parts = String(f.name || '').toLowerCase().split('.');
@@ -298,6 +322,10 @@ async function readAttachments(files, { outside = true, budgetMs = LIMITS.budget
         if (!buf || !buf.length) continue;
         if (buf.length > LIMITS.fileBytes || Date.now() > deadline) { skipped++; continue; }
         const kind = kindOf(f);
+        if (readPictures && (kind === 'png' || kind === 'jpeg') && ocrRead < LIMITS.ocrPictures && deadline - Date.now() > 1000 && pictureWorthReading(kind, buf)) {
+            ocrRead++;
+            pictureText = addText(pictureText, await require('./ocr').textIn(buf, { timeoutMs: Math.min(LIMITS.ocrMs, deadline - Date.now()) }));
+        }
         try {
             const decoded = kind === 'png' || kind === 'jpeg' || kind === 'pdf' || kind === 'office';
             const key = decoded ? memoKey(kind, `${name}|${f.inline ? 1 : 0}`, buf) : '';
@@ -319,7 +347,24 @@ async function readAttachments(files, { outside = true, budgetMs = LIMITS.budget
     // page sent as a file (1) doesn't count: staff send them.
     if (qrs && outside) signals.push({ weight: 1, kind: 'qr-code', text: `It has ${qrs === 1 ? 'a QR code' : `${qrs} QR codes`}: a QR code hides its link from the reader (and from most checks) until a phone opens it.` });
     if (!outside) for (let i = signals.length - 1; i >= 0; i--) if (signals[i].kind === 'html-attachment') signals.splice(i, 1);
-    return { links, signals, found: found.slice(0, 20), skipped };
+    return { links, signals, found: found.slice(0, 20), skipped, attachmentText, pictureText };
+}
+
+// A picture that can hold words worth reading: not a logo, an icon or a tracking pixel (at least 200 by 60 pixels).
+function pictureWorthReading(kind, buf) {
+    const d = pictureSize(kind, buf);
+    return !!d && d.width >= 200 && d.height >= 60 && d.width * d.height <= LIMITS.imagePixels;
+}
+// A PNG's or JPEG's size from its header (nothing decoded), or null.
+function pictureSize(kind, b) {
+    if (kind === 'png') return b.length >= 24 ? { width: b.readUInt32BE(16), height: b.readUInt32BE(20) } : null;
+    for (let i = 2; i + 9 < b.length;) {
+        if (b[i] !== 0xFF) return null;
+        const m = b[i + 1], len = b.readUInt16BE(i + 2);
+        if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) return { width: b.readUInt16BE(i + 7), height: b.readUInt16BE(i + 5) };
+        i += 2 + len;
+    }
+    return null;
 }
 
 module.exports = { readAttachments, kindOf, qrIn, LIMITS };

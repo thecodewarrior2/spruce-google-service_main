@@ -108,6 +108,12 @@ class GmailClient {
         const r = await this.call(user, 'GET', `/threads/${encodeURIComponent(threadId)}`, { query: { format: 'minimal', fields: 'messages(id)' } });
         return (r.messages || []).length;
     }
+    // (0.6.85) The same, and whether the mailbox's owner sent one of its emails (Gmail's SENT label): { size, readerWrote }.
+    async threadInfo(user, threadId) {
+        const r = await this.call(user, 'GET', `/threads/${encodeURIComponent(threadId)}`, { query: { format: 'minimal', fields: 'messages(id,labelIds)' } });
+        const m = r.messages || [];
+        return { size: m.length, readerWrote: m.some(x => (x.labelIds || []).includes('SENT')) };
+    }
     // (0.6.7) A label refused (400/404: its owner deleted our label) makes this mailbox's label ids be asked again
     // at the next try; before, every move in that mailbox failed until the instance restarted.
     modify(user, id, add = [], remove = []) {

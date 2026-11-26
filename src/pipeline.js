@@ -30,6 +30,7 @@ const sims = require('./simulations');
 const { promotionalSigns, aiMarketingSign } = require('./promotional');
 const remember = require('./remember');
 const ST = require('./standing');
+const CF = require('./context-facts');
 const timing = require('./timing');
 const RQ = require('./review-queues');
 
@@ -82,6 +83,7 @@ const QUIET_POSITION_MS = 30 * 60 * 1000;
 const SENDERS_KEPT = 100000;
 // (0.6.76) Sender standing (src/standing.js): pending clean-mail counts written at this many senders at the latest; each
 // sender's standing read again after STANDING_CACHE_MS (an answer elsewhere reaches this instance by then).
+const COPY_CACHE_MS = 60 * 1000;
 const STANDING_BUF_MAX = 2000, STANDING_CACHE_MS = 2 * 60 * 1000, STANDING_CACHE_MAX = 20000;
 // How often the worker writes the day's counters it added up (src/server.js; see Service.count).
 const STAT_FLUSH_MS = 5000;
@@ -399,6 +401,8 @@ class Service {
         // (0.6.76) Sender standing: clean mail's counts and profiles, added up and written with the day's counters; and each
         // sender's standing as read, for STANDING_CACHE_MS.
         this.standingBuf = new Map(); this.standingCache = new Map();
+        // (0.6.85) Campaign copies counted here and not yet written, and the shared counts as read (COPY_CACHE_MS).
+        this.copyBuf = new Map(); this.copyParts = new Map();
         this.emailSlots = new Slots(EMAIL_SLOTS); this.recheckSlots = new Slots(RECHECK_PARALLEL); this.largeSlots = new Slots(LARGE_SLOTS); this.rescanSlots = new Slots(RESCAN_SLOTS);
     }
     // The day an instant falls on in the organization's time zone (TIME_ZONE, Settings → Policy).
@@ -420,6 +424,7 @@ class Service {
     }
     async flushStats() {
         await this.flushStanding().catch((e) => this.log.error('sender standing:', e));
+        await this.flushCopies().catch((e) => this.log.error('campaign copies:', e));
         if (!this.statBuf.size) return;
         const buf = this.statBuf;
         this.statBuf = new Map(); this.statFlushedAt = Date.now();
@@ -455,6 +460,46 @@ class Service {
             try { await this.store.updateStanding(d.key, (old) => ST.addTo(old, d)); this.standingCache.delete(d.key); }
             catch (e) { this.log.error('sender standing:', e); }
         });
+    }
+    // (0.6.85) How many copies of a campaign (campaignOf: the sender's domain and the subject) the organization got today,
+    // this one included when add: the shared count (read at most every COPY_CACHE_MS per part) plus this instance's copies
+    // not yet written. For the AI's next input format (src/context-facts.js recipients); null when the store can't count.
+    async copiesSoFar(campaignKey, day, { add = false } = {}) {
+        if (!this.store.getCopiesPart || !campaignKey) return null;
+        const id = `${day}|${campaignKey}`;
+        if (add) this.copyBuf.set(id, (this.copyBuf.get(id) || 0) + 1);
+        const pid = `${day}|${campaignKey.slice(0, 2)}`;
+        let c = this.copyParts.get(pid);
+        if (!c || this.now() - c.at >= COPY_CACHE_MS) {
+            const doc = await this.store.getCopiesPart(day, campaignKey).catch(() => null);
+            if (!doc) return (this.copyBuf.get(id) || 0) || null;
+            if (this.copyParts.size >= 256) this.copyParts.delete(this.copyParts.keys().next().value);
+            c = { at: this.now(), doc, buf: new Map() };
+            this.copyParts.set(pid, c);
+        }
+        // (written since the part was read: counted in c.buf, so a flush doesn't make them vanish until the next read)
+        return (c.doc[`c_${campaignKey}`] || 0) + (c.buf.get(campaignKey) || 0) + (this.copyBuf.get(id) || 0);
+    }
+    async flushCopies() {
+        if (!this.copyBuf.size || !this.store.addCopies) return;
+        const buf = this.copyBuf;
+        this.copyBuf = new Map();
+        const byDay = new Map();
+        for (const [id, n] of buf) {
+            const [day, key] = id.split('|');
+            byDay.set(day, Object.assign(byDay.get(day) || {}, { [key]: n }));
+            const c = this.copyParts.get(`${day}|${key.slice(0, 2)}`);
+            if (c) c.buf.set(key, (c.buf.get(key) || 0) + n);
+        }
+        for (const [day, counts] of byDay) await this.store.addCopies(day, counts, this.now());
+    }
+    // (0.6.85) The sender's standing record for the AI's history fact: null when none, undefined when there is no sender
+    // domain to look up (free mail, inside) or the read failed.
+    async standingDocFor(facts) {
+        try {
+            const reg = ST.senderDomain(spruce.load(), facts, this.cfg.orgDomains);
+            return reg ? await this.standingNow(ST.keyOf(reg)) : undefined;
+        } catch (e) { return undefined; }
     }
     async standingNow(key) {
         const c = this.standingCache.get(key);
@@ -977,13 +1022,19 @@ class Service {
         const relay = platformNotification(facts, this.cfg.orgDomains);
         const who = relay ? relay.address : facts.senderAddress;
         // (0.6.7) What the checks need from elsewhere, asked at once (they were asked one after another).
-        const [first, shareReach, threadSize, colleagues, lookalikes] = await Promise.all([who ? this.firstSeen(senderHash(who), now) : now,
-            alreadyMoved ? 0 : this.countShare(facts, user, now), this.threadSizeOf(user, msg.threadId, facts), this.colleagueNames(), this.lookalikeMap()]);
+        // (0.6.85) And for the AI's next input format: the conversation (with whether the reader wrote in it), the sender's
+        // standing record, and this campaign's copies today (this one counted).
+        const campaignKey = campaignOf((facts.senderAddress.split('@')[1] || '').toLowerCase(), facts.subject, user).key;
+        const [first, shareReach, threadInfo, colleagues, lookalikes, standingDoc, recipients] = await Promise.all([who ? this.firstSeen(senderHash(who), now) : now,
+            alreadyMoved ? 0 : this.countShare(facts, user, now), this.threadInfoOf(user, msg.threadId, facts), this.colleagueNames(), this.lookalikeMap(),
+            this.standingDocFor(facts), this.copiesSoFar(campaignKey, day, { add: !alreadyMoved }).catch(() => null)]);
+        const threadSize = threadInfo ? threadInfo.size : null;
         const learning = now - installedAt < this.cfg.firstSeenLearningDays * DAY;
         // Allowlisted only with DMARC passing for the address (policy.js).
         const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
         const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
-            colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize, brandSenders: await this.brandSenderSet() });
+            colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize, brandSenders: await this.brandSenderSet(),
+            extraFacts: this.arrivalFacts(msg, facts, threadInfo, recipients), standingDoc, firstSeenAt: who ? first : undefined, now });
         result.allowlistedUnverified = allowlisted && !verified;
         // (0.6.55) In Gmail's Promotions tab: never moved on the AI's spam answer alone (policy.js aiSpamOf).
         result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
@@ -1124,6 +1175,9 @@ class Service {
             // (0.6.56) The fingerprint (a hash: src/remember.js) and whether Gmail confirmed the sender, for remembered answers;
             // an email answered by a remembered answer or a dismissed campaign carries that answer.
             ...(result.fingerprint ? { fingerprint: result.fingerprint } : {}), verified: !!result.verified,
+            // (0.6.85) What the AI's next input format reads beyond the email (src/context-facts.js): labels and counts, never
+            // content; the retraining export gives them to the training computer as they were on arrival.
+            ...(result.extraFacts ? { aiContext: result.extraFacts } : {}),
             ...(decision.autoAnswer ? { falseAlarm: true, markedBy: decision.autoAnswer.by, autoAnswered: { kind: decision.autoAnswer.kind, at: now } } : {})
         };
     }
@@ -1719,8 +1773,21 @@ class Service {
     // A "RE:" email's conversation size in this mailbox (0.5.33: a fake reply chain), only for one that names
     // an earlier email (one that names none needs no look); null when unknown.
     async threadSizeOf(user, threadId, facts) {
-        if (!threadId || !this.gmail.threadSize || !looksLikeReply(facts.subject) || !(facts.inReplyTo || (facts.references || []).length)) return null;
-        try { return await this.gmail.threadSize(user, threadId); } catch (e) { return null; }
+        const info = await this.threadInfoOf(user, threadId, facts);
+        return info ? info.size : null;
+    }
+    // (0.6.85) The same look, and whether the reader wrote one of the conversation's emails (Gmail's SENT label): a real
+    // answer to the reader's own email. { size, readerWrote } (readerWrote null when unknown), or null.
+    async threadInfoOf(user, threadId, facts) {
+        if (!threadId || !looksLikeReply(facts.subject) || !(facts.inReplyTo || (facts.references || []).length)) return null;
+        try {
+            if (this.gmail.threadInfo) return await this.gmail.threadInfo(user, threadId);
+            return this.gmail.threadSize ? { size: await this.gmail.threadSize(user, threadId), readerWrote: null } : null;
+        } catch (e) { return null; }
+    }
+    // (0.6.85) The facts known before the checks, for the AI's next input format (src/context-facts.js).
+    arrivalFacts(msg, facts, threadInfo, recipients) {
+        try { return CF.arrivalFacts({ labelIds: msg.labelIds || [], facts, threadInfo, recipients }); } catch (e) { return null; }
     }
     // Gmail refusing the service (0.5.29): domain-wide delegation removed or its scopes changed, the service
     // account's token refused. Every email then goes unchecked, while Gmail's notifications keep coming (so
@@ -2649,8 +2716,11 @@ class Service {
     // (0.6.67) What the checks are given for an email read again from a mailbox (a re-check, a reader's report): the same as
     // on arrival, in one place, so a new input reaches every path that judges stored mail.
     async analyzeCtx(user, msg, facts, { trusted, firstTime }) {
-        const [allowLinkDomains, colleagues, lookalikes, brandSenders, threadSize] = await Promise.all([this.allowLinkDomainsNow(), this.colleagueNames(), this.lookalikeMap(), this.brandSenderSet(), this.threadSizeOf(user, msg.threadId, facts)]);
-        return { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains, trusted, firstTime, intel: this.intel, colleagues, selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes, brandSenders, threadSize };
+        const campaignKey = campaignOf((facts.senderAddress.split('@')[1] || '').toLowerCase(), facts.subject, user).key;
+        const [allowLinkDomains, colleagues, lookalikes, brandSenders, threadInfo, standingDoc, recipients] = await Promise.all([this.allowLinkDomainsNow(), this.colleagueNames(), this.lookalikeMap(), this.brandSenderSet(), this.threadInfoOf(user, msg.threadId, facts),
+            this.standingDocFor(facts), this.copiesSoFar(campaignKey, this.dayOf(this.now())).catch(() => null)]);
+        return { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains, trusted, firstTime, intel: this.intel, colleagues, selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes, brandSenders,
+            threadSize: threadInfo ? threadInfo.size : null, extraFacts: this.arrivalFacts(msg, facts, threadInfo, recipients), standingDoc, now: this.now() };
     }
     // One email checked again (item: { user, id, source: 'lists'|'lookalike'|'update'|'later', site, list, round, version }).
     async recheckMessage(item) {
@@ -3256,7 +3326,11 @@ class Service {
                 const { rec, msg } = got;
                 const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
                 const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
-                const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, brandSenders: await this.brandSenderSet() });
+                // (0.6.85) The facts beyond the email as they were on arrival (the record's aiContext; an email recorded before
+                // 0.6.85: Gmail's category and the unsubscribe marker read now, the rest unknown), and the words in its
+                // documents and pictures, read now (never stored).
+                const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, brandSenders: await this.brandSenderSet(),
+                    extraFacts: rec.aiContext || this.arrivalFacts(msg, facts, null, null), readPictures: true, now: rec.receivedAt || this.now() });
                 // The model learns English only (an email clearly in another language is left out, and counted).
                 if (!result.language.english) { counts.notEnglish++; return; }
                 const label = rec.falseAlarm === false ? 1 : 0;

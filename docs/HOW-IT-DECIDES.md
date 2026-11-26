@@ -100,6 +100,25 @@ To explain itself, the dashboard (Show the email → What the AI reads) also sco
 ones that weighed most. A single line can read like phishing out of context ("click here to accept"); the score for the
 whole email is the one that counts.
 
+### What the next model will also read
+
+Since 0.6.85 the service also gathers, for every email it records, what it knows beyond the email's own words, so the next
+model can be trained on them (the current one doesn't read them yet, so nothing it decides has changed):
+
+| Fact | What it tells the AI |
+|---|---|
+| Gmail's category | Primary, Updates, Promotions, Social or Forums: Gmail's own reading of the sender's mail |
+| Unsubscribe marker | A one-click unsubscribe the sender signed (bulk mail must have one), or a plain unsubscribe header |
+| Mailing service | The service that sent it for the company (from its verified signature or its link tracking) |
+| Sender history | A first email; or how long the sender has written to your organization and how often, an admin's earlier answer, and **what differs this time** (a new signing domain, mail service, Reply-To or link site, an attachment). A known sender writing unlike itself is how an account taken over looks, so history alone never makes an email look safe |
+| Conversation | A real answer to the reader's own email, or a "RE:" that answers nothing in the mailbox |
+| How many got it | Copies of the same email your people received that day, so far |
+| Domain age | How long ago the sender's domain was registered |
+| Words in documents and pictures | The text of attached PDFs and Office files, and the words in up to two pictures (read on the service itself; for the retraining export only, never stored) |
+
+Links are already given to the AI as where they really go: Safe Links, Proofpoint, Google and Bing redirects and the other
+wrappers the link checks know are decoded first. The page behind a link isn't fetched.
+
 ## How the AI learned
 
 The model learns by example: it is shown emails whose answer is known, and its weights are nudged until its answers
@@ -119,4 +138,4 @@ used only on the computer that trains the model. The published model carries wha
 - **It knows mail, not your history:** a real company's statement and a lure with the same words look alike to it. Sender
   standing and Review answers supply what it can't know.
 
-*Describes S.P.R.U.C.E Mail Protection Service 0.6.84 with the phish-tiny 0.29.0 model.*
+*Describes S.P.R.U.C.E Mail Protection Service 0.6.85 with the phish-tiny 0.29.0 model.*

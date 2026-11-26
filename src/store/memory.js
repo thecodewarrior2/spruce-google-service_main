@@ -129,6 +129,14 @@ class MemoryStore {
         if (next) this.standing.set(hash, JSON.parse(JSON.stringify(next)));
         return next;
     }
+    // (0.6.85) Campaign copies a day (see store/firestore.js): the same shape, one part.
+    async addCopies(day, counts) {
+        this.copies = this.copies || new Map();
+        const v = this.copies.get(day) || { day };
+        for (const [k, n] of Object.entries(counts)) v[`c_${k}`] = (v[`c_${k}`] || 0) + n;
+        this.copies.set(day, v);
+    }
+    async getCopiesPart(day) { return Object.assign({}, ((this.copies || new Map()).get(day)) || {}); }
     async senderFirstSeen(hash, now) {
         if (!this.senders.has(hash)) this.senders.set(hash, now);
         return this.senders.get(hash);

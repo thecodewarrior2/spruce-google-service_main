@@ -276,6 +276,15 @@ function deidentify(aiFacts, { people = {}, mailbox = '', orgDomains = [], label
     if (f.attachments && f.attachments.length) out.attachments = E.aiAttachmentFacts(f.attachments);
     if (f.layout && f.layout.length) out.layout = f.layout.slice();
     if (f.mailChecks && f.mailChecks.length) out.mailChecks = f.mailChecks.slice();
+    // (0.6.85) For the next input format (src/context-facts.js): labels, counts and yes/no answers as recorded on arrival
+    // (a mailing service's name or domain, with the organization's replaced), and the words in the email's documents and
+    // pictures, cleaned like its text (names, addresses and numbers taken out), at most 1,000 characters each.
+    if (f.extra && typeof f.extra === 'object') {
+        const x = require('./context-facts').cleanContext(f.extra) || {};
+        if (x.mailer) x.mailer = replaceOrg(x.mailer, orgDomains);
+        const docText = clean(cut(f.extra.attachmentText, 1000)), picText = clean(cut(f.extra.pictureText, 1000));
+        out.extra = Object.assign(x, docText ? { attachmentText: docText } : {}, picText ? { pictureText: picText } : {});
+    }
     return out;
 }
 
@@ -343,7 +352,9 @@ function problems(x, { final = false } = {}) {
     if (!f || typeof f !== 'object') { out.push('no "facts"'); return out; }
     if (f.recipient) out.push('has "recipient": remove it (the export never has one)');
     const fields = [['subject', f.subject], ['senderName', f.senderName], ['senderAddress', f.senderAddress], ['bodyText', f.bodyText],
-        ...(Array.isArray(f.links) ? f.links : []).flatMap((l, i) => [[`links[${i}].text`, l && l.text], [`links[${i}].host`, l && l.host], [`links[${i}].destHost`, l && l.destHost], [`links[${i}].finding`, l && l.finding]])];
+        ...(Array.isArray(f.links) ? f.links : []).flatMap((l, i) => [[`links[${i}].text`, l && l.text], [`links[${i}].host`, l && l.host], [`links[${i}].destHost`, l && l.destHost], [`links[${i}].finding`, l && l.finding]]),
+        // (0.6.85) the words of its documents and pictures
+        ...(f.extra && typeof f.extra === 'object' ? [['extra.attachmentText', f.extra.attachmentText], ['extra.pictureText', f.extra.pictureText], ['extra.mailer', f.extra.mailer]] : [])];
     for (const [where, v] of fields) {
         const s = String(v || '');
         for (const [kind, re, fix] of LEFTOVERS) {

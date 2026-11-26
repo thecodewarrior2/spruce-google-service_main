@@ -28,6 +28,8 @@
 const { Firestore, FieldValue, FieldPath, Timestamp } = require('@google-cloud/firestore');
 const { movesForward } = require('./history');
 
+const COPY_PARTS = 64;
+const copyPart = (key) => parseInt(String(key).slice(0, 2), 16) % COPY_PARTS || 0;
 const safeId = (s) => String(s).replace(/[/\s]/g, '_').slice(0, 1400);
 // Shards of each day's counters (each email adds to one at random): a campaign to every mailbox writes
 // about 2 a second to each, not 7. getStats reads them all, and the dashboard keeps past days.
@@ -209,6 +211,23 @@ class FirestoreStore {
             return next;
         });
     }
+    // (0.6.85) How many copies of each campaign the organization got in a day (src/context-facts.js recipients): one
+    // document per day and part (COPY_PARTS, by the campaign key's first characters), a field per campaign key.
+    // addCopies(day, { key: n }, at): added in one write per part; getCopies(day, key): the count, 0 when none.
+    async addCopies(day, counts, at) {
+        const parts = new Map();
+        for (const [k, n] of Object.entries(counts)) {
+            const id = `${day}~${copyPart(k)}`;
+            const v = parts.get(id) || { day, at };
+            v[`c_${k}`] = FieldValue.increment(n);
+            parts.set(id, v);
+        }
+        await Promise.all([...parts].map(([id, v]) => this.col('copies').doc(safeId(id)).set(v, { merge: true })));
+    }
+    async getCopiesPart(day, key) {
+        const d = await this.col('copies').doc(safeId(`${day}~${copyPart(key)}`)).get();
+        return d.exists ? d.data() : {};
+    }
     async senderFirstSeen(hash, now) {
         const ref = this.col('senders').doc(hash);
         try { await ref.create({ firstSeen: now }); return now; }
@@ -359,6 +378,16 @@ class FirestoreStore {
                 await batch.commit();
                 n += q.size;
             }
+        }
+        // (0.6.85) The campaign copy counts are needed for a day: kept three.
+        for (;;) {
+            if (Date.now() - started > budgetMs) return n;
+            const q = await this.col('copies').where('at', '<', Date.now() - 3 * 24 * 60 * 60 * 1000).limit(400).get();
+            if (q.empty) break;
+            const batch = this.db.batch();
+            q.docs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+            n += q.size;
         }
         // (0.6.76) Sender standing nobody has mailed for over 400 days.
         for (;;) {
