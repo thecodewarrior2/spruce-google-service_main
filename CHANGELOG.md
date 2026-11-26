@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.86: ready for the AI's input format 4
+
+- **`vendor/spruce/ai.js` builds input format 4** (copied unchanged from the model's training, TinyPhishLLM_Private_Training
+  `training/model-input.js`): a "context:" line from the facts 0.6.85 gathers (Gmail's tab, the unsubscribe marker, the
+  mailing service, the sender's history and what differs this time, the conversation, the copies today, the domain's age)
+  and the words of the email's documents and pictures. Compared with the training's own code on more than 20,000 made-up
+  emails: the same text every time. An email without these facts reads exactly as in format 3.
+- **The service builds the format the model declares** (`model.json` `inputFormat`), as before: the released model,
+  phish-tiny 0.29.0, reads format 3, so **nothing it decides changes**. A model that reads format 4 is a later update of its
+  own, which says so.
+- **With a format-4 model only:** the words of attached documents (already read for links and QR codes) are given to it,
+  and an email made only of pictures has the words in its pictures read as it arrives (OCR, at most two pictures, a few
+  seconds at most; never stored). Pictures the email only links to are never fetched.
+
 ## 0.6.85: more for the AI to learn from (facts beyond the email, words in documents and pictures)
 
 - **Gathered for the AI's next input format** (`src/context-facts.js`), on every email the service records

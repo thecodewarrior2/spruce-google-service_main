@@ -105,7 +105,8 @@ test('analyze: the facts reach aiFacts.extra and the result, the model\'s input 
     assert.equal(withFacts.aiFacts.extra.attachmentText, '');
     assert.equal(base.aiFacts, undefined, 'the words of documents and pictures only for the retraining export');
     assert.equal(withFacts.ai.probability, base.ai.probability, 'format 3 doesn\'t read them: the same score');
-    assert.equal(E.modelInputText(withFacts.aiFacts), E.modelInputText(Object.assign({}, withFacts.aiFacts, { extra: undefined })), 'the same input');
+    const fmt = E.model.meta.inputFormat;
+    assert.equal(E.modelInputText(withFacts.aiFacts, fmt), E.modelInputText(Object.assign({}, withFacts.aiFacts, { extra: undefined }), fmt), 'the same input for the format the model reads');
 });
 
 test('the pipeline: recorded on the email (aiContext), copies counted across the organization, the export carries them', async () => {
@@ -147,4 +148,42 @@ test('the pipeline: recorded on the email (aiContext), copies counted across the
     assert.equal(x.category, 'updates');
     assert.equal(x.thread.reply, true);
     assert.ok(!training.problems(out.rows[0]).some(p => /address|phone/.test(p)), 'nothing personal in it');
+});
+
+// 0.6.86: input format 4 (TinyPhishLLM_Private_Training's training/model-input.js, copied unchanged into vendor/spruce/ai.js).
+test('format 4: the context line and the documents\' and pictures\' words, exactly as training builds them; without them, format 3\'s text', () => {
+    const f = { subject: 'RE: Invoice', senderName: 'Billing', senderAddress: 'billing@vendor.example', auth: { dmarc: 'pass' }, links: [{ text: 'View', host: 'docs.google.com' }], bodyText: 'See attached.', org: 'outside',
+        extra: { category: 'updates', unsubscribe: 'listed', mailer: 'sendgrid.net', history: { days: 400, emails: 45, activeDays: 20, breaks: ['links', 'reply'] }, thread: { reply: true, size: 1, readerWrote: false },
+            recipients: 12, senderAgeDays: 3650, attachmentText: 'Invoice 4471-2290-118 is past due. Call 555-123-4567.', pictureText: 'Your mailbox is almost full.' } };
+    assert.equal(E.modelInputText(f, 4), 'subject: RE: Invoice. from: "Billing" at vendor.example (outside your organization) (shared mailbox). sender check: dmarc pass. links: "View" goes to docs.google.com. '
+        + 'context: gmail tab updates; unsubscribe header; sent through sendgrid.net; sender known for 13 months (over 10 emails), unlike its usual mail: new link site, new reply-to; '
+        + 'a reply, but the mailbox has no earlier email of it; copies to your organization today: 6 to 50; sender domain 10 years old. attachment text: Invoice number is past due. Call phone number. '
+        + 'picture text: Your mailbox is almost full. text: See attached.');
+    const plain = Object.assign({}, f, { extra: undefined });
+    assert.equal(E.modelInputText(plain, 4), E.modelInputText(plain, 3), 'no facts beyond the email: format 3\'s text');
+    assert.equal(E.modelInputText(f, 3), E.modelInputText(plain, 3), 'a format-3 model never reads them');
+    // The released model's own format (model.json) is what the service builds.
+    assert.equal(E.model.parts(f).head, E.modelInputText(f, E.model.meta.inputFormat).replace(/ text: .*$/, ''));
+});
+
+test('a format-4 model: an email of pictures has its picture\'s words read on arrival; a format-3 model: never', async () => {
+    const png = fs.readFileSync(path.join(__dirname, 'fixtures', 'ocr-made-up.png')).toString('base64');
+    const mail = Buffer.from(['From: admin@mailnotice-center.example', `To: ${PAT}`, 'Subject: Mailbox notice', 'Message-ID: <pic1@mailnotice-center.example>',
+        'Authentication-Results: mx.google.com; spf=pass smtp.mailfrom=mailnotice-center.example; dkim=pass header.i=@mailnotice-center.example; dmarc=pass header.from=mailnotice-center.example',
+        'MIME-Version: 1.0', 'Content-Type: multipart/related; boundary="b1"', '', '--b1', 'Content-Type: text/html', '', '<a href="https://mailnotice-center.example/keep"><img src="cid:p1"></a>',
+        '--b1', 'Content-Type: image/png', 'Content-ID: <p1>', 'Content-Disposition: inline; filename="notice.png"', 'Content-Transfer-Encoding: base64', '', png, '--b1--', ''].join('\r\n'));
+    const facts = await readMessage(mail);
+    assert.ok(facts.layout.includes('images only'));
+    const seen = [];
+    const realAnalyze = E.model.analyze, realFormat = E.model.meta.inputFormat;
+    E.model.analyze = async (aiFacts) => { seen.push(E.model.parts(aiFacts).head); return { probability: 0.5, spam: 0, reasons: [], model: 'x', version: 'y' }; };
+    try {
+        await analyze(facts, { mailbox: PAT, orgDomains: [ORG] });
+        assert.ok(!/picture text:/.test(seen[0]), 'format 3: not read');
+        E.model.meta.inputFormat = 4;
+        const r = await analyze(facts, { mailbox: PAT, orgDomains: [ORG] });
+        assert.match(seen[1], /picture text: Your mailbox is almost full\. Sign in today to keep your mail\./i);
+        assert.equal(r.aiFacts, undefined, 'nothing of it kept on the answer');
+        assert.ok(!JSON.stringify(r.extraFacts).includes('mailbox'), 'nor on what the record keeps');
+    } finally { E.model.analyze = realAnalyze; E.model.meta.inputFormat = realFormat; await ocr.stop(); }
 });

@@ -1,5 +1,5 @@
 {
   "checksLevel": 56,
-  "fingerprint": "6594ebef72f67b601d8a45e1c562b7f90086f2dd8b68f39338edebc6871c23fd",
-  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.85: facts for the AI's next input format (aiFacts.extra, the record's aiContext) and the words in documents and pictures for the retraining export; the current model doesn't read them and no rule "
+  "fingerprint": "18c9e98f01208412a3c77f714727710d82ead25eeaf63779838fbcf68ed888aa",
+  "note": "Recorded by tools/checks-level.js --cosmetic: 0.6.86: input format 4 in vendor/spruce/ai.js and picture reading on arrival, both only for a model that reads format 4; the released model reads format 3, so nothing is judged differently"
 }

@@ -40,7 +40,16 @@
 //                    lookalike: the domain imitates a well-known brand; colleague: the name is someone
 //                    in the organization's, on an outside address,
 //          replyTo: addresses (or domains) replies go to; only those not the sender's own domain count,
-//          attachments: [{ name, type }] (file name and MIME type; only their kind is said, never the name) }
+//          attachments: [{ name, type }] (file name and MIME type; only their kind is said, never the name),
+//          --- format 4 (2026-11-26): what the program knows beyond the email (this service since 0.6.85,
+//          src/context-facts.js); an email without it reads exactly as in format 3 ---
+//          extra: { category: 'primary'|'updates'|'promotions'|'social'|'forums' (Gmail's tab),
+//                   unsubscribe: 'one-click signed'|'listed', mailer: the mailing service's name or domain,
+//                   history: { first: true } | { days, emails, activeDays, safe, phish, breaks: ['dkim'|'via'|'reply'|'links'|'attach'] }
+//                            (the sender's history with the organization; breaks: what differs from its usual mail),
+//                   thread: { reply, size, readerWrote }, recipients: copies the organization got that day so far,
+//                   senderAgeDays: the sender domain's age, attachmentText, pictureText: the words in its documents and
+//                   pictures }; every part null or missing when unknown, and then not said }
 // Capitals (a subject or text written in capitals) are found here, from the text itself: the model's
 // tokenizer reads lower case, so it can't see them otherwise.
 // ---------------------------------------------------------------------------------------------------
@@ -75,9 +84,68 @@ const AI_MAIL_CHECKS = Object.freeze({
 });
 const AI_LAYOUTS = new Set(['images only', 'text after a large blank gap']);
 
-// The input format's version (model.json's inputFormat says which one a model reads).
+// The input format's version (model.json's inputFormat says which one a model reads: src/engine/model.js builds that one).
 // (format 3, phish-tiny 0.21.0) A text of more than 60 sentences keeps its first 40 and its last 20 (splitSentences).
-const AI_INPUT_FORMAT = 3;
+// (0.6.86) Format 4 (TinyPhishLLM_Private_Training's training/model-input.js, copied unchanged): as format 3, with a "context:" line (Gmail's tab, the unsubscribe marker, the mailing service, the sender's
+// history and what differs this time, the conversation, the copies, the domain's age) and the words in the email's
+// documents and pictures, from facts.extra; without extra, the same text as format 3.
+const AI_INPUT_FORMAT = 4;
+
+// Format 4's context line, in words; '' when nothing is known. Numbers are said in rough sizes (the model needn't count).
+const AI_CATEGORIES = new Set(['primary', 'updates', 'promotions', 'social', 'forums']);
+const AI_BREAKS = Object.freeze({ dkim: 'new signing domain', via: 'new mail service', reply: 'new reply-to', links: 'new link site', attach: 'an attachment' });
+function aiAge(days) {
+    const d = Math.max(0, Math.round(Number(days)));
+    if (d < 1) return 'under a day';
+    if (d < 45) return `${d} day${d === 1 ? '' : 's'}`;
+    if (d < 548) return `${Math.round(d / 30.4)} months`;
+    return `${Math.round(d / 365.25)} years`;
+}
+const isNum = (v) => typeof v === 'number' && isFinite(v);
+function contextLine(x) {
+    if (!x || typeof x !== 'object') return '';
+    const parts = [];
+    if (AI_CATEGORIES.has(x.category)) parts.push(`gmail tab ${x.category}`);
+    if (x.unsubscribe === 'one-click signed') parts.push('signed one-click unsubscribe');
+    else if (x.unsubscribe === 'listed') parts.push('unsubscribe header');
+    const mailer = String(x.mailer || '').toLowerCase().replace(/[^a-z0-9 .-]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 30);
+    if (mailer) parts.push(`sent through ${mailer}`);
+    const h = x.history;
+    if (h && typeof h === 'object') {
+        if (h.first) parts.push('first email from this sender');
+        else if (!h.emails) parts.push(isNum(h.days) ? `sender seen for ${aiAge(h.days)}, no confirmed mail` : 'sender seen before, no confirmed mail');
+        else {
+            let t = `sender known for ${isNum(h.days) ? aiAge(h.days) : 'a while'} (${h.emails < 10 ? 'under 10' : h.emails < 50 ? 'over 10' : 'over 50'} emails)`;
+            if (h.phish) t += ', an admin answered phishing before';
+            else if (h.safe) t += ', an admin marked it safe';
+            const b = [...new Set((h.breaks || []).map(k => AI_BREAKS[k]).filter(Boolean))];
+            t += b.length ? `, unlike its usual mail: ${b.join(', ')}` : ', mailing as usual';
+            parts.push(t);
+        }
+    }
+    const t = x.thread;
+    if (t && t.reply) {
+        if (t.readerWrote) parts.push('a reply in a conversation the reader wrote in');
+        else if (isNum(t.size) && t.size <= 1) parts.push('a reply, but the mailbox has no earlier email of it');
+        else if (isNum(t.size)) parts.push(`a reply in a conversation of ${Math.min(t.size, 20)}`);
+        else parts.push('a reply');
+    }
+    if (isNum(x.recipients) && x.recipients >= 1) parts.push(`copies to your organization today: ${x.recipients <= 1 ? 'only this one' : x.recipients <= 5 ? '2 to 5' : x.recipients <= 50 ? '6 to 50' : 'over 50'}`);
+    if (isNum(x.senderAgeDays)) parts.push(`sender domain ${aiAge(x.senderAgeDays)} old`);
+    return parts.length ? `context: ${parts.join('; ')}.` : '';
+}
+// Format 4: the words in the email's documents and pictures, each at most AI_CONTENT_CHARS (addresses and numbers taken out).
+const AI_CONTENT_CHARS = 240;
+function contentLines(x, mask) {
+    if (!x || typeof x !== 'object') return [];
+    const out = [];
+    for (const [k, label] of [['attachmentText', 'attachment text'], ['pictureText', 'picture text']]) {
+        const t = mask(String(x[k] || '')).replace(/\s+/g, ' ').trim();
+        if (t) out.push(`${label}: ${t.slice(0, AI_CONTENT_CHARS).trim()}.`.replace(/([.!?])\.$/, '$1'));
+    }
+    return out;
+}
+
 
 // Who the sender claims to be, in words (identity, from the program's sender checks).
 const AI_IDENTITY_OWNER = Object.freeze({ yes: (b) => `the domain is ${b}'s`, no: (b) => `the domain is not ${b}'s`,
@@ -187,6 +255,11 @@ function modelInputParts(facts, format = AI_INPUT_FORMAT) {
     if (attLine) head.push(attLine);
     const layout = [...new Set([...(f.layout || []).filter(x => AI_LAYOUTS.has(x)), ...(v2 ? capitalsLayout(stripExternalTag(f.subject), f.bodyText) : [])])];
     if (layout.length) head.push(`layout: ${layout.join('; ')}.`);
+    if (format >= 4) {
+        const c = contextLine(f.extra);
+        if (c) head.push(c);
+        head.push(...contentLines(f.extra, mask));
+    }
     const body = mask(String(f.bodyText || '')).replace(/\s+/g, ' ').trim();
     return { head: head.join(' '), sentences: splitSentences(body, format) };
 }

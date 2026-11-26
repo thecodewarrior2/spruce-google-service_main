@@ -116,6 +116,11 @@ model can be trained on them (the current one doesn't read them yet, so nothing 
 | Domain age | How long ago the sender's domain was registered |
 | Words in documents and pictures | The text of attached PDFs and Office files, and the words in up to two pictures (read on the service itself; for the retraining export only, never stored) |
 
+Since 0.6.86 the service is ready for that model: it builds the model's input in whichever format the model declares, and
+once a model reads these facts, the words in an email made only of pictures are read as it arrives (the pictures inside the
+email; a picture it only links to is never fetched, which would tell the sender the email was opened). Until then nothing
+changes.
+
 Links are already given to the AI as where they really go: Safe Links, Proofpoint, Google and Bing redirects and the other
 wrappers the link checks know are decoded first. The page behind a link isn't fetched.
 
@@ -138,4 +143,4 @@ used only on the computer that trains the model. The published model carries wha
 - **It knows mail, not your history:** a real company's statement and a lure with the same words look alike to it. Sender
   standing and Review answers supply what it can't know.
 
-*Describes S.P.R.U.C.E Mail Protection Service 0.6.85 with the phish-tiny 0.29.0 model.*
+*Describes S.P.R.U.C.E Mail Protection Service 0.6.86 with the phish-tiny 0.29.0 model.*

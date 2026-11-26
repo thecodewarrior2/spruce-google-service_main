@@ -148,8 +148,16 @@ async function analyze(facts, ctx = {}) {
     // the extension; at most OWNERSHIP_WAIT_MS, else judged as before. (0.6.7) Started now, beside the other lookups
     // (it needs only the sender): it waited for them first, up to 6 s more for an email whose name claims a brand.
     const ownershipP = relay ? Promise.resolve(null) : senderOwnership(E, facts, ctx.trusted ? null : (ctx.intel || null)).catch(() => null);
+    // (0.6.86) A model that reads input format 4 is given the words in the email's pictures when the email is only pictures
+    // (html.js "images only", or almost no text and a picture attached): read here (OCR, src/engine/ocr.js), never stored.
+    // Pictures the email only links to are never fetched (that would tell the sender it was read). A format-3 model: only
+    // the retraining export reads pictures (readPictures).
+    const modelFormat = (E.model && E.model.meta && E.model.meta.inputFormat) || 1;
+    const pictureOnly = (facts.layout || []).includes('images only')
+        || (String(facts.visibleText || '').replace(/\s+/g, '').length < 60 && (facts.attachmentFiles || []).some(a => /^image\/(png|jpe?g)/i.test(String(a.type || ''))));
+    const readPictures = !!ctx.readPictures || (modelFormat >= 4 && pictureOnly && !(inside && !ctx.aiInside));
     const att = ctx.readAttachments === false ? { links: [], signals: [], found: [], skipped: 0 }
-        : await readAttachments(facts.attachmentFiles || [], { outside: !inside, readPictures: !!ctx.readPictures }).catch(() => ({ links: [], signals: [], found: [], skipped: 0 }));
+        : await readAttachments(facts.attachmentFiles || [], { outside: !inside, readPictures }).catch(() => ({ links: [], signals: [], found: [], skipped: 0 }));
     const judged = await judgeLinks(E, [...(facts.links || []), ...att.links]);
     // The network checks (they may flag links, so they come before the link signs are counted).
     // Allowlisted senders (ctx.trusted) are never moved, so their mail costs no lookups (nor the ownership one).
@@ -276,7 +284,7 @@ async function analyze(facts, ctx = {}) {
         for (const [k, v] of Object.entries(ctx.extraFacts || {})) if (v !== null && v !== undefined) out[k] = v;
         return CF.cleanContext(out);
     });
-    aiFacts.extra = Object.assign({}, extraFacts || {}, ctx.keepAiFacts ? { attachmentText: att.attachmentText || '', pictureText: att.pictureText || '' } : {});
+    aiFacts.extra = Object.assign({}, extraFacts || {}, ctx.keepAiFacts || modelFormat >= 4 ? { attachmentText: att.attachmentText || '', pictureText: att.pictureText || '' } : {});
     if (aiFacts.identity && signals.some(s => s && s.kind === 'brand-name-likely' && s.weight === 0 && /counts as that company writing about a product it runs/.test(String(s.text || '')))) aiFacts.identity = null;
     // The model was trained on English only: on an email clearly in another language its score means little,
     // so it gives none, and says why (the rule checks above don't depend on the language).
