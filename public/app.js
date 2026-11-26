@@ -803,7 +803,10 @@
         const filt = { user: params.get('user') || '', campaign: params.get('campaign') || '', action: params.get('action') || '', state: params.get('state') || '', q: params.get('q') || '' };
         const d = await api(`/api/messages?days=${days}&${q(filt)}`);
         const search = h('input', { type: 'search', placeholder: 'Search sender, recipient, subject or Message-ID', value: filt.q, 'aria-label': 'Search' });
-        const action = h('select', { 'aria-label': 'Action' }, h('option', { value: '', text: 'Any action' }), Object.entries(ACTION).map(([k, [l]]) => h('option', { value: k, text: l, selected: filt.action === k })));
+        // (0.6.83) And what an admin answered: confirmed phishing, spam, or safe.
+        const ANSWERED_FILTERS = { 'answered-phishing': 'Admin confirmed phishing', 'answered-spam': 'Admin confirmed spam', 'answered-safe': 'Admin confirmed safe (Mark safe)' };
+        const action = h('select', { 'aria-label': 'Action' }, h('option', { value: '', text: 'Any action' }), Object.entries(ACTION).map(([k, [l]]) => h('option', { value: k, text: l, selected: filt.action === k })),
+            h('optgroup', { label: 'Answered by an admin' }, Object.entries(ANSWERED_FILTERS).map(([k, l]) => h('option', { value: k, text: l, selected: filt.action === k }))));
         const state = h('select', { 'aria-label': 'Where it is' }, h('option', { value: '', text: 'Anywhere' }), Object.entries(STATE).map(([k, [l]]) => h('option', { value: k, text: l, selected: filt.state === k })));
         const apply = () => go(`#/messages?${q(Object.assign({}, filt, { q: search.value.trim(), action: action.value, state: state.value }))}`);
         search.addEventListener('keydown', (e) => { if (e.key === 'Enter') apply(); });

@@ -433,6 +433,17 @@ test('aggregates: campaigns, users and model health from records', () => {
     assert.equal(A.modelHealth(zone, now, 7, { orgDomains: ['maple-schools.example'], aiSuspicious: 0.65, aiThreshold: 0.8 }).together.count, 2, 'the zone follows the settings');
     assert.deepEqual(A.users(rs, now, 7).map(u => u.user), ['a', 'b', 'c']);
     assert.equal(A.filterRecords(rs, { q: 'C2' }).length, 1);
+    // (0.6.83) By an admin's answer: Phishing, Spam, Mark safe (not one a remembered answer gave by itself).
+    const ans = [rec('p1', 'a1', 'flag', 'inbox', null, 0.9), rec('p2', 'a2', 'flag', 'inbox', null, 0.9), rec('p3', 'a3', 'move', 'released', null, 0.9), rec('p4', 'a4', 'flag', 'inbox', null, 0.9), rec('p5', 'a5', 'flag', 'inbox', null, 0.9)];
+    Object.assign(ans[0], { markedBy: 'it.madeup@maple-schools.example', falseAlarm: false });
+    Object.assign(ans[1], { markedBy: 'it.madeup@maple-schools.example', falseAlarm: false, spam: true });
+    Object.assign(ans[2], { markedBy: 'it.madeup@maple-schools.example', falseAlarm: true });
+    Object.assign(ans[3], { markedBy: 'it.madeup@maple-schools.example', falseAlarm: true, autoAnswered: { kind: 'remembered', at: 1 } });
+    Object.assign(ans[4], { markedBy: 'it.madeup@maple-schools.example', falseAlarm: false, unclear: true });
+    const keys = (a) => A.filterRecords(ans, { action: a }).map(r => r.user);
+    assert.deepEqual(keys('answered-phishing'), ['p1']);
+    assert.deepEqual(keys('answered-spam'), ['p2']);
+    assert.deepEqual(keys('answered-safe'), ['p3']);
 });
 
 test('dashboard admins: listed addresses, or members of ADMIN_GROUP in the organization; a failed check is a no', async () => {

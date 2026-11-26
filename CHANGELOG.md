@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.83: Mail → Emails filters by an admin's answer
+
+- **Mail → Emails** (and its CSV download): the action filter also has **Admin confirmed phishing**, **Admin confirmed
+  spam** and **Admin confirmed safe (Mark safe)**: the emails an admin or a moderator answered that way (Review, Mail, an
+  email's page), whatever the service had done with them. Not an answer a remembered answer or a dismissed campaign gave
+  by itself, and not Not sure.
+- Dashboard only: nothing is judged differently; no installation change.
+
 ## 0.6.82: a mailing service's click tracking isn't a decoy; why a Trusted sender wasn't trusted; faster re-checks
 
 - **A hidden, empty link through a mailing service's click tracking** (Brevo's sendibm1.com, Klaviyo's and the other

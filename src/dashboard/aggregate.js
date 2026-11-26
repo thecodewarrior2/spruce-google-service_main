@@ -157,10 +157,18 @@
 
     // Mail → Messages' filters (and the CSV's): exact user, campaign, action and state; words in the recipient,
     // sender, subject or message ids.
+    // (0.6.83) Also by what an admin or a moderator answered (Review, Mail, an email's page): Phishing, Spam or Mark safe; not
+    // an answer a remembered answer or a dismissed campaign gave by itself.
+    const ANSWERED = {
+        'answered-phishing': (r) => !!r.markedBy && r.falseAlarm === false && !r.spam && !r.unclear,
+        'answered-spam': (r) => !!r.markedBy && r.falseAlarm === false && !!r.spam,
+        'answered-safe': (r) => !!r.markedBy && r.falseAlarm === true && !r.autoAnswered
+    };
     function filterRecords(records, q = {}) {
         const text = String(q.q || '').toLowerCase();
+        const byAction = ANSWERED[q.action] || ((r) => r.action === q.action);
         return records.filter(r => (!q.user || r.user === q.user) && (!q.campaign || r.campaign === q.campaign)
-            && (!q.action || r.action === q.action) && (!q.state || r.state === q.state)
+            && (!q.action || byAction(r)) && (!q.state || r.state === q.state)
             && (!q.since || r.processedAt >= q.since)
             && (!text || `${r.user} ${r.sender.address} ${r.sender.name} ${r.subject} ${r.rfc822MessageId || ''} ${r.messageId || ''}`.toLowerCase().includes(text)));
     }
