@@ -457,6 +457,16 @@ function hiddenDecoyLinkSigns(E, judged, facts = {}, verified = false) {
         return orgPass ? [{ weight: 0, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one; that is the sender's own site and Gmail verified the sender, so it isn't counted (newsletters do this).` }]
             : [{ weight: 2, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one. That is the site the sender's address names, but Gmail couldn't confirm the sender, so it counts a little.` }];
     }
+    // (0.6.82) A mailing service's own click tracker (Brevo's sendibm1.com, Klaviyo's…): the service wraps every link of the
+    // email through it, the hidden one too, so the hidden link is its tracking, not a decoy. Nothing when Gmail confirmed the
+    // sender, else 2 (anyone can send through a mailing service). Before, a district's verified newsletter sent with Brevo
+    // was moved as phishing on this alone (5, with "first email" and "from outside").
+    let tracker = null;
+    try { tracker = E.emailTrackerProvider ? E.emailTrackerProvider(decoy.url) : null; } catch (e) { tracker = null; }
+    if (tracker) {
+        return verified ? [{ weight: 0, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site}, the click tracking of the mailing service it was sent with (${tracker}); Gmail verified the sender, so it isn't counted.` }]
+            : [{ weight: 2, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site}, a mailing service's click tracking (${tracker}); Gmail couldn't confirm the sender, so it counts a little.` }];
+    }
     return [{ weight: 5, kind: 'hidden-decoy-link', text: `It hides an invisible, empty link to ${site} beside the visible one: a trick to fool link scanners. It goes to another site than the sender's.` }];
 }
 

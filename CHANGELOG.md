@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.82: a mailing service's click tracking isn't a decoy; why a Trusted sender wasn't trusted; faster re-checks
+
+- **A hidden, empty link through a mailing service's click tracking** (Brevo's sendibm1.com, Klaviyo's and the other
+  trackers the link checks know) no longer counts as a decoy for link scanners: the service wraps every link of the email
+  through it, the hidden one too. Not counted when Gmail confirmed the sender (DMARC), 2 points when it didn't; a hidden
+  link to any other site still counts 5. A verified podcast newsletter sent with Brevo was recorded "would be moved:
+  phishing" on that sign (5) with "first email" and "from outside", while the AI read it as 100% marketing.
+- **A sender on Trusted senders whose domain the 30-day check suspended** (its registration or reputation changed) is
+  checked like any other, as before; now its email says so, and where to answer it (Settings → Sender lists, Needs
+  review), on arrival and on a re-check. Before, nothing on the email said why Trusted didn't apply. (A Trusted sender is
+  also checked like any other when Gmail can't confirm it, DMARC not passing: its email already said so.)
+- **Re-checks run 24 at a time** (was 12), in slots of their own: a re-check mostly waits on Gmail and lookups, so about
+  twice as many are checked each hour; mail arriving keeps its own slots.
+- The checks level is raised to 56 (the hidden-link rule changed): after this update recent delivered mail is checked
+  again. No installation change.
+
 ## 0.6.81: Brand senders says why a false alarm wasn't added
 
 - **Settings → Sender lists → Brand senders** now lists, under the brands added, **the false alarms of the last 90 days

@@ -52,7 +52,9 @@ const GAPS_DAY = 10, GAPS_MAILBOX = 3;
 const MAX_TRIES = 3;   // tries per message before it is left unchecked (and an alert)
 // Re-checking delivered mail (0.5.35): queued emails at most, found per list download at most, checked
 // at once, and the hourly run's time for them.
-const RECHECK_QUEUE_MAX = 3000, RECHECK_FIND_MAX = 3000, RECHECK_PARALLEL = 12, RECHECK_BUDGET_MS = 40 * 1000;
+// (0.6.82) RECHECK_PARALLEL 24 (was 12), in slots of their own: a re-check mostly waits (Gmail, lookups), so twice as many at once
+// check about twice as many an hour; mail arriving keeps its own EMAIL_SLOTS.
+const RECHECK_QUEUE_MAX = 3000, RECHECK_FIND_MAX = 3000, RECHECK_PARALLEL = 24, RECHECK_BUDGET_MS = 40 * 1000;
 // (0.6.70) The queue is one Firestore document (1 MiB at most): each entry's site is kept short, and the queue stops taking
 // entries well before the limit. And the progress of the re-checks under way (Today): mailboxes counted by a short hash.
 const RECHECK_SITE_CHARS = 100, RECHECK_QUEUE_BYTES = 700 * 1024, RECHECK_MAILBOXES_KEPT = 20000;
@@ -397,7 +399,7 @@ class Service {
         // (0.6.76) Sender standing: clean mail's counts and profiles, added up and written with the day's counters; and each
         // sender's standing as read, for STANDING_CACHE_MS.
         this.standingBuf = new Map(); this.standingCache = new Map();
-        this.emailSlots = new Slots(EMAIL_SLOTS); this.largeSlots = new Slots(LARGE_SLOTS); this.rescanSlots = new Slots(RESCAN_SLOTS);
+        this.emailSlots = new Slots(EMAIL_SLOTS); this.recheckSlots = new Slots(RECHECK_PARALLEL); this.largeSlots = new Slots(LARGE_SLOTS); this.rescanSlots = new Slots(RESCAN_SLOTS);
     }
     // The day an instant falls on in the organization's time zone (TIME_ZONE, Settings → Policy).
     dayOf(ms) { return A.dayIn(ms, this.cfg.timeZone); }
@@ -996,7 +998,7 @@ class Service {
         result.allowSuspended = await this.allowSuspendedFor((facts.senderAddress.split('@')[1] || '').toLowerCase());
         // (0.6.7) The brake is read only when it matters: when the email would be moved (enforce mode). It was read
         // for every email; the decision is the same.
-        let decision = decide(result, this.cfg, { brake: false });
+        let decision = this.withTrustNote(decide(result, this.cfg, { brake: false }), result);
         // (0.6.35) A sender on Spam senders: straight to Spam, as spam (monitor mode: would be).
         const spamSender = await this.spamSenderFor(user, facts, result, allowlisted).catch(() => null);
         if (spamSender) {
@@ -1559,6 +1561,12 @@ class Service {
         if (!brandSign || signs.some(x => x !== brandSign && !['outside-org', 'first-time'].includes(x.kind))) return null;
         const brand = brandSign.brand || (BRAND_RE.exec(String(brandSign.text || '')) || [])[1];
         return brand ? { brand, domain: reg, key: `${String(brand).toLowerCase()}|${reg}` } : null;
+    }
+    // (0.6.82) A sender on Trusted senders the 30-day check suspended (src/allowwatch.js) is checked like any other: its
+    // decision says so, with where to answer it (before, nothing on the email said why Trusted didn't apply).
+    withTrustNote(decision, result) {
+        if (!decision || !decision.why || !result || !result.allowSuspended) return decision;
+        return Object.assign({}, decision, { why: `${decision.why}; the sender is on Trusted senders, but the 30-day check suspended ${result.allowSuspended} (its registration or reputation changed: Settings → Sender lists, Needs review), so it was checked like any other` });
     }
     // (0.6.81) Why a false alarm with a brand's name on it wasn't added to Brand senders: { brand, domain, why } (in plain
     // words), or null (no brand's name among its signs, or it was added). For Settings → Sender lists → Brand senders.
@@ -2569,7 +2577,7 @@ class Service {
         await pool(queue, RECHECK_PARALLEL, async (it) => {
             taken++;
             const t0 = Date.now();
-            const out = await this.emailSlots.run(() => { timing.note('Waiting for a free slot', Date.now() - t0); return timing.timed('One email, in all', () => this.recheckMessage(it)); }).catch(e => {
+            const out = await this.recheckSlots.run(() => { timing.note('Waiting for a free slot', Date.now() - t0); return timing.timed('One email, in all', () => this.recheckMessage(it)); }).catch(e => {
                 this.log.error(`re-check ${it.user} ${it.id}:`, e);
                 if ((it.tries || 1) < 3) retry.push(Object.assign({}, it, { tries: (it.tries || 1) + 1 }));
                 return { item: it, outcome: 'error', error: String((e && e.message) || e).slice(0, 200) };
@@ -2675,7 +2683,9 @@ class Service {
         result.allowlistedUnverified = allowlisted && !verified;
         result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
         await this.applySpamMemory(user, facts, result);
-        let decision = decide(result, this.cfg, { brake: await this.brakeOn() });
+        // (0.6.82) As on arrival: a sender on Trusted senders whose domain the 30-day check suspended is said so.
+        result.allowSuspended = await this.allowSuspendedFor((facts.senderAddress.split('@')[1] || '').toLowerCase());
+        let decision = this.withTrustNote(decide(result, this.cfg, { brake: await this.brakeOn() }), result);
         // (0.6.76) Sender standing, as on arrival: a re-check doesn't move what standing keeps in Review.
         if (!(before && before.userPlaced)) ({ decision } = await this.applyStanding(facts, result, decision, { relay: !!platformNotification(facts, this.cfg.orgDomains), now }).catch(() => ({ decision })));
         const was = before ? before.action : 'none';

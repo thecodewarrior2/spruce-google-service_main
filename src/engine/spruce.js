@@ -55,6 +55,7 @@ function load() {
         companyNameOf: fn('companyNameOf'),
         publicShorteners: get('publicShorteners'),
         isPersonalMailDomain: fn('isPersonalMailDomain'),
+        emailTrackerProvider: fn('emailTrackerProvider'),   // (0.6.82: hidden links through a mailing service's tracker)
         ownNameSigns: fn('ownNameSigns'),
         subjectScamSigns: fn('subjectScamSigns'),
         bodyScamSigns: fn('bodyScamSigns'),

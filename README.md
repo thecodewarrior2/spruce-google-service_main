@@ -205,7 +205,7 @@ that imitates your domain (3: "I've copied our superintendent").
 
 **Look-alikes written inside other domains** (0.6.32): a sender, reply address or link that writes the district's own
 domain inside someone else's (district-k12-example.mail.other.example) counts 5; a hidden, empty decoy link beside a
-visible one counts 5 (0.6.33: flagged on its own) when it goes to another site than the sender's; to the sender's own site, nothing when Gmail's DMARC check passed for the sender's organization (0.6.34: newsletters do that), else 2 (0.6.41). A store's co-branded card mail from the bank that issues it (TD Bank, Synchrony, Citi…), linking to the bank's own site behind the store's address, isn't counted as dangerous links (0.6.33).
+visible one counts 5 (0.6.33: flagged on its own) when it goes to another site than the sender's; to the sender's own site, nothing when Gmail's DMARC check passed for the sender's organization (0.6.34: newsletters do that), else 2 (0.6.41); (0.6.82) through a mailing service's own click tracking (Brevo, Klaviyo…: it wraps every link, the hidden one too), nothing when Gmail confirmed the sender, else 2. A store's co-branded card mail from the bank that issues it (TD Bank, Synchrony, Citi…), linking to the bank's own site behind the store's address, isn't counted as dangerous links (0.6.33).
 
 **Sender lists** (0.6.35; was Allowlist; 0.6.45: each list shows 8 entries, **Show all** opens the whole list, with its search, sorting and buttons, in a popup): Trusted senders (never moved), Spam senders (always to Spam: added with a Spam
 answer in Review, ticked by default for admins, or on the page; verified mail only), brand senders your reviewers

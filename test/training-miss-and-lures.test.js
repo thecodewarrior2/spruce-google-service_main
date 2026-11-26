@@ -93,6 +93,20 @@ test('0.6.34: a newsletter\'s hidden, empty link to its own site, the sender ver
     assert.equal(sign(await analyze(await news('pass', 'go.lure-site.example'), { mailbox: PAT, orgDomains: [ORG], firstTime: true }), 'hidden-decoy-link').weight, 5, 'to another site');
 });
 
+// 0.6.82: a verified newsletter sent with a mailing service (Brevo) whose every link, the hidden empty one too, goes through
+// the service's click tracking: not a decoy (it was moved as phishing on this sign with "first email" and "from outside").
+test('0.6.82: a hidden, empty link through a mailing service\'s click tracker: not counted when the sender is verified, 2 when not', async () => {
+    const news = (dmarc) => readMessage(Buffer.from([
+        'From: "Madeup Leader Podcast" <host@madeup-podcast.example>', `To: ${PAT}`, 'Subject: This week on the podcast', 'Message-ID: <p1@madeup-podcast.example>',
+        `Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=${dmarc} header.from=madeup-podcast.example`, 'Content-Type: text/html; charset=utf-8', '',
+        '<p>New episode out now.</p><a href="https://r.sendibm1.com/mk/cl/aa" style="height:0;opacity:0;width:0;"> </a><a href="https://r.sendibm1.com/mk/cl/bb">Listen now</a>'].join('\r\n')), { ownDomains: [ORG] });
+    const ok = await analyze(await news('pass'), { mailbox: PAT, orgDomains: [ORG], firstTime: true });
+    assert.equal(sign(ok, 'hidden-decoy-link').weight, 0);
+    assert.match(sign(ok, 'hidden-decoy-link').text, /Brevo/);
+    assert.notEqual(ok.status, 'flagged', JSON.stringify(ok.signals.map(x => [x.kind, x.weight])));
+    assert.equal(sign(await analyze(await news('fail'), { mailbox: PAT, orgDomains: [ORG], firstTime: true }), 'hidden-decoy-link').weight, 2, 'not verified: a little');
+});
+
 test('0.6.41: Gmail naming the organization\'s domain (header.from) for a subdomain sender still counts as the sender\'s own site', async () => {
     const mail = readMessage(Buffer.from([
         'From: "Bookshop" <bookshop@e.bookshop.example>', `To: ${PAT}`, 'Subject: [EXTERNAL] The winners of this year\'s book awards', 'Message-ID: <b1@e.bookshop.example>',

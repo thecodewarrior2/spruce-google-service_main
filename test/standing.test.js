@@ -156,3 +156,10 @@ test('the setting: off, show or on; nothing else', async () => {
     await assert.rejects(() => t.svc.setPolicy('senderStanding', 'always', ADMIN), /off, show or on/);
     assert.ok((await t.store.listEvents(0)).some(e => /turned on sender standing/.test(e.text)));
 });
+
+test('0.6.82: a Trusted sender the 30-day check suspended: the decision says why Trusted didn\'t apply', () => {
+    const t = svcOf();
+    const d = t.svc.withTrustNote({ action: 'flag', why: 'the AI was 80% sure' }, { allowSuspended: 'madeup-invoicing.example' });
+    assert.match(d.why, /on Trusted senders, but the 30-day check suspended madeup-invoicing\.example/);
+    assert.equal(t.svc.withTrustNote({ action: 'flag', why: 'x' }, {}).why, 'x', 'not suspended: unchanged');
+});

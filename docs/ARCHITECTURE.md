@@ -228,9 +228,9 @@ it; with Link clicks on, Gmail's logs (Admin SDK Reports API) add who clicked a 
 (0.6.70.) **What limits the re-checks.** The queue (`state/recheckQueue`) holds at most 3,000 emails and stays under
 700 KB, well inside Firestore's 1 MiB per document (each entry's site is cut to 100 characters); an email already
 queued isn't queued twice. A list's download finds at most 3,000 emails, of the last `RECHECK_DAYS`; an update's
-sweep at most `RECHECK_AFTER_UPDATE_MAX`, 1,500 an hour. Each hourly run checks 12 at a time for at most 40
+sweep at most `RECHECK_AFTER_UPDATE_MAX`, 1,500 an hour. Each hourly run checks 24 at a time (12 before 0.6.82; in slots of their own, `recheckSlots`) for at most 40
 seconds, and (0.6.73) again with the time its other steps left, starting new emails until 95 s into the worker's 120-s
-request (the rest at the next run); each of the 12 slots takes the next email as soon as its own is done (before, a
+request (the rest at the next run); each slot takes the next email as soon as its own is done (before, a
 batch of 12 waited for its slowest: about 24 emails an hour); an email at most 3 tries. Mail an admin answered, one its reader moved, and
 one no longer in the Inbox are never judged again; moves go through the brakes. A re-scan from the dashboard: one
 email at a time, not again within 30 s; the lists' Re-check at most once a minute. The Sender lists (Trusted, Spam,
@@ -551,7 +551,7 @@ Their data is never exported for retraining: their terms don't allow it to train
   (`feeds.sync`); the hourly job hashes those entries and asks Firestore for the markers holding any of them
   (`array-contains-any`, 30 at a time, on Firestore's automatic single-field index), queues them
   (`state/recheckQueue`, at most 3,000), and checks them in full within its time (40 s; the rest the next
-  hour), 12 at a time, through the same decision and brakes as on arrival. Suspicious records an hour and a
+  hour), 24 at a time (0.6.82), through the same decision and brakes as on arrival. Suspicious records an hour and a
   day old are queued the same way. With Settings → Link clicks on, the Admin SDK Reports API's Gmail log
   events of each re-checked copy's recipient (opened, link clicked) are read as an admin with the Reports
   privilege, filtered by `event_info.mail_event_type`, and matched to the email by its Message-ID.
