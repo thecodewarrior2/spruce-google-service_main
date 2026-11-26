@@ -35,3 +35,30 @@ test('forged (DMARC failing), from a look-alike of TreviPay, or another brand\'s
     const other = (await judge({ name: 'Amazon Business: Pay By Invoice Support' })).signals.find(s => /The sender's name says “Amazon Business/.test(s.text));
     assert.equal(other.weight, 5, 'only the brands listed for the service');
 });
+
+// 0.6.88: what the AI is told about who the sender claims to be agrees with the rule checks: a card issued by a bank for a
+// brand (PayPal Credit from Synchrony), and a brand's other domain the public records prove its company's (the ownership
+// lookup, which the rules read and the AI's identity fact didn't get). Forged, or from a domain that only resembles them,
+// it is still "not the brand's".
+test('0.6.88: PayPal Credit from Synchrony, and what the public records prove: the brand\'s, for the AI and the rules', async () => {
+    const E = require('../src/engine/spruce').load();
+    const SYF = 'statements@mail.synchronybank.com';
+    const id = (name, from, dmarc = true) => E.aiSenderIdentity(name, from, { own: [ORG], dmarcPassFor: dmarc ? from.split('@')[1] : '' });
+    assert.deepEqual(id('PayPal Credit', SYF), { brand: 'PayPal', owner: 'yes' });
+    assert.deepEqual(id('PayPal Credit', SYF, false), { brand: 'PayPal', owner: 'no' }, 'not verified');
+    assert.equal(id('PayPal Credit', 'alerts@synchronybank-alerts.example').owner, 'no', 'only resembles Synchrony');
+    assert.equal(id('Chase', SYF).owner, 'no', 'not a brand Synchrony issues for');
+    const r = await analyze(await mail({ from: SYF, name: 'PayPal Credit' }), { mailbox: USER, orgDomains: [ORG], keepAiFacts: true });
+    const s = r.signals.find(x => /The sender's name says “PayPal Credit/.test(x.text));
+    assert.equal(s.weight, 0); assert.match(s.text, /the bank that issues PayPal's credit card and credit/);
+    assert.deepEqual(r.aiFacts.identity, { brand: 'PayPal', owner: 'yes' });
+    // Acrobat Sign's notification, proven by Gmail for adobesign.com: Adobe's own, for the AI (it was told "not Adobe's").
+    const adobe = await analyze(await mail({ from: 'adobesign@adobesign.com', name: 'Dana Madeup via Adobe Acrobat Sign' }), { mailbox: USER, orgDomains: [ORG], keepAiFacts: true });
+    assert.equal(adobe.aiFacts.identity && adobe.aiFacts.identity.owner, 'yes', JSON.stringify(adobe.aiFacts.identity));
+    // The public records proving a sender's domain the brand's company's reach the AI's identity fact (analyze passes them).
+    const owned = { ownership: { of: async () => ({ state: 'owned', how: 'made-up proof' }) } };
+    const shop = await analyze(await mail({ from: 'hello@madeupbank-shopping.example', name: 'Capital One Shopping' }), { mailbox: USER, orgDomains: [ORG], keepAiFacts: true, intel: owned });
+    assert.equal(shop.aiFacts.identity && shop.aiFacts.identity.owner, 'yes', JSON.stringify(shop.aiFacts.identity));
+    const unproven = await analyze(await mail({ from: 'hello@madeupbank-shopping.example', name: 'Capital One Shopping' }), { mailbox: USER, orgDomains: [ORG], keepAiFacts: true });
+    assert.equal(unproven.aiFacts.identity.owner, 'no', 'no proof: as before');
+});

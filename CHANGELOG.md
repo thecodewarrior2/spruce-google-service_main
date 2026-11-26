@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.88: the AI no longer told a card bank or a brand's own other domain is an impostor
+
+- **What the AI is told about who the sender claims to be** now agrees with the rule checks. Mail a district had confirmed
+  as genuine or as marketing was read by the AI as "the name claims PayPal; the domain is not PayPal's" (PayPal Credit
+  statements from Synchrony, the bank that issues it), and "not Adobe's" for Acrobat Sign's own notifications; the AI
+  called several of them phishing with high confidence.
+- **Synchrony** is listed as the bank that issues PayPal's, Venmo's, Amazon's and Verizon's credit cards (and its own
+  domains synchronybank.com, syf.com and mysynchrony.com), like TreviPay for Walmart's invoicing: only when Gmail verified
+  the sender (DMARC); forged, from a domain that only resembles it, or any other brand's name, it is judged as before.
+- **The public records the rule checks read** (a sender's domain proven to be the brand's company, since 0.6.46) now reach
+  the AI's identity fact too: it was meant to (0.6.46), but only the rules got them. Brands' other domains (Capital One
+  Shopping, Cash App receipts through Square) are judged by those records, not listed by hand.
+- **A platform's notification Gmail proved** (DMARC passing for the platform's own domain: "Dana Madeup via Adobe Acrobat
+  Sign" from adobesign.com) is the platform's company's own for the AI too; it was told "the domain is not Adobe's".
+- These change how such emails are judged: **the checks level is raised** (recent delivered mail is checked again).
+
 ## 0.6.87: look-alikes of the companies that mail you
 
 - **A new check:** a sender, Reply-To or link domain one small change away from a company that mails your organization

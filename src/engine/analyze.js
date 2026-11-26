@@ -253,7 +253,9 @@ async function analyze(facts, ctx = {}) {
         // is theirs, a look-alike domain, a colleague's name on an outside address (the same checks as
         // nameAddressSigns); the Reply-To domains that aren't the sender's; the attached files' kinds (their
         // endings and types, never their names; pictures inside the email aren't attachments).
-        identity: safeOne(() => E.aiSenderIdentity(facts.senderName, facts.senderAddress, { own: ctx.orgDomains || [], colleagues: ctx.colleagues || null, dmarcPassFor: facts.auth && facts.auth.dmarc === 'pass' ? (facts.auth.headerFrom || '') : '', brandSenders: ctx.brandSenders || null })),
+        // (0.6.88) The public records the rule checks read (ownership: the sender's domain proven the brand's company) count
+        // here too: the AI was told "the domain is not Adobe's" for adobesign.com when the rules knew better.
+        identity: safeOne(() => E.aiSenderIdentity(facts.senderName, facts.senderAddress, { own: ctx.orgDomains || [], colleagues: ctx.colleagues || null, ownership, dmarcPassFor: facts.auth && facts.auth.dmarc === 'pass' ? (facts.auth.headerFrom || '') : '', brandSenders: ctx.brandSenders || null })),
         replyTo: safeOne(() => E.aiReplyToDomains(facts.replyTo || [], facts.senderAddress)) || [],
         attachments: safeOne(() => E.aiAttachmentFacts((facts.attachmentFiles || facts.attachments || []).filter(a => !a.inline))) || [],
         links: judged.filter(j => !j.hidden).slice(0, 8).map(j => ({ text: j.text, host: hostOf(j.url), destHost: j.finalUrl && hostOf(j.finalUrl) !== hostOf(j.url) ? hostOf(j.finalUrl) : '', finding: j.severity ? j.reason : '' })),
@@ -292,6 +294,12 @@ async function analyze(facts, ctx = {}) {
         return CF.cleanContext(out);
     });
     aiFacts.extra = Object.assign({}, extraFacts || {}, ctx.keepAiFacts || modelFormat >= 4 ? { attachmentText: att.attachmentText || '', pictureText: att.pictureText || '' } : {});
+    // (0.6.88) A platform's notification proven by Gmail (DMARC passing for the platform's own domain: notifications.js), whose
+    // name claims the platform's company ("Adobe Acrobat Sign" from adobesign.com): the domain is that company's, for the AI.
+    if (relay && aiFacts.identity && aiFacts.identity.brand && aiFacts.identity.owner !== 'yes') {
+        const p = (N.PLATFORMS || []).find(x => x.name === relay.platform);
+        if (p && p.owner === aiFacts.identity.brand) aiFacts.identity = Object.assign({}, aiFacts.identity, { owner: 'yes' });
+    }
     if (aiFacts.identity && signals.some(s => s && s.kind === 'brand-name-likely' && s.weight === 0 && /counts as that company writing about a product it runs/.test(String(s.text || '')))) aiFacts.identity = null;
     // The model was trained on English only: on an email clearly in another language its score means little,
     // so it gives none, and says why (the rule checks above don't depend on the language).

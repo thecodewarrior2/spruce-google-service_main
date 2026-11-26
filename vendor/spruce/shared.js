@@ -667,7 +667,7 @@ const SENDER_NAME_BRANDS = [
     { name: 'Costco', tokens: ['costco'], domains: ['costco.com'] },
     // (0.6.33) The banks that issue stores' co-branded cards (a store's card mail comes from them, under the store's name).
     { name: 'TD Bank', tokens: ['td bank'], domains: ['tdbank.com'] },
-    { name: 'Synchrony', tokens: ['synchrony', 'synchrony bank'], domains: ['synchrony.com'] },
+    { name: 'Synchrony', tokens: ['synchrony', 'synchrony bank'], domains: ['synchrony.com', 'synchronybank.com', 'syf.com', 'mysynchrony.com'] },
     { name: 'Citi', tokens: ['citi', 'citibank', 'citi cards'], ambiguousTokens: ['citi'], domains: ['citi.com'] },
     { name: 'U.S. Bank', tokens: ['u s bank', 'us bank'], domains: ['usbank.com'] },
     { name: 'Barclays', tokens: ['barclays', 'barclaycard'], domains: ['barclays.com'] },
@@ -806,14 +806,17 @@ function govMailService(brand, reg) {
 // Pay By Invoice is run by TreviPay (no-reply@trevipay.app, "Walmart Business: Pay By Invoice Support"). Only the
 // brands listed for each service, and only when Gmail's DMARC check passed for the service's domain; forged, or
 // any other brand's name on it, it is judged as before.
+// (0.6.88) And a brand's credit card or credit run by the bank that issues it, writing from the bank's own domain: PayPal
+// Credit and the Venmo, Amazon Store and Verizon cards are Synchrony's ("PayPal Credit" from synchronybank.com).
 const BRAND_BILLING_SERVICES = [
-    { name: 'TreviPay', domains: ['trevipay.com', 'trevipay.app'], brands: ['Walmart'] }
+    { name: 'TreviPay', domains: ['trevipay.com', 'trevipay.app'], brands: ['Walmart'], role: (b) => `the company that runs ${b}'s invoicing` },
+    { name: 'Synchrony', domains: ['synchrony.com', 'synchronybank.com', 'syf.com', 'mysynchrony.com'], brands: ['PayPal', 'Venmo', 'Amazon', 'Verizon'], role: (b) => `the bank that issues ${b}'s credit card and credit` }
 ];
 function brandBillingService(brand, domain, context) {
     const reg = registrableDomain(String(domain || '').toLowerCase()) || String(domain || '').toLowerCase();
     const svc = BRAND_BILLING_SERVICES.find(x => x.domains.includes(reg));
     if (!svc || !brand || !svc.brands.includes(brand.name)) return null;
-    return { name: svc.name, verified: dmarcPassedFor(context, domain) };
+    return { name: svc.name, role: svc.role(brand.name), verified: dmarcPassedFor(context, domain) };
 }
 // (0.6.29) A brand's name from a domain the organization's reviewers confirmed is a real sender for it: an admin or
 // moderator answered "False alarm" on an email whose only sign was that the name says the brand and the address isn't
@@ -893,7 +896,7 @@ function nameAddressSigns(name, address, own, colleagues, ownership, context) {
         else if (brandBillingService(claimed, domain, context)) {
             const bill = brandBillingService(claimed, domain, context);
             out.push(bill.verified
-                ? { weight: 0, kind: 'brand-billing-service', text: `The sender's name says “${shown}”; ${address} is ${bill.name}'s, the company that runs ${claimed.name}'s invoicing, and Gmail verified it (DMARC).` }
+                ? { weight: 0, kind: 'brand-billing-service', text: `The sender's name says “${shown}”; ${address} is ${bill.name}'s, ${bill.role}, and Gmail verified it (DMARC).` }
                 : { weight: 5, text: `The sender's name says “${shown}”, from ${bill.name}'s domain (${address}), but Gmail couldn't verify it (DMARC): it may be forged.` });
         }
         else if (ownership && ownership.state === 'owned') out.push({ weight: 0, text: `The sender's name says “${shown}”; ${ownershipNote(ownership, reg, claimed.name)}.` });

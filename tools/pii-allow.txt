@@ -64,3 +64,4 @@ offers@capitaloneshopping.com
 0A1B2C3D-0000@icloud.com
 abc@SA1PR12MB0001.namprd12.prod.outlook.com
 0100018c.abc@email.amazonses.com
+statements@mail.synchronybank.com # Synchrony Bank's statement mailbox (the bank that issues PayPal Credit), a company's address, no person's (0.6.88)
