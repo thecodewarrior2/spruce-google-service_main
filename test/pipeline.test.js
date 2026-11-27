@@ -21,7 +21,7 @@ function fakeGmail(messages) {
     Object.assign(g, {
         addedSince: async () => g.history,
         profile: async () => ({ historyId: '999' }),
-        raw: async (user, id) => { const m = messages[id]; if (!m) throw new GoogleApiError(404, 'gone', 'get'); return { id, threadId: `t${id}`, labelIds: m.labels || ['INBOX', 'UNREAD'], historyId: m.historyId || null, internalDate: 1, raw: m.raw }; },
+        raw: async (user, id) => { const m = messages[id]; if (!m) throw new GoogleApiError(404, 'gone', 'get'); return { id, threadId: `t${id}`, labelIds: m.labels || ['INBOX', 'UNREAD'], historyId: m.historyId || null, internalDate: Date.now(), raw: m.raw }; },
         labelId: async (u, name) => `L_${name}`,
         modify: async (user, id, add, remove) => { g.modified.push({ user, id, add, remove }); return {}; },
         watch: async (user) => { g.watched.push(user); return { historyId: '100', expiration: String(Date.now() + 7 * DAY) }; },
@@ -386,7 +386,7 @@ test('the brake: too many moves in an hour stops moving until an admin resumes',
     assert.equal(await store.getState('brake'), null);
     // After the resume the count starts again: the next moves go through.
     const more = {}; for (let i = 0; i < 2; i++) { more[`q${i}`] = { raw: PHISH }; }
-    Object.assign(svc.gmail, { raw: async (user, id) => ({ id, threadId: `t${id}`, labelIds: ['INBOX'], internalDate: 1, raw: PHISH }) });
+    Object.assign(svc.gmail, { raw: async (user, id) => ({ id, threadId: `t${id}`, labelIds: ['INBOX'], internalDate: Date.now(), raw: PHISH }) });
     gmail.history = { ids: Object.keys(more), historyId: '3' };
     await svc.handleNotification({ emailAddress: USER, historyId: '3' });
     assert.equal(gmail.modified.length, 5, 'both moved after the resume');
@@ -636,7 +636,7 @@ test('emails at once (0.5.0): at most 12 downloaded and checked per instance, at
     let dl = 0, dlMost = 0;
     const raw = gmail.raw;
     gmail.raw = async (u, id) => { dl++; dlMost = Math.max(dlMost, dl); await new Promise(r => setTimeout(r, 15)); dl--; const m = await raw(u, id).catch(() => null);
-        return m || { id, threadId: 't', labelIds: ['INBOX'], historyId: null, internalDate: 1, raw: Buffer.concat([Buffer.from('From: a@b.example\r\nSubject: x\r\n\r\n'), Buffer.alloc(Number(id.slice(1)) % 4 === 0 ? 5 * 1024 * 1024 : 100, 97)]) }; };
+        return m || { id, threadId: 't', labelIds: ['INBOX'], historyId: null, internalDate: Date.now(), raw: Buffer.concat([Buffer.from('From: a@b.example\r\nSubject: x\r\n\r\n'), Buffer.alloc(Number(id.slice(1)) % 4 === 0 ? 5 * 1024 * 1024 : 100, 97)]) }; };
     let reading = 0, readingMost = 0;
     const judge = svc.judge.bind(svc);
     svc.judge = async (u, msg, facts, o) => { if (msg.raw.length > 4 * 1024 * 1024) { reading++; readingMost = Math.max(readingMost, reading); await new Promise(r => setTimeout(r, 10)); reading--; } return judge(u, msg, facts, o); };

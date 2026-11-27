@@ -221,3 +221,34 @@ test('0.6.96: a mailbox created less than 30 days ago has no earlier mail: its c
     assert.equal(svc.youngMailbox(LEE), false);
     assert.equal(svc.youngMailbox(`nobody@${ORG}`), false, 'unknown: as before');
 });
+
+test('0.6.97: the conversation is unknown when the email doesn\'t name the reader (a group they just joined, Bcc, an unlisted alias)', async () => {
+    const store = new MemoryStore();
+    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: PAT, MODE: 'monitor', DIRECTORY_ADMIN: `it.madeup@${ORG}` });
+    const gmail = { userNames: async () => [{ name: 'Pat Fakewell', email: PAT, aliases: [`principal@${ORG}`], createdAt: Date.now() - 400 * 86400000 }],
+        labelId: async (u, l) => `L_${l}`, modify: async () => ({}) };
+    const svc = new Service({ cfg, store, gmail, log: { error() {}, warn() {} } });
+    await svc.colleagueNames();
+    const facts = (to, cc = []) => ({ people: { to: to.map(address => ({ address })), cc: cc.map(address => ({ address })) } });
+    assert.equal(svc.threadUnknown(PAT, facts([PAT])), false, 'named on To');
+    assert.equal(svc.threadUnknown(PAT, facts([`vendor@outside.example`], [`principal@${ORG}`])), false, 'an alias on Cc');
+    assert.equal(svc.threadUnknown(PAT, facts([`staff-list@${ORG}`])), true, 'through a group');
+    assert.equal(svc.threadUnknown(PAT, facts([])), true, 'Bcc, or undisclosed recipients');
+});
+
+test('0.6.97: mail added with a date older than 8 days was imported (a migration), not delivered: counted, not judged', async () => {
+    const store = new MemoryStore();
+    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: PAT, MODE: 'enforce' });
+    let judged = 0;
+    const raw = Buffer.from(['From: Billing <billing@madeup-vendor.example>', `To: ${PAT}`, 'Subject: Invoice', 'Content-Type: text/plain', '', 'Your invoice.'].join('\r\n'));
+    const gmail = { raw: async (u, id) => ({ id, threadId: 't', labelIds: ['INBOX'], internalDate: id === 'old' ? Date.now() - 400 * 86400000 : Date.now(), raw }),
+        labelId: async (u, l) => `L_${l}`, modify: async () => ({}) };
+    const svc = new Service({ cfg, store, gmail, log: { error() {}, warn() {} } });
+    const real = svc.readAndJudge.bind(svc);
+    svc.readAndJudge = async (...a) => { judged++; return real(...a); };
+    const old = await svc.checkMessageNow(PAT, 'old', 1);
+    assert.deepEqual([old.imported, judged], [true, 0]);
+    assert.ok((await store.listEvents(0)).some(e => /an import or a migration/.test(e.text)));
+    await svc.checkMessageNow(PAT, 'new', 1);
+    assert.equal(judged, 1, 'delivered mail: judged');
+});

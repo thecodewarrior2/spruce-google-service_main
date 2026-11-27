@@ -117,7 +117,10 @@ the AI model (phish-tiny 0.30.0, input format 4) reads them too:
 in its first 14 days (`FIRST_SEEN_LEARNING_DAYS`, the rules' learning period too) may have written for years before, so the
 AI isn't told its history (it reads such an email as if no history were known); senders first seen later have theirs. A
 mailbox created less than 30 days ago (a new hire, a new Google Workspace: the directory says when) has no earlier mail, so
-its conversations count as unknown: a "RE:" isn't taken for one that answers nothing, by the rules or the AI. Your own
+its conversations count as unknown: a "RE:" isn't taken for one that answers nothing, by the rules or the AI. (0.6.97) So do
+the conversations of an email that doesn't name the reader on To or Cc (a group they just joined, Bcc, an alias the directory
+doesn't list). Mail added to a mailbox with a date over 8 days old was imported (a migration), not delivered: it isn't
+checked (Health → Activity says so once a day). Your own
 domains' age is never looked up, so a new Workspace domain doesn't make your own mail look new.
 
 | Fact | What it tells the AI |

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.97: group mail and migrated mail
+
+- **Mail that doesn't name the reader** (To or Cc): from a group they were just added to, Bcc, an alias the directory
+  doesn't list, a forward. The mailbox may never have had the earlier emails of a real conversation, so a reply from outside
+  counted as answering nothing (1 point, and "a reply, but the mailbox has no earlier email" for the AI). Its conversation
+  now counts as unknown, as for a new mailbox (0.6.96). A "RE:" whose headers name no earlier email still counts (2).
+- **Mail imported into mailboxes** (a migration into a new Google Workspace, Gmail's import, a restore) arrived to the
+  service as new mail and was judged and moved like a delivery, years of it at once. Mail added with a date over 8 days
+  old is now counted, not judged: Gmail keeps a mailbox's changes 7 days, so mail missed while the service was down is
+  never older than that. Health → Activity says so once a day.
+- The directory read keeps each person's aliases for this. This changes how such emails are judged: **the checks level is
+  raised**.
+
 ## 0.6.96: a new install and a new mailbox don't make known senders look new
 
 - **A new install:** the AI (phish-tiny 0.30.0 reads the sender's history with your organization) was told "first email

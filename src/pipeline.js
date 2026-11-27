@@ -261,6 +261,7 @@ const DOMAIN_RE = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,
 const asList = (v) => [...new Set((Array.isArray(v) ? v : String(v || '').split(/[\r\n,;]+/)).map(x => String(x).trim().toLowerCase()).filter(Boolean))].sort();
 const POLICY_REFRESH_MS = 30 * 1000;
 const NEW_MAILBOX_DAYS = 30;   // (0.6.96) youngMailbox
+const IMPORTED_DAYS = 8;       // (0.6.97) checkMessageNow: older mail added to a mailbox was imported, not delivered
 const MIN_KEEP_DAYS = 14, MAX_KEEP_DAYS = 365;   // retentionDays (config.js says the same)
 // Marks a configuration whose envPolicy was taken here (Service's constructor), so it is taken only once.
 const OWN_ENV = Symbol('envPolicy of this configuration');
@@ -848,11 +849,12 @@ class Service {
                 // (0.6.94) Each address's (and alias's) own name, hashed, for a staff name on another staff account (staff-names.js).
                 const staff = StaffNames.staffDirectory(people);
                 const createdAt = new Map(people.filter(p => p.email && typeof p.createdAt === 'number').map(p => [String(p.email).toLowerCase(), p.createdAt]));
-                this.colleagues = { hashes, byEmail, staff, createdAt, at: now, error: null };
+                const aliases = new Map(people.filter(p => p.email).map(p => [String(p.email).toLowerCase(), [].concat(p.aliases || []).map(a => String(a).toLowerCase())]));
+                this.colleagues = { hashes, byEmail, staff, createdAt, aliases, at: now, error: null };
                 await this.store.setState('colleagueNames', { at: now, names: hashes.size, error: null }).catch(() => {});
             } catch (e) {
                 const error = String(e && e.message || e).slice(0, 300);
-                this.colleagues = { hashes: c ? c.hashes : null, byEmail: c ? c.byEmail : null, staff: c ? c.staff : null, createdAt: c ? c.createdAt : null, at: now, error };
+                this.colleagues = { hashes: c ? c.hashes : null, byEmail: c ? c.byEmail : null, staff: c ? c.staff : null, createdAt: c ? c.createdAt : null, aliases: c ? c.aliases : null, at: now, error };
                 await this.store.setState('colleagueNames', { at: now, names: c && c.hashes ? c.hashes.size : 0, error }).catch(() => {});
                 if (!c || !c.error) this.log.warn(JSON.stringify({ message: `Couldn't read the directory's names for the colleague-name check: ${error}` }));
             } finally { this.colleaguesLoading = null; }
@@ -871,6 +873,17 @@ class Service {
     async historySince() {
         const at = this.installedAt || (this.installedAt = (await this.store.getState('installedAt').catch(() => null)) || null);
         return typeof at === 'number' ? at + this.cfg.firstSeenLearningDays * DAY : null;
+    }
+    // (0.6.97) The conversation can't be judged from this mailbox: it is new (youngMailbox), or the email reached it without
+    // naming it on To or Cc (a group it was just added to, Bcc, an alias the directory doesn't list, a forward): the
+    // mailbox may never have had the earlier emails though the conversation is real.
+    threadUnknown(user, facts) {
+        if (this.youngMailbox(user)) return true;
+        const u = String(user || '').toLowerCase();
+        const mine = new Set([u, ...(((this.colleagues && this.colleagues.aliases) || new Map()).get(u) || [])]);
+        const p = (facts && facts.people) || {};
+        const named = [...(p.to || []), ...(p.cc || [])].map(x => String((x && x.address) || '').toLowerCase()).filter(Boolean);
+        return !named.some(a => mine.has(a));
     }
     youngMailbox(user) {
         const c = this.colleagues, at = c && c.createdAt && c.createdAt.get(String(user || '').toLowerCase());
@@ -1054,6 +1067,18 @@ class Service {
         }
         // Only mail that arrived in the Inbox: not the user's own sent mail or drafts, nor what Gmail already put in Spam.
         if (!msg.labelIds.includes('INBOX') || msg.labelIds.some(l => l === 'SENT' || l === 'DRAFT' || l === 'SPAM')) return null;
+        // (0.6.97) Mail added with a date older than IMPORTED_DAYS: imported (a migration into a new Workspace, Gmail's import,
+        // a restore), not delivered: Gmail keeps a mailbox's changes 7 days, so mail the service missed while it was down is
+        // never older than that. Counted, not judged or moved.
+        if (msg.internalDate && this.now() - Number(msg.internalDate) > IMPORTED_DAYS * DAY) {
+            const day = this.dayOf(this.now());
+            await this.count(day, 'imported');
+            if (this._importNoted !== day) {
+                this._importNoted = day;
+                await this.store.addEvent({ kind: 'mailbox', text: `Mail older than ${IMPORTED_DAYS} days was added to a mailbox (an import or a migration, not a delivery): it isn't checked. New mail is checked as usual.` }).catch(() => {});
+            }
+            return { user, messageId: msg.id, action: 'none', imported: true };
+        }
         return this.readAndJudge(user, msg);
     }
 
@@ -1084,7 +1109,7 @@ class Service {
             alreadyMoved ? 0 : this.countShare(facts, user, now), this.threadInfoOf(user, msg.threadId, facts), this.colleagueNames(), this.lookalikeMap(),
             this.standingDocFor(facts), this.copiesSoFar(campaignKey, day, { add: !alreadyMoved }).catch(() => null)]);
         // (0.6.96) A mailbox created days ago has no earlier mail: its conversations count as unknown.
-        const threadInfo = threadInfo0 && this.youngMailbox(user) ? null : threadInfo0;
+        const threadInfo = threadInfo0 && this.threadUnknown(user, facts) ? null : threadInfo0;
         const threadSize = threadInfo ? threadInfo.size : null;
         const learning = now - installedAt < this.cfg.firstSeenLearningDays * DAY;
         // Allowlisted only with DMARC passing for the address (policy.js).
@@ -2953,7 +2978,7 @@ class Service {
         const campaignKey = campaignOf((facts.senderAddress.split('@')[1] || '').toLowerCase(), facts.subject, user).key;
         const [allowLinkDomains, colleagues, lookalikes, brandSenders, threadInfo0, standingDoc, recipients] = await Promise.all([this.allowLinkDomainsNow(), this.colleagueNames(), this.lookalikeMap(), this.brandSenderSet(), this.threadInfoOf(user, msg.threadId, facts),
             this.standingDocFor(facts), this.copiesSoFar(campaignKey, this.dayOf(this.now())).catch(() => null)]);
-        const threadInfo = threadInfo0 && this.youngMailbox(user) ? null : threadInfo0;   // (0.6.96)
+        const threadInfo = threadInfo0 && this.threadUnknown(user, facts) ? null : threadInfo0;   // (0.6.96, 0.6.97)
         return { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), historySince: await this.historySince(), mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains, trusted, firstTime, intel: this.intel, colleagues, selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes, brandSenders,
             threadSize: threadInfo ? threadInfo.size : null, extraFacts: this.arrivalFacts(msg, facts, threadInfo, recipients), standingDoc, now: this.now(),
             correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache };
