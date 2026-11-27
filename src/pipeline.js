@@ -30,7 +30,7 @@ const sims = require('./simulations');
 const { promotionalSigns, aiMarketingSign } = require('./promotional');
 const remember = require('./remember');
 const StaffNames = require('./staff-names');
-const { MailboxHistory } = require('./mailbox-history');
+const { MailboxHistory, newSender } = require('./mailbox-history');
 const ST = require('./standing');
 const CF = require('./context-facts');
 const timing = require('./timing');
@@ -1122,9 +1122,14 @@ class Service {
         const senderDom = String(facts.senderAddress || '').toLowerCase().split('@')[1] || '';
         const outside = !!senderDom && !this.cfg.orgDomains.some(o => senderDom === o || senderDom.endsWith('.' + o));
         const unknownToUs = learning || now - first < DAY || (typeof historySince === 'number' && first < historySince);
-        const gmailHistory = !relay && who && verified && outside && unknownToUs ? await this.mailboxHistory.of(user, facts.senderAddress, senderHash(who)).catch(() => null) : null;
-        // The rules' "first email from this sender": Gmail's answer when there is one (from the install on), else the service's.
-        const firstTime = !!who && (gmailHistory ? !gmailHistory.received && !gmailHistory.wrote && now - first < DAY : !learning && now - first < DAY);
+        const gmailHistory0 = !relay && who && verified && outside && unknownToUs ? await this.mailboxHistory.of(user, facts.senderAddress, senderHash(who), senderHash(user)).catch(() => null) : null;
+        // "Nothing from this sender" counts only from a mailbox old enough to know (it holds mail over 30 days old, and the
+        // directory doesn't say it is new): a new Google Workspace, a new hire's mailbox, says nothing about who is new.
+        const gmailHistory = gmailHistory0 && !gmailHistory0.received && !gmailHistory0.wrote && this.youngMailbox(user) ? Object.assign({}, gmailHistory0, { deep: false }) : gmailHistory0;
+        // The rules' "first email from this sender": Gmail's answer when it tells (known anywhere: not new; nothing in an old
+        // enough mailbox: new), else the service's own, with its learning period.
+        const gmailTells = !!gmailHistory && (gmailHistory.received > 0 || gmailHistory.wrote || newSender(gmailHistory));
+        const firstTime = !!who && (gmailTells ? newSender(gmailHistory) && now - first < DAY : !learning && now - first < DAY);
         const result = await analyze(facts, { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), historySince: await this.historySince(), mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime, intel: this.intel,
             colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize, brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache,
             extraFacts: this.arrivalFacts(msg, facts, threadInfo, recipients), standingDoc, firstSeenAt: who ? first : undefined, gmailHistory, now });

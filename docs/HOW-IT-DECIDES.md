@@ -118,7 +118,9 @@ it, or first seen in its learning period), the reader's mailbox is asked: has it
 a year old), about how much, and has anyone written to them. The mailbox goes back further than the service, so a vendor of
 years is known from the install's first day, for the rules' "first email from this sender" and for the AI's history.
 Answers are cached for the whole organization (counts only, under a one-way hash of the sender): a known sender 30 days, an
-unknown one a day, so most emails need no Gmail call. A sender Gmail couldn't confirm is never looked up.
+unknown one a day, so most emails need no Gmail call. A sender Gmail couldn't confirm is never looked up. In a new
+Google Workspace (or a new hire's mailbox), whose mailboxes hold no mail over 30 days old, "nothing from this sender" says
+nothing: such a sender is unknown, and the learning period's rule applies (no "first email" sign for 14 days).
 
 **A new install, a new mailbox** (0.6.96): the service knows a sender's history only from its install. A sender it first saw
 in its first 14 days (`FIRST_SEEN_LEARNING_DAYS`, the rules' learning period too) may have written for years before, so the

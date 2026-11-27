@@ -14,6 +14,11 @@
 - **Cached for the whole organization:** in memory and in the shared store, under a one-way hash of the sender, counts and
   yes/no only (never an address or an email); a known sender 30 days, an unknown one a day. So a sender is looked up about
   once a month, not per email; a lookup is 2 to 4 Gmail searches of one result each and gives up after 2.5 seconds.
+- **A new Google Workspace** (or a new hire's mailbox): its mailboxes have no old mail, so "nothing from this sender" there
+  says nothing. Such an answer counts only from a mailbox that holds mail over 30 days old (one more search, cached per
+  mailbox) and that the directory doesn't say is new; otherwise the sender is unknown, and the learning period's rule applies
+  (no "first email" sign for its first 14 days; no history for the AI). "Nothing found" is also cached for that mailbox
+  only: another may have years of mail from the same sender. A sender found anywhere is known to the whole organization.
 - **Never for** a sender Gmail couldn't confirm (a forged address would borrow the real sender's history), mail from
   inside, or a platform's share. It uses the Gmail access the service already has: no installation change.
 - This changes how such emails are judged: **the checks level is raised**.

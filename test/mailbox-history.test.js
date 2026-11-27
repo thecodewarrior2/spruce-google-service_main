@@ -16,6 +16,7 @@ const fakeGmail = (book) => {
     const calls = [];
     return { calls, searchCount: async (user, q) => {
         calls.push(q);
+        if (q.startsWith('older_than:')) return { any: book.__young ? false : true, estimate: 1 };   // the mailbox holds old mail
         const m = /^(from|in:sent to):?\s*([^\s]+)(?: older_than:(\d+)([dy]))?$/.exec(q.replace('in:sent to:', 'in:sent to: '));
         const sent = q.startsWith('in:sent');
         const addr = sent ? q.split('to:')[1].trim() : q.split(' ')[0].slice(5);
@@ -32,7 +33,7 @@ test('the lookup: older mail (a day, a month, a year), about how much, and wheth
     const gmail = fakeGmail({ 'billing@vendor.example': { ages: [2, 40, 500, 900], wrote: true }, 'new@stranger.example': { ages: [] } });
     const store = new MemoryStore();
     const mh = new MailboxHistory({ gmail, store });
-    assert.deepEqual(Object.assign({}, await mh.of(PAT, 'billing@vendor.example', 'h1'), { at: 0 }), { received: 4, ageDays: 365, wrote: true, at: 0 });
+    assert.deepEqual(Object.assign({}, await mh.of(PAT, 'billing@vendor.example', 'h1'), { at: 0 }), { received: 4, ageDays: 365, wrote: true, deep: true, at: 0 });
     const n = gmail.calls.length;
     await mh.of(SAM, 'billing@vendor.example', 'h1');
     assert.equal(gmail.calls.length, n, 'cached for the whole organization: no more Gmail calls');
@@ -76,4 +77,27 @@ test('the service: from the install on, a known sender is no "first email", a ne
     await judge('billing@forged-vendor.example', 'fail');
     await judge(`office@${ORG}`);
     assert.equal(gmail.calls.length, before, 'not asked for a sender Gmail couldn\'t confirm, nor for mail from inside');
+});
+
+test('a new Google Workspace (mailboxes with nothing over 30 days old): "nothing from this sender" means nothing; one mailbox\'s "nothing" isn\'t another\'s', async () => {
+    const DAY = 86400000;
+    const young = Object.assign(fakeGmail({ 'billing@vendor.example': { ages: [] } }), {});
+    const store = new MemoryStore();
+    const mh = new MailboxHistory({ gmail: { searchCount: async (u, q) => (q.startsWith('older_than:') ? { any: false, estimate: 0 } : young.searchCount(u, q)) }, store });
+    const h = await mh.of(PAT, 'billing@vendor.example', 'k1', 'boxPat');
+    assert.equal(h.deep, false);
+    assert.equal(historyFromGmail(h), null, 'unknown for the AI, not "first"');
+    // Another, older mailbox that has years of mail from the same sender isn't given Pat's "nothing".
+    const mh2 = new MailboxHistory({ gmail: fakeGmail({ 'billing@vendor.example': { ages: [400] } }), store });
+    assert.equal((await mh2.of(SAM, 'billing@vendor.example', 'k1', 'boxSam')).received, 1);
+    // The service on a new Workspace's first day: no "first email" sign (the learning period's rule applies).
+    const svcStore = new MemoryStore();
+    const gmail = { searchCount: async (u, q) => ({ any: false, estimate: 0 }), labelId: async (u, l) => `L_${l}`, modify: async () => ({}) };
+    const svc = new Service({ cfg: loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: PAT, MODE: 'monitor' }), store: svcStore, gmail, log: { error() {}, warn() {} } });
+    const raw = Buffer.from(['From: Billing <billing@vendor.example>', `To: ${PAT}`, 'Subject: Your statement', 'Message-ID: <nw1@x.example>',
+        'Authentication-Results: mx.google.com; spf=pass smtp.mailfrom=vendor.example; dkim=pass header.i=@vendor.example; dmarc=pass header.from=vendor.example', 'Content-Type: text/plain', '', 'Your monthly statement is ready.'].join('\r\n'));
+    const r = await svc.judge(PAT, { id: 'nw1', threadId: 't', labelIds: ['INBOX'], internalDate: Date.now() }, await readMessage(raw));
+    const rec = r.key ? await svcStore.getRecord(r.key) : null;
+    assert.ok(!rec || !rec.signals.some(x => x.kind === 'first-time'), 'a new Workspace: no "first email" for everyone');
+    assert.ok(DAY);
 });
