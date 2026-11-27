@@ -1555,14 +1555,14 @@
     }
     // (0.6.52) Promotional senders kept: companies an admin answered Keep in Review → Promotional; an admin removes one (its
     // promotional mail is listed again). (0.6.90) Promotional senders sent to Spam, the same way: companies answered Spam there.
-    async function promoCompanyCard({ api: path, title, sub, byHead, removed }) {
+    async function promoCompanyCard({ api: path, title, sub, byHead, removed, nameHead = 'Company', empty = 'No company yet.' }) {
         let list = [];
         try { list = (await api(path)).list || []; } catch (e) { return null; }
         const card = h('section', { class: 'card spaced' }, h('h2', { text: title }), h('p', { class: 'sub', text: sub }));
         const draw = (rows) => {
             card.querySelectorAll('table, p.empty').forEach(t => t.remove());
-            if (!rows.length) { card.append(h('p', { class: 'empty', text: 'No company yet.' })); return; }
-            card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Company', byHead, 'Since', ''].map(t => h('th', { text: t })))),
+            if (!rows.length) { card.append(h('p', { class: 'empty', text: empty })); return; }
+            card.append(h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, [nameHead, byHead, 'Since', ''].map(t => h('th', { text: t })))),
                 h('tbody', {}, rows.map(r => h('tr', {}, h('td', { text: r.company }), h('td', { text: r.from === 'earlier' ? `${r.by || ''} (an earlier answer)` : (r.by || '') }), h('td', { 'data-sort': String(r.at || 0), text: dayOf(r.at) }),
                     h('td', {}, isModerator() ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
                         e.target.disabled = true;
@@ -1575,6 +1575,10 @@
     const promoKeptCard = () => promoCompanyCard({ api: '/api/promotional-kept', title: 'Promotional senders kept', byHead: 'Kept by',
         sub: 'Companies whose promotional mail an admin chose to keep (Review → Promotional → Keep). Each is the sender\'s own domain, never the platform it sends through.',
         removed: (c) => `${c}'s promotional mail is listed in Review again.` });
+    // (0.6.94) Accounts in your domains an admin allowed to send under other staff members' names (a Mark safe on such an email).
+    const staffSendersCard = () => promoCompanyCard({ api: '/api/staff-name-senders', title: 'Accounts that send under staff names', byHead: 'Allowed by', nameHead: 'Account', empty: 'No account yet.',
+        sub: 'Accounts in your domains whose mail is signed with other staff members\' names on purpose: a school system, a merge tool or a shared office account. An admin marked such an email safe, so their mail isn\'t checked for another staff member\'s name. Remove one to check it again.',
+        removed: (c) => `${c}'s mail is checked for another staff member's name again.` });
     const promoSpamCard = () => promoCompanyCard({ api: '/api/promotional-spam', title: 'Promotional senders sent to Spam', byHead: 'Answered Spam by',
         sub: 'Companies whose promotional mail an admin answered Spam (Review → Promotional, with "also send future mail straight to Spam"): their later promotional mail goes straight to Spam, from any of their addresses or mailing subdomains. Their receipts and other mail are checked as usual. A person who takes its mail back out of Spam keeps getting it.',
         removed: (c) => `${c}'s promotional mail is listed in Review again (addresses on Spam senders still go to Spam).` });
@@ -1669,6 +1673,7 @@
         brand: ['Brand\'s own sender', 'brand', 'Its verified mail under the brand\'s name isn\'t counted as an imitation; every other check still applies.'],
         link: ['Link site allowed', 'link', 'Not a sender: a phishing list\'s listing of the whole domain doesn\'t flag links to it (the other link checks still apply).'],
         kept: ['Not moved for some people', 'kept', 'People took its spam back out of Spam: not moved as spam for them (for anyone once 3 did).'],
+        staffNames: ['Sends under staff names', 'kept', 'Its mail signed with another staff member\'s name isn\'t counted as posing as a colleague; every other check still applies.'],
         promoSpam: ['Promotional, to Spam', 'spam', 'An admin answered Spam in Review → Promotional: its promotional mail goes straight to Spam, from any of its addresses (monitor mode: recorded as "would move"). Its other mail, a forged copy, and a person who took its spam back are judged as usual.'],
         promo: ['Promotional, kept', 'promo-kept', 'An admin answered Keep in Review → Promotional: its promotional mail isn\'t listed there again. It is still checked as usual, and moved if it is phishing or spam.'],
         remembered: ['Marked safe', 'remembered', 'An identical email (the same sender, subject, text, links and attachments) was marked safe (not phishing or spam): its later copies to anyone are answered the same way and left alone, for 90 days, when Gmail confirms the sender (DMARC) and nothing outside the email says otherwise. Only a hash of the email is kept.'],
@@ -1858,12 +1863,13 @@
     async function allowlist() {
         const d = await settingsData();
         const TRUSTED_ROWS = ALLOW_ROWS.filter(r => r.key !== 'allowLinkDomains'), LINK_ROWS = ALLOW_ROWS.filter(r => r.key === 'allowLinkDomains');
-        const brand = await brandSendersCard(), kept = await spamRescuedCard(), promoKept = await promoKeptCard(), promoSpam = await promoSpamCard(), remembered = await rememberedCard();
+        const brand = await brandSendersCard(), kept = await spamRescuedCard(), promoKept = await promoKeptCard(), promoSpam = await promoSpamCard(), staffSenders = await staffSendersCard(), remembered = await rememberedCard();
         if (remembered) remembered.insertBefore(listHead('remembered'), remembered.children[1]);
         if (brand) brand.insertBefore(listHead('brand'), brand.children[1]);
         if (kept) kept.insertBefore(listHead('kept'), kept.children[1]);
         if (promoKept) promoKept.insertBefore(listHead('promo'), promoKept.children[1]);
         if (promoSpam) promoSpam.insertBefore(listHead('promoSpam'), promoSpam.children[1]);
+        if (staffSenders) staffSenders.insertBefore(listHead('staffNames'), staffSenders.children[1]);
         const trusted = policyCard(d, TRUSTED_ROWS, 'Trusted senders', 'A change needs the Google Cloud project ID, applies within 30 seconds and is noted in Health → Activity. When deploy/settings.env (ALLOW_DOMAINS, ALLOW_ADDRESSES) says something else, deploy/install.sh asks which to keep, and writes the answer into settings.env.');
         const linkPrev = pageBusy;
         const links = policyCard(d, LINK_ROWS, 'Link sites', 'For a link site a phishing list flagged by mistake (a newsletter\'s click tracker). A list naming the exact page still flags it. Emails already checked keep their verdict: Use Check again on one to judge it again. ALLOW_LINK_DOMAINS only in the services\' environment.');
@@ -1872,7 +1878,7 @@
         const spam = await spamSendersCard();
         const learning = await spamLearningCard();
         const companies = await companyDomainsCard();
-        const tools = [[trusted, 'Trusted senders'], [spam, 'Spam senders'], [brand, 'Brand senders'], [companies, 'Company domains'], [links, 'Link sites'], [kept, 'Spam people took back'], [remembered, 'Remembered answers'], [promoSpam, 'Promotional senders sent to Spam'], [promoKept, 'Promotional senders kept']]
+        const tools = [[trusted, 'Trusted senders'], [spam, 'Spam senders'], [brand, 'Brand senders'], [companies, 'Company domains'], [links, 'Link sites'], [kept, 'Spam people took back'], [remembered, 'Remembered answers'], [staffSenders, 'Accounts that send under staff names'], [promoSpam, 'Promotional senders sent to Spam'], [promoKept, 'Promotional senders kept']]
             .map(([c, n]) => listTools(c, n)).filter(Boolean);
         // (0.6.36) One search across every list: each list shows its matches; a list with none is hidden meanwhile.
         const all = h('input', { type: 'search', class: 'list-search global', placeholder: 'Search every sender list (a domain, an address, a brand)', 'aria-label': 'Search every sender list', autocomplete: 'off', spellcheck: 'false' });
@@ -1896,6 +1902,7 @@
             links,
             kept,
             remembered,
+            staffSenders,
             promoSpam,
             promoKept];
     }
@@ -3802,7 +3809,7 @@
         ['switches', 'Switches', 'The weekly summary, Link clicks, User reports, the retraining export: on or off.'],
         ['keys', 'API keys', 'Safe Browsing, Spamhaus and abuse.ch, encrypted with your passphrase. Only when you tick it.']];
     const BACKUP_PARTS = { spamSenders: 'Spam senders', spamSendersRemoved: 'Taken off Spam senders', brandSenders: 'Brand senders', confirmedDomains: 'Company domains',
-        provenDomains: 'Proven companies', promoKept: 'Promotional senders kept', promoSpam: 'Promotional senders sent to Spam', spamRescued: 'Spam people took back', rememberedSafe: 'Remembered answers' };
+        provenDomains: 'Proven companies', promoKept: 'Promotional senders kept', promoSpam: 'Promotional senders sent to Spam', staffNameSenders: 'Accounts that send under staff names', spamRescued: 'Spam people took back', rememberedSafe: 'Remembered answers' };
     async function backupPage() {
         const projectField = () => h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', placeholder: 'project-id', 'aria-label': 'Google Cloud project ID' });
         const passField = (label) => h('input', { type: 'password', autocomplete: 'new-password', 'aria-label': label, minlength: '12' });

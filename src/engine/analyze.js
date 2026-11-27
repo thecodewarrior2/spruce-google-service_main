@@ -12,6 +12,7 @@
 // (notifications.js), fake reply chains (replychain.js), a colleague's name on an outside address
 // (colleagueWithTitle, colleagueInContext), the look-alike watch's domains and mail dressed up as from inside.
 const spruce = require('./spruce');
+const StaffNames = require('../staff-names');
 const { detectLanguage } = require('./language');
 const N = require('./notifications');
 const { fakeReplySigns } = require('./replychain');
@@ -187,6 +188,10 @@ async function analyze(facts, ctx = {}) {
         ...headerSigns,
         // (0.6.91) Google wrote the Message-ID itself (not one of the header checks the AI reads).
         ...googleAddedIdSigns(facts, inside),
+        // (0.6.94) Another staff member's name on this staff account (src/staff-names.js): the From line, or the person a
+        // platform's share names when they are inside.
+        ...safe(() => (relay ? StaffNames.insideNameSigns({ name: relay.name, address: relay.address }, { inside: !!relay.inside, staff: ctx.staff || null, allowed: ctx.staffNameSenders || null, share: relay.via || relay.platform })
+            : StaffNames.insideNameSigns({ name: facts.senderName, address: facts.senderAddress }, { inside, staff: ctx.staff || null, allowed: ctx.staffNameSenders || null }))),
         ...safe(() => E.displayNameAnomalies(facts.senderName)),
         // (0.5.49) A sender's name naming one platform, sent from another's domain (or from no platform's).
         ...safe(() => N.platformClaimSigns(E, facts)),
@@ -344,7 +349,8 @@ async function analyze(facts, ctx = {}) {
     return {
         status: verdict.status,
         score: typeof verdict.score === 'number' ? verdict.score : signals.reduce((a, s) => a + (s.weight || 0), 0),
-        signals: signals.map(s => ({ weight: s.weight, kind: s.kind || null, text: s.text })),
+        // (0.6.94) the staff account a colleague's name was used on, for Mark safe (Accounts that send under staff names)
+        signals: signals.map(s => Object.assign({ weight: s.weight, kind: s.kind || null, text: s.text }, s.kind === 'inside-name-mismatch' && s.address ? { address: s.address } : {})),
         links: judged.filter(j => j.severity).slice(0, 20).map(j => ({ url: j.url.slice(0, 300), finalUrl: String(j.finalUrl || '').slice(0, 300), severity: j.severity, reason: j.reason, from: j.from || undefined })),
         linkCount: judged.length,
         // Every link's address and where it leads (in memory only): the re-check index (src/recheck.js).

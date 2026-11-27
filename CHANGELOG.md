@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.94: a colleague's name on another staff account
+
+- **A new check** (`src/staff-names.js`): mail from inside your domains that Gmail confirmed (DMARC), signed with the name of
+  someone else in the directory, counts **3** (suspicious: listed in Review, never moved on it alone). "Jordan Exampleton"
+  writing from `sam.testwood@…` is how an account taken over, or someone posing as a colleague, looks; Gmail lets anyone
+  change the name readers see. A platform's share for a person inside (Google Drive, DocuSign) is checked the same way.
+  Until now the name and address of inside mail were never compared, with or without the AI on inside mail.
+- **Gaps closed while building it:** the directory read now includes each person's **aliases** (mail from an alias is its
+  owner's), and names are compared loosely so a variant can't slip past: order, case, accents, titles (Dr., Mrs.), suffixes
+  (Jr., III), single initials and brackets don't count.
+- **Quiet, by design** (the false alarms looked for): the owner's own name; a nickname, a role ("Payroll") or a group's
+  name, which are nobody's in the directory; a group address, an alias the directory doesn't list, or a system account
+  whose directory name is no person's (a school system sending as teachers from `noreply@`); two staff with the same name;
+  mail Gmail couldn't confirm (a forged inside address already counts 5 on its own).
+- **Accounts that send under staff names on purpose** (a school system on a person's account, a merge tool, a shared
+  office account): **Mark safe** on such an email allows the account; Settings → Sender lists → **Accounts that send
+  under staff names** lists them (Remove checks it again), Undo takes the answer back, Settings → Backup keeps them.
+- Names are kept only as one-way hashes, in memory, as for the colleague-name check. The AI isn't told (it doesn't read
+  who sent inside mail). This changes how such emails are judged: **the checks level is raised**.
+
 ## 0.6.93: the copied-Message-ID check knows eight more mail providers
 
 - **The check** (since 0.6.56): a Message-ID in a big mail provider's name on mail that shows no sign of having come through

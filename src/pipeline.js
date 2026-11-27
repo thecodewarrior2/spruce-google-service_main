@@ -29,6 +29,7 @@ const { variantsOf: lookalikeVariants, weightOf: lookalikeWeight, NEW_DAYS: LOOK
 const sims = require('./simulations');
 const { promotionalSigns, aiMarketingSign } = require('./promotional');
 const remember = require('./remember');
+const StaffNames = require('./staff-names');
 const ST = require('./standing');
 const CF = require('./context-facts');
 const timing = require('./timing');
@@ -795,7 +796,7 @@ class Service {
         const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
         // Judged for the recipient in the organization, if the email names one; else for the admin.
         const mailbox = (facts.to || []).find(a => this.cfg.orgDomains.includes(a.split('@')[1])) || by;
-        const result = await analyze(facts, { mailbox, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(mailbox), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache });
+        const result = await analyze(facts, { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), mailbox, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(mailbox), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache });
         result.allowlistedUnverified = allowlisted && !verified;
         let decision = decide(result, this.cfg, {});
         // (a phishing-training email is let through, unchecked, on arrival: said so, 0.5.44)
@@ -839,11 +840,13 @@ class Service {
                 const people = names.map(n => (typeof n === 'string' ? { name: n, email: '' } : n || {}));
                 const hashes = new Set(people.map(p => E.colleagueNameHash(p.name)).filter(Boolean));
                 const byEmail = new Map(people.filter(p => p.email).map(p => [String(p.email).toLowerCase(), E.colleagueNameHash(p.name)]).filter(([, h]) => h));
-                this.colleagues = { hashes, byEmail, at: now, error: null };
+                // (0.6.94) Each address's (and alias's) own name, hashed, for a staff name on another staff account (staff-names.js).
+                const staff = StaffNames.staffDirectory(people);
+                this.colleagues = { hashes, byEmail, staff, at: now, error: null };
                 await this.store.setState('colleagueNames', { at: now, names: hashes.size, error: null }).catch(() => {});
             } catch (e) {
                 const error = String(e && e.message || e).slice(0, 300);
-                this.colleagues = { hashes: c ? c.hashes : null, byEmail: c ? c.byEmail : null, at: now, error };
+                this.colleagues = { hashes: c ? c.hashes : null, byEmail: c ? c.byEmail : null, staff: c ? c.staff : null, at: now, error };
                 await this.store.setState('colleagueNames', { at: now, names: c && c.hashes ? c.hashes.size : 0, error }).catch(() => {});
                 if (!c || !c.error) this.log.warn(JSON.stringify({ message: `Couldn't read the directory's names for the colleague-name check: ${error}` }));
             } finally { this.colleaguesLoading = null; }
@@ -852,6 +855,38 @@ class Service {
         return this.colleaguesLoading;
     }
 
+    // (0.6.94) The directory's names by address (staff-names.js), and the accounts an admin allowed to send under staff names
+    // (state staffNameSenders: address → { by, at }), read at most once a minute. Both given to every check (analyze ctx).
+    staffDirectory() { return (this.colleagues && this.colleagues.staff) || null; }
+    async staffNameSendersSet() {
+        if (!this._staffSenders || this.now() - this._staffSenders.at > 60000) this._staffSenders = { at: this.now(), all: (await this.store.getState('staffNameSenders').catch(() => null)) || {} };
+        return new Set(Object.keys(this._staffSenders.all));
+    }
+    async staffNameSenderList() {
+        const all = (await this.store.getState('staffNameSenders')) || {};
+        return Object.entries(all).map(([company, v]) => ({ company, by: v.by, at: v.at })).sort((a, b) => (b.at || 0) - (a.at || 0));
+    }
+    async addStaffNameSender(address, by) {
+        const a = String(address || '').toLowerCase();
+        const all = Object.assign({}, (await this.store.getState('staffNameSenders')) || {});
+        if (!a || all[a]) return false;
+        if (Object.keys(all).length >= 500) return false;
+        all[a] = { by, at: this.now() };
+        await this.store.setState('staffNameSenders', all);
+        this._staffSenders = null;
+        await this.store.addEvent({ kind: 'settings', text: `${by} marked safe an email from ${a} signed with another staff member's name: ${a}'s mail isn't checked for that again (Settings → Sender lists → Accounts that send under staff names).` });
+        return true;
+    }
+    async removeStaffNameSender(address, by, { quiet = false } = {}) {
+        const a = String(address || '').toLowerCase();
+        const all = Object.assign({}, (await this.store.getState('staffNameSenders')) || {});
+        if (!all[a]) return { error: 'That account isn\'t on the list.', status: 404 };
+        delete all[a];
+        await this.store.setState('staffNameSenders', all);
+        this._staffSenders = null;
+        if (!quiet) await this.store.addEvent({ kind: 'settings', text: `${by} removed ${a} from Accounts that send under staff names: its mail is checked for another staff member's name again.` });
+        return { ok: true, list: await this.staffNameSenderList() };
+    }
     // The recipient's own name's hash (colleagueNames), or ''.
     selfNameHash(user) { const c = this.colleagues; return (c && c.byEmail && c.byEmail.get(String(user || '').toLowerCase())) || ''; }
 
@@ -873,7 +908,7 @@ class Service {
         if (!msg || !msg.raw || !msg.raw.length) fail(404, 'The email is no longer in the mailbox: its text can\'t be read.');
         const facts = await readMessage(msg.raw, { ownDomains: this.cfg.orgDomains });
         const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
-        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache });
+        const result = await analyze(facts, { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache });
         const skipped = result.ai && result.ai.skipped;
         // (0.5.66) The whole email: every sentence of its visible text (the service reads at most about 20,000
         // characters of any email), not only the 8,000 the model is given; the model's own cut of a long text keeps
@@ -926,7 +961,7 @@ class Service {
         // The sender counts as new if it was on arrival (by now it isn't, and that would change the rules'
         // score, not the model or the checks): from the arrival's signs, kept with them after a re-scan.
         const firstTime = rec.arrival ? !!rec.arrival.firstTime : (rec.signals || []).some(x => x && x.kind === 'first-time');
-        const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(rec.user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache,
+        const result = await analyze(facts, { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime, intel: this.intel, colleagues: await this.colleagueNames(), selfNameHash: this.selfNameHash(rec.user), aiInside: this.aiReadsInside(), lookalikes: await this.lookalikeMap(), brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache,
             threadSize: await this.threadSizeOf(rec.user, rec.threadId, facts) });
         result.allowlistedUnverified = allowlisted && !verified;
         result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;
@@ -1034,7 +1069,7 @@ class Service {
         const learning = now - installedAt < this.cfg.firstSeenLearningDays * DAY;
         // Allowlisted only with DMARC passing for the address (policy.js).
         const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
-        const result = await analyze(facts, { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
+        const result = await analyze(facts, { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
             colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize, brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache,
             extraFacts: this.arrivalFacts(msg, facts, threadInfo, recipients), standingDoc, firstSeenAt: who ? first : undefined, now });
         result.allowlistedUnverified = allowlisted && !verified;
@@ -2219,6 +2254,13 @@ class Service {
         const remembered = falseAlarm && !noRemember ? await this.rememberAnswer(rec, by).catch(e => { this.log.error('remember:', e); return null; }) : null;
         // (0.6.76) Sender standing: Mark safe gives the sender standing (an email standing could have changed); Phishing ends it.
         const standing = (falseAlarm && !noRemember) || (!falseAlarm && !spam) ? await this.standingAnswer(rec, by, falseAlarm ? 'safe' : 'phish').catch(e => { this.log.error('sender standing:', e); return null; }) : null;
+        // (0.6.94) Marked safe, an email signed with another staff member's name: its account sends under staff names (a school
+        // system, a merge tool, a shared office account); not checked for that again (staff-names.js).
+        let staffSenderAdded = null;
+        if (falseAlarm && !noRemember) {
+            const sn = (rec.signals || []).find(x => x && x.kind === 'inside-name-mismatch' && x.address);
+            if (sn && await this.addStaffNameSender(sn.address, by).catch(() => false)) staffSenderAdded = sn.address;
+        }
         // (0.6.35) A Spam answer with "Also send future mail from this sender straight to Spam": a verified outside sender only.
         let spamSenderAdded = null;
         if (!falseAlarm && spam && addSender && rec.auth && rec.auth.dmarc === 'pass' && !rec.inside && rec.sender && rec.sender.address) {
@@ -2226,8 +2268,8 @@ class Service {
             if (r && r.ok) spamSenderAdded = r.key;
         }
         // (0.6.39) Undo takes back what this answer added to a list too.
-        if ((spamSenderAdded && !(await this.spamSenderWas(spamSenderAdded, rec))) || (learned && learned.added) || (remembered && remembered.added) || standing)
-            out = await this.store.updateRecord(key, { undo: Object.assign({}, out.undo, spamSenderAdded ? { spamSender: spamSenderAdded } : {}, learned && learned.added ? { brandSender: learned.key } : {}, remembered && remembered.added ? { remembered: rec.fingerprint } : {}, standing ? { standing } : {}) });
+        if ((spamSenderAdded && !(await this.spamSenderWas(spamSenderAdded, rec))) || (learned && learned.added) || (remembered && remembered.added) || standing || staffSenderAdded)
+            out = await this.store.updateRecord(key, { undo: Object.assign({}, out.undo, spamSenderAdded ? { spamSender: spamSenderAdded } : {}, learned && learned.added ? { brandSender: learned.key } : {}, remembered && remembered.added ? { remembered: rec.fingerprint } : {}, standing ? { standing } : {}, staffSenderAdded ? { staffSender: staffSenderAdded } : {}) });
         // A false alarm loses the Suspicious label it was given (0.5.33).
         if (falseAlarm && rec.suspiciousLabel) {
             try { await this.gmail.modify(rec.user, rec.messageId, [], [await this.gmail.labelId(rec.user, this.cfg.suspiciousLabelName)]); out = await this.store.updateRecord(key, { suspiciousLabel: false }); }
@@ -2273,6 +2315,7 @@ class Service {
             }
         } catch (e) { this.log.error(`undo ${key}:`, e); return { error: 'Gmail didn\'t take the email back: try again.', status: 502 }; }
         if (u.spamSender) await this.removeSpamSender(u.spamSender, by).catch(() => {});
+        if (u.staffSender) await this.removeStaffNameSender(u.staffSender, by, { quiet: true }).catch(() => {});   // (0.6.94)
         if (u.remembered) await this.forgetAnswer(u.remembered, by, { quiet: true }).catch(() => {});
         if (u.standing) await this.standingUndo(u.standing).catch(() => {});
         if (u.brandSender) {
@@ -2873,7 +2916,7 @@ class Service {
         const campaignKey = campaignOf((facts.senderAddress.split('@')[1] || '').toLowerCase(), facts.subject, user).key;
         const [allowLinkDomains, colleagues, lookalikes, brandSenders, threadInfo, standingDoc, recipients] = await Promise.all([this.allowLinkDomainsNow(), this.colleagueNames(), this.lookalikeMap(), this.brandSenderSet(), this.threadInfoOf(user, msg.threadId, facts),
             this.standingDocFor(facts), this.copiesSoFar(campaignKey, this.dayOf(this.now())).catch(() => null)]);
-        return { mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains, trusted, firstTime, intel: this.intel, colleagues, selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes, brandSenders,
+        return { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains, trusted, firstTime, intel: this.intel, colleagues, selfNameHash: this.selfNameHash(user), aiInside: this.aiReadsInside(), lookalikes, brandSenders,
             threadSize: threadInfo ? threadInfo.size : null, extraFacts: this.arrivalFacts(msg, facts, threadInfo, recipients), standingDoc, now: this.now(),
             correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache };
     }
@@ -3500,7 +3543,7 @@ class Service {
                 // (0.6.85) The facts beyond the email as they were on arrival (the record's aiContext; an email recorded before
                 // 0.6.85: Gmail's category and the unsubscribe marker read now, the rest unknown), and the words in its
                 // documents and pictures, read now (never stored).
-                const result = await analyze(facts, { mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache,
+                const result = await analyze(facts, { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), mailbox: rec.user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: false, intel: this.intel, keepAiFacts: true, brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache,
                     extraFacts: rec.aiContext || this.arrivalFacts(msg, facts, null, null), readPictures: true, now: rec.receivedAt || this.now() });
                 // The model learns English only (an email clearly in another language is left out, and counted).
                 if (!result.language.english) { counts.notEnglish++; return; }

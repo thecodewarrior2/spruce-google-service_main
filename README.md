@@ -203,6 +203,18 @@ other address lines: **Reply-To** under a colleague's name going to an outside a
 go to someone else), and a colleague **copied in** (Cc or To) at an outside address (1) or at an address
 that imitates your domain (3: "I've copied our superintendent").
 
+**A colleague's name on another staff account** (0.6.94, `src/staff-names.js`): mail from inside your domains that Gmail
+confirmed (DMARC), signed with the name of someone else in the directory ("Jordan Exampleton" writing from
+`sam.testwood@…`), counts 3: suspicious, listed in Review, never moved on it alone. An account taken over, or someone posing
+as a colleague, writes like this; Gmail lets anyone change the name a reader sees. A platform's share for a person inside is
+checked the same way. Names are compared loosely (order, case, accents, titles such as Dr. or Mrs., suffixes, initials and
+brackets don't count), and the directory's aliases count as their owner's. Quiet for: the owner's own name; a name that is
+nobody's (a nickname, a role, a group's name); an address that isn't a person's (a group, an alias the directory doesn't
+list, a system account whose directory name is no person's name); two staff with the same name. **Mark safe** on such an
+email allows its account (a school system, a merge tool or a shared office account that signs as staff): Settings → Sender
+lists → **Accounts that send under staff names** lists them, Undo takes it back, and Remove checks it again. The AI isn't
+told (it doesn't read who sent inside mail).
+
 **Look-alikes written inside other domains** (0.6.32): a sender, reply address or link that writes the district's own
 domain inside someone else's (district-k12-example.mail.other.example) counts 5; a hidden, empty decoy link beside a
 visible one counts 5 (0.6.33: flagged on its own) when it goes to another site than the sender's; to the sender's own site, nothing when Gmail's DMARC check passed for the sender's organization (0.6.34: newsletters do that), else 2 (0.6.41); (0.6.82) through a mailing service's own click tracking (Brevo, Klaviyo…: it wraps every link, the hidden one too), nothing when Gmail confirmed the sender, else 2. A store's co-branded card mail from the bank that issues it (TD Bank, Synchrony, Citi…), linking to the bank's own site behind the store's address, isn't counted as dangerous links (0.6.33).

@@ -29,8 +29,8 @@ const SCRYPT = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 // The sections, in the order the page shows them. states: the state documents a section is made of (maps of entries).
 const SECTIONS = [
     { id: 'policy', label: 'Policy', what: 'the mode, the AI lines, the optional services on or off, Trusted senders, the allowed link domains, how long records are kept, Skip review, who is checked, where updates come from' },
-    { id: 'senders', label: 'Sender lists', what: 'Spam senders (and the ones taken off it), Brand senders, Company domains, proven companies, Promotional senders kept and sent to Spam, spam people took back',
-        states: ['spamSenders', 'spamSendersRemoved', 'brandSenders', 'confirmedDomains', 'provenDomains', 'promoKept', 'promoSpam', 'spamRescued'] },
+    { id: 'senders', label: 'Sender lists', what: 'Spam senders (and the ones taken off it), Brand senders, Company domains, proven companies, Promotional senders kept and sent to Spam, accounts that send under staff names, spam people took back',
+        states: ['spamSenders', 'spamSendersRemoved', 'brandSenders', 'confirmedDomains', 'provenDomains', 'promoKept', 'promoSpam', 'staffNameSenders', 'spamRescued'] },
     { id: 'remembered', label: 'Remembered answers', what: 'the answers kept for the same email sent again', states: ['rememberedSafe'] },
     { id: 'phishTraining', label: 'Phishing training', what: 'the rules that recognize your phishing-training emails, and their link domains', states: ['phishTraining'] },
     { id: 'lookalikes', label: 'Look-alike marks', what: 'the look-alikes of your domain an admin marked (yours, harmless, a threat)' },

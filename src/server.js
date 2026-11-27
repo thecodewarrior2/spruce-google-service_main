@@ -787,6 +787,9 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         'GET /api/promotional-kept': async () => ({ list: await service.promoKeptList() }),
         // (0.6.90) Promotional senders sent to Spam: companies answered Spam in Review → Promotional; an admin removes one.
         'GET /api/promotional-spam': async () => ({ list: await service.promoSpamList() }),
+        // (0.6.94) Accounts that send under staff names (a Mark safe on an email signed with another staff member's name); an admin removes one.
+        'GET /api/staff-name-senders': async () => ({ list: await service.staffNameSenderList() }),
+        'POST /api/staff-name-senders': async (q, body, admin) => service.removeStaffNameSender(String(body.company || ''), admin.email).then(r => { cache.stale(); return r; }),
         'POST /api/promotional-spam': async (q, body, admin) => service.removePromoSpam(String(body.company || ''), admin.email).then(r => { cache.stale(); return r; }),
         // (0.6.56) Remembered Not phishing answers: the list (moderators see it), and an admin removes one.
         'GET /api/remembered': async () => ({ list: await service.rememberedList() }),

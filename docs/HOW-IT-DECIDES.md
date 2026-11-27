@@ -31,7 +31,9 @@ nothing else: a link on a phishing list or an imitated brand is enough to move a
 - **Your Google Workspace directory:** every 12 hours the service reads the staff names in your directory (Admin SDK)
   and turns them at once into one-way hashes; no list of names is kept. An outside address using a staff member's name
   ("the superintendent" writing from a free-mail account) counts 3 points on its own, enough to make it suspicious, and
-  the AI is told the name claims to be a colleague. Your own name in your own mail never counts. The directory also says
+  the AI is told the name claims to be a colleague. Your own name in your own mail never counts. (0.6.94) Inside too: a staff
+  account signing with another staff member's name ("Jordan Exampleton" writing from sam.testwood@) counts 3, unless an admin allowed that
+  account (Mark safe: a school system or shared account that signs as staff). The directory also says
   which mailboxes are watched (Settings → Mailboxes).
 - **Sender:** Gmail's DMARC, SPF and DKIM results, forged or spam-flagged headers, a forged Message-ID (one claiming Gmail, Outlook, Yahoo or AOL, iCloud, Zoho, Proton,
   GMX or web.de, Yandex, Mail.ru, Fastmail or Xfinity with no sign of that provider; not counted on mailing-list or resent

@@ -56,6 +56,7 @@
         if (/sender's name says|look-alike|imitat|mixes letters/.test(t)) return 'Brand or look-alike sender';
         if (k === 'spam-flag' || k === 'local-tool' || k === 'placeholders' || k === 'broken-to' || k === 'forged-received' || k === 'forged-message-id' || k === 'duplicate-headers' || k === 'google-added-message-id' || k === 'markup') return 'Forged or spam headers';
         if (/call|phone number/.test(t)) return 'Call-this-number scam';
+        if (k === 'inside-name-mismatch') return 'A colleague\'s name on another account';   // (0.6.94)
         if (k === 'outside-org' || k === 'first-time') return 'New outside sender';
         return 'Other signs';
     }

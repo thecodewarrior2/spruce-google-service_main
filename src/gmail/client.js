@@ -188,9 +188,10 @@ class GmailClient {
         let pageToken;
         do {
             const r = await this.call(admin, 'GET', '', { scope: SCOPES.directory, base: DIRECTORY,
-                query: Object.assign({ customer: 'my_customer', maxResults: '500', projection: 'basic', fields: 'users(name/fullName,primaryEmail),nextPageToken' }, pageToken ? { pageToken } : {}) });
+                query: Object.assign({ customer: 'my_customer', maxResults: '500', projection: 'basic', fields: 'users(name/fullName,primaryEmail,aliases),nextPageToken' }, pageToken ? { pageToken } : {}) });
             // (the address only to know each person's own name: their own name in their mail is no "colleague named")
-            for (const u of r.users || []) if (u.name && u.name.fullName) out.push({ name: String(u.name.fullName), email: String(u.primaryEmail || '').toLowerCase() });
+            // (0.6.94) and the aliases: mail from an alias is the same person's (src/staff-names.js)
+            for (const u of r.users || []) if (u.name && u.name.fullName) out.push({ name: String(u.name.fullName), email: String(u.primaryEmail || '').toLowerCase(), aliases: [].concat(u.aliases || []).map(a => String(a).toLowerCase()).slice(0, 30) });
             pageToken = r.nextPageToken;
         } while (pageToken);
         return out;
