@@ -1403,12 +1403,29 @@ function headerAnomalies(raw, accountAddress, receiver = {}) {
     const fromClause = (v) => String(v).replace(/\s+/g, ' ').trim().split(/\sby\s/i)[0];
     const sentVia = (fromRe, headerRe, dkimRe) => get('received').some(v => /^from\s/i.test(String(v).trim()) && fromRe.test(fromClause(v)))
         || [...names].some(h => headerRe.test(h)) || get('dkim-signature').some(v => dkimRe.test(String(v).replace(/\s+/g, '')));
+    // (service 0.6.93) More providers, each recognised by what only its own servers write: researched in raw headers of public
+    // mailing-list archives (2023-2026) and spam-filter rules. A Message-ID on a provider's domain is often written by the
+    // reader's mail program (Thunderbird, Apple Mail…) from the From address, and the email still leaves through the
+    // provider: that is why only the provider's signature, headers or delivery record count, never the ID's shape. Yahoo's
+    // family (AOL, Verizon, AT&T) share Yahoo's servers and headers.
+    const YAHOO_SEEN = () => sentVia(/(yahoo\.com|yahoodns\.net|aol\.com)\b/i, /^x-(ymail-|yahoo-|sonic-|aol-)/, /(^|;)d=(yahoo\.com|aol\.com|verizon\.net|att\.net|yahoo\.[a-z.]+)(;|$)/i);
     const MID_PROVIDERS = [
         { name: 'Gmail', id: /@(mail\.)?gmail\.com>?$/, seen: () => sentVia(/(google\.com|gmail\.com|googlemail\.com)\b/i, /^x-(gm-message-state|google-smtp-source|gm-gg|google-dkim-signature)$/, /(^|;)d=(gmail\.com|google\.com|googlemail\.com)(;|$)/i) },
         { name: 'Outlook', id: /@[a-z0-9.-]*(\.outlook\.com|hotmail\.com|live\.com)>?$/, seen: () => sentVia(/(outlook\.com|hotmail\.com|live\.com|microsoft\.com)\b/i, /^x-(ms-exchange-|microsoft-antispam|ms-has-attach|ms-publictraffictype)/, /(^|;)d=([a-z0-9-]+\.onmicrosoft\.com|outlook\.com|hotmail\.com|live\.com)(;|$)/i) },
-        { name: 'Yahoo', id: /@[a-z0-9.-]*yahoo\.com>?$/, seen: () => sentVia(/(yahoo\.com|yahoodns\.net|aol\.com)\b/i, /^x-(ymail-|yahoo-|sonic-mf|aol-)/, /(^|;)d=(yahoo\.com|aol\.com|yahoo\.[a-z.]+)(;|$)/i) },
-        { name: 'iCloud', id: /@(icloud\.com|me\.com|mac\.com)>?$/, seen: () => sentVia(/(icloud\.com|apple\.com|me\.com)\b/i, /^x-(apple-|icloud-)/, /(^|;)d=(icloud\.com|me\.com|mac\.com)(;|$)/i) }];
-    const midClaim = mid && MID_PROVIDERS.find(p => p.id.test(mid));
+        { name: 'Yahoo', id: /@[a-z0-9.-]*yahoo\.com>?$/, seen: YAHOO_SEEN },
+        { name: 'AOL', id: /@(aol\.com|verizon\.net|att\.net)>?$/, seen: YAHOO_SEEN },
+        { name: 'iCloud', id: /@(icloud\.com|me\.com|mac\.com)>?$/, seen: () => sentVia(/(icloud\.com|apple\.com|me\.com)\b/i, /^x-(apple-|icloud-)/, /(^|;)d=(icloud\.com|me\.com|mac\.com)(;|$)/i) },
+        { name: 'Zoho Mail', id: /@(zoho\.(com|eu|in)|zohomail\.(com|eu|in))>?$/, seen: () => sentVia(/(zoho\.(com|eu|in)|zohomail\.(com|eu|in))\b/i, /^x-zoho/, /(^|;)d=(zoho\.com|zohomail\.(com|eu|in))(;|$)/i) },
+        { name: 'Proton Mail', id: /@(protonmail\.(com|ch)|proton\.me|pm\.me)>?$/, seen: () => sentVia(/(protonmail\.ch|proton\.ch|mail-europe\.com)\b/i, /^x-pm-/, /(^|;)d=(protonmail\.(com|ch)|proton\.me|pm\.me)(;|$)/i) },
+        { name: 'GMX', id: /@(gmx\.(net|de|at|ch|com)|web\.de|mail\.com)>?$/, seen: () => sentVia(/(gmx\.(net|de|com)|web\.de|mail\.com|kundenserver\.de)\b/i, /^x-(ui-|provags-id$)/, /(^|;)d=(gmx\.[a-z.]+|web\.de|mail\.com|homemail\.com|online\.de)(;|$)/i) },
+        { name: 'Yandex', id: /@(yandex\.(ru|com|by|kz|ua|com\.tr)|ya\.ru|mail\.yandex\.ru|[a-z0-9.-]+\.yandex\.net)>?$/, seen: () => sentVia(/(yandex\.net|yandex\.ru)\b/i, /^x-yandex-/, /(^|;)d=(yandex\.(ru|com|by|kz|ua|com\.tr)|ya\.ru)(;|$)/i) },
+        { name: 'Mail.ru', id: /@(([a-z0-9-]+\.)*(mail|bk|inbox|list)\.ru|f\d+\.my\.com)>?$/, seen: () => sentVia(/(mail\.ru|my\.com)\b/i, /^x-(mailru-|mras$)/, /(^|;)d=(mail\.ru|bk\.ru|inbox\.ru|list\.ru|my\.com)(;|$)/i) },
+        { name: 'Fastmail', id: /@(app\.fastmail\.com|fastmail\.(com|fm))>?$/, seen: () => sentVia(/(messagingengine\.com|fastmail\.com)\b/i, /^x-me-(sender|proxy)/, /(^|;)d=(messagingengine\.com|fastmail\.(com|fm))(;|$)/i) },
+        { name: 'Xfinity', id: /@(connect\.xfinity\.com|comcast\.net)>?$/, seen: () => sentVia(/comcast\.net\b/i, /^x-xfinity-/, /(^|;)d=(comcast\.net|comcastmailservice\.net)(;|$)/i) }];
+    // (service 0.6.93) Mail passed on by a mailing list, a news gateway or a forwarding that resends it keeps the original
+    // Message-ID but not always the provider's headers: not counted (real mail, research found, would be flagged).
+    const relayed = [...names].some(h => /^(list-id|list-post|resent-(from|sender|message-id)|newsgroups|x-gmane-)/.test(h));
+    const midClaim = mid && !relayed && MID_PROVIDERS.find(p => p.id.test(mid));
     if (midClaim && !midClaim.seen()) out.push({ weight: 2, kind: 'forged-message-id', text: `Its message ID claims it was written in ${midClaim.name}, but nothing else in its headers shows it came through ${midClaim.name}: a copied ID, to look like ordinary mail.` });
     // Headers that must appear once.
     const dup = ['from', 'subject', 'date', 'message-id', 'mime-version'].filter(n => get(n).length > 1);

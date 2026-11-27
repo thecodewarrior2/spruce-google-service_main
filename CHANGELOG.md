@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.93: the copied-Message-ID check knows eight more mail providers
+
+- **The check** (since 0.6.56): a Message-ID in a big mail provider's name on mail that shows no sign of having come through
+  it (none of its signature, its sending servers' own headers, or its servers delivering it) is a copied ID, 2 points. It
+  knew Gmail, Outlook, Yahoo and iCloud; now also **AOL** (with Verizon and AT&T, on Yahoo's servers), **Zoho Mail**,
+  **Proton Mail**, **GMX / web.de / mail.com**, **Yandex**, **Mail.ru**, **Fastmail** and **Xfinity**.
+- **How each is recognised** was researched in the raw headers of public mailing-list archives (about 2,000 provider-sent
+  emails, 2023 to 2026) and spam filters' rules: each provider's signing domains (DKIM `d=`), the headers only its servers
+  add (`X-Pm-Message-ID`, `X-UI-Sender-Class`, `X-Yandex-Fwd`, `X-Mailru-*`, `X-ME-*`, `X-Sonic-*`, `X-Zoho*`, `X-Xfinity-*`)
+  and its sending servers' names. Only a sign of the provider counts, never the ID's look: mail programs (Thunderbird, Apple
+  Mail) write IDs on the provider's domain for mail that still leaves through the provider. Tuta was left out: too few
+  samples to be sure.
+- **Two false alarms fixed while at it:** AOL, Verizon and AT&T mail with a Yahoo ID, signed with their own domains, now
+  counts as Yahoo's family; and mail a mailing list, a news gateway or a resend passed on (`List-Id`, `List-Post`,
+  `Resent-*`, `Newsgroups`) is no longer counted, as it keeps the original ID without the provider's headers.
+- Not given to the AI (its input doesn't list this check). This changes how such emails are judged: **the checks level is
+  raised** (recent delivered mail is checked again).
+
 ## 0.6.92: one email screen (Review's card), counts in items, answered re-checks stay answered
 
 - **Answered emails no longer come back to Review after a re-check.** A re-check (a phishing list adding a site, an update,

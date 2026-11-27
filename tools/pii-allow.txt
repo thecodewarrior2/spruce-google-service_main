@@ -65,3 +65,27 @@ offers@capitaloneshopping.com
 abc@SA1PR12MB0001.namprd12.prod.outlook.com
 0100018c.abc@email.amazonses.com
 statements@mail.synchronybank.com # Synchrony Bank's statement mailbox (the bank that issues PayPal Credit), a company's address, no person's (0.6.88)
+
+# (0.6.93) Message-IDs in the mail providers' own formats, made up, in test/message-id.test.js: each names an email, not a
+# mailbox. Hosts that only ever appear in Message-IDs (no one's address is on them):
+@mail.yahoo.com
+@app.fastmail.com
+@connect.xfinity.com
+@i.mail.ru
+@mail.yandex.ru
+# and, on the providers' mailbox domains, only these exact made-up IDs (never the domains):
+msgid-test-1@aol.com
+msgid-test-2@verizon.net
+msgid-test-3@gmx.net
+msgid-test-4@web.de
+msgid-test-5@verizon.net
+msgid-test-6@att.net
+msgid-test-7@gmx.de
+msgid-test-8@web.de
+msgid-test-9@gmx.net
+msgid-test-10@pm.me
+msgid-test-11@gmx.de
+msgid-test-12@zohomail.eu
+msgid-test-13@zoho.com
+msgid-test-14=@proton.me
+msgid-test-15=@pm.me

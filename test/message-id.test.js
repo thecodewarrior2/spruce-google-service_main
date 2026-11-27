@@ -58,3 +58,40 @@ test('0.6.59: the analysis tells the policy\'s Straight to Spam what it found: a
     const none = raw('<a1@madeup-billing.example>').replace('dmarc=pass', 'dmarc=none');
     assert.equal((await analyze(await readMessage(Buffer.from(none)), ctx)).strictSigns.dmarc, 'missing');
 });
+
+// 0.6.93: more providers, each recognised by its own signature, headers or delivery record (never the ID's shape); mailing
+// lists, news gateways and resent mail aren't counted. Hosts, IDs and selectors are made up in the providers' formats.
+test('0.6.93: AOL, Zoho, Proton, GMX, Yandex, Mail.ru, Fastmail and Xfinity IDs with no sign of the provider are copied IDs', () => {
+    for (const [name, id] of [['AOL', '<msgid-test-1@aol.com>'], ['AOL', '<msgid-test-2@verizon.net>'], ['Zoho Mail', '<msgid-test-12@zohomail.eu>'], ['Proton Mail', '<msgid-test-14=@proton.me>'],
+        ['GMX', '<msgid-test-3@gmx.net>'], ['GMX', '<msgid-test-4@web.de>'], ['Yandex', '<1234567890123456@mail.yandex.ru>'], ['Mail.ru', '<1758700000.123456789@f323.i.mail.ru>'],
+        ['Fastmail', '<0a1b2c3d-0000-4e5f@app.fastmail.com>'], ['Xfinity', '<123456789.12345.1700000000000@connect.xfinity.com>']]) {
+        const f = forged(raw(id));
+        assert.ok(f, `${name}: ${id}`);
+        assert.match(f.text, new RegExp(`written in ${name.replace('.', '\\.')}`));
+    }
+});
+
+test('0.6.93: real mail through each provider is not counted: its signature, its own headers, or its servers delivering it', () => {
+    const ok = (id, extra, why) => assert.equal(forged(raw(id, extra)), undefined, why);
+    // AOL webmail writes a Yahoo ID and signs as aol.com; Verizon and AT&T as theirs; their sending servers add X-Sonic headers.
+    ok('<1234567890.123456.1700000000000@mail.yahoo.com>', ['DKIM-Signature: v=1; a=rsa-sha256; d=aol.com; s=a2048; bh=x; b=y'], 'AOL webmail');
+    ok('<msgid-test-5@verizon.net>', ['DKIM-Signature: v=1; d=verizon.net; s=a2048; bh=x; b=y'], 'Verizon, from a mail program');
+    ok('<msgid-test-6@att.net>', ['X-Sonic-ID: 0a1b2c3d4e5f'], 'AT&T');
+    ok('<msgid-test-13@zoho.com>', ['Received: from sender4-op-o12.zoho.com (sender4-op-o12.zoho.com [136.143.188.12]) by mx.google.com with ESMTPS id z9'], 'Zoho');
+    ok('<msgid-test-15=@pm.me>', ['X-Pm-Message-Id: <msgid-test-15=@pm.me>'], 'Proton');
+    ok('<msgid-test-7@gmx.de>', ['X-UI-Sender-Class: 00000000-0000-0000-0000-000000000000', 'X-Provags-ID: V03:K1:abc'], 'GMX, from a mail program');
+    ok('<msgid-test-8@web.de>', ['DKIM-Signature: v=1; d=Web.DE; s=s29768273; bh=x; b=y'], 'web.de (its signature in capitals)');
+    ok('<1234567890123456@mail.yandex.ru>', ['X-Yandex-Fwd: 1'], 'Yandex');
+    ok('<1758700000.123456789@f323.i.mail.ru>', ['Received: from send123.i.mail.ru (send123.i.mail.ru [95.163.59.1]) by mx.google.com with ESMTPS id k1'], 'Mail.ru');
+    ok('<0a1b2c3d-0000-4e5f@app.fastmail.com>', ['DKIM-Signature: v=1; d=messagingengine.com; s=fm3; bh=x; b=y'], 'Fastmail (also on a custom domain)');
+    ok('<123456789.12345.1700000000000@connect.xfinity.com>', ['DKIM-Signature: v=1; d=comcast.net; s=20190202a; bh=x; b=y'], 'Xfinity');
+    // Another provider's ID with only this provider's signs is still counted (the sign must be the claimed provider's).
+    assert.ok(forged(raw('<msgid-test-9@gmx.net>', ['X-Pm-Message-Id: <msgid-test-10@pm.me>'])), 'a GMX ID with Proton\'s header');
+});
+
+test('0.6.93: mail a mailing list, a news gateway or a resend passed on keeps the original ID: not counted', () => {
+    for (const h of ['List-Id: <school-news.lists.madeup.example>', 'List-Post: <mailto:news@lists.madeup.example>', 'Resent-From: forwarder@madeup.example', 'Newsgroups: madeup.lists.discussion']) {
+        assert.equal(forged(raw('<msgid-test-11@gmx.de>', [h])), undefined, h);
+        assert.equal(forged(raw('<CAF1abc2def3@mail.gmail.com>', [h])), undefined, `${h} (Gmail too)`);
+    }
+});
