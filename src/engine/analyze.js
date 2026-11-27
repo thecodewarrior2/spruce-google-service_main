@@ -440,9 +440,16 @@ function colleagueInContext(E, facts, signals, ctx, bodyText) {
     // (0.6.23) Only a personal email account (people write from their own Gmail too): 2, not 3. With a request, a
     // reply address elsewhere, a title, a failed sender check or a new or look-alike domain: 3, as before.
     const personalOnly = why.length === 1 && why[0] === 'from a personal email account';
+    // (0.6.99) And a real conversation with this account: the reader wrote in this email's conversation, or someone in the
+    // organization wrote to this address before (Gmail's Sent, mailbox-history.js): a student or colleague writing from
+    // their own account back and forth, not an impersonator's first approach. 1. Anything more (a request, a title, a
+    // reply address elsewhere…) keeps it at 3.
+    const th = ctx.extraFacts && ctx.extraFacts.thread;
+    const conversing = (th && th.reply && th.readerWrote === true) || !!(ctx.gmailHistory && ctx.gmailHistory.wrote);
     signals[i] = why.length
-        ? Object.assign({}, signals[i], { kind: 'sender-colleague-name', weight: personalOnly ? 2 : 3, needsCompany: lookalikeOnly || undefined, text: `The sender uses the name of someone in your organization, but writes from an outside address (${address.slice(0, 120)}), ${why.slice(0, 3).join('; ')}.` })
+        ? Object.assign({}, signals[i], { kind: 'sender-colleague-name', weight: personalOnly ? (conversing ? 1 : 2) : 3, needsCompany: lookalikeOnly || undefined, text: `The sender uses the name of someone in your organization, but writes from an outside address (${address.slice(0, 120)}), ${why.slice(0, 3).join('; ')}.` })
         : Object.assign({}, signals[i], { kind: 'sender-name-shared', weight: 0, text: `The sender has the same name as someone in your organization, writing from ${domain}'s own address. Nothing in the email claims to be from inside your organization, so it doesn't count (people share names).` });
+    if (why.length && personalOnly && conversing) signals[i] = Object.assign({}, signals[i], { text: `${signals[i].text} The reader has written back in this conversation (or your organization has written to this address before), so it counts 1.` });
 }
 
 // (0.6.32) The organization's domain written inside another domain: maple-schools-example.gmail.net-login.example, or

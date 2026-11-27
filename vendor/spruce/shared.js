@@ -1362,7 +1362,9 @@ function headerAnomalies(raw, accountAddress, receiver = {}) {
     }
     // Subject: walls of blank space or long runs of random capitals; or filler and a random tail that
     // makes each copy unique ("125$ FOR YOU!_______kvksrphdly").
-    const subject = get('subject')[0] || '';
+    // (service 0.6.99) Measured without the reply and forward prefixes and the tags a mail system adds at the front: a long
+    // conversation through a district that tags outside mail grows "[EXTERNAL] Re: [EXTERNAL] Re: …" past 300 characters.
+    const subject = String(get('subject')[0] || '').replace(/^(?:\s*(?:\[[^\]]{1,40}\]|(?:re|fw|fwd|aw|sv|antw|tr|rv|res|odp|vs)\s*(?:\[\d+\])?\s*:))+\s*/i, '');
     if (subject.length > 300 || /\s{60,}/.test(subject) || /[A-Z]{60,}/.test(subject)) out.push({ weight: 2, text: 'Its subject is padded with blank space or random letters to hide from filters.' });
     else if (/[_~=*]{4,}\s*[A-Za-z0-9]{6,}\s*$/.test(decodeEncodedWords(subject))) out.push({ weight: 2, text: 'Its subject ends in filler and random letters, which make each copy unique to slip past filters.' });
     // Address lines holding web-page code (<strong>, <br/>…): pasted text, never written by a mail program.

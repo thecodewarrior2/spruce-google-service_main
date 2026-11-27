@@ -202,7 +202,8 @@ other signs, since staff sometimes write from a personal address), **when the em
 with Gmail's sender check failing, with replies going elsewhere, with a title or your organization's name in
 the sender's name ("Jordan Exampleton, Superintendent", also matched now), or asking what impersonators ask (a
 favor, a phone number, gift cards, payment or payroll details, codes). A personal email account as the only reason
-counts 2 (0.6.23: staff write from their own Gmail too); with any other reason, 3. People share names: a vendor's employee
+counts 2 (0.6.23: staff write from their own Gmail too), and 1 when the reader has written back in that conversation or
+your organization has written to the address before (0.6.99); with any other reason, 3. People share names: a vendor's employee
 with a colleague's name, writing a greeting from her company's own address, is shown but doesn't count. The same names are looked for in the
 other address lines: **Reply-To** under a colleague's name going to an outside address (3: replies would
 go to someone else), and a colleague **copied in** (Cc or To) at an outside address (1) or at an address

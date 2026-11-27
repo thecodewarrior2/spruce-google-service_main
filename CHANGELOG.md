@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.99: a long conversation with a student or colleague on a personal account
+
+- **A long back-and-forth from outside was called padded.** Each reply through a district that tags outside mail adds
+  "[EXTERNAL] Re:" to the front of the subject; after a dozen replies the subject passed 300 characters and got "Its subject
+  is padded with blank space or random letters" (2). The length, blank-space and capitals checks now measure the subject
+  without the reply and forward prefixes (Re, Fwd, AW, SV…) and the bracketed tags at its front. A subject padded after
+  them is caught as before.
+- **A colleague's or student's name on a personal account** (gmail.com, icloud.com…) with nothing else wrong counted 2.
+  When the reader has written back in that conversation, or someone in your organization has written to that address
+  before (0.6.98's Gmail history), it now counts 1: a conversation they take part in isn't an impersonator's first
+  approach. With any other reason (asking for a favor, gift cards, payroll details, a title in the name, a failed sender
+  check) it still counts 3.
+- Together these were 5 points (Review by the rules) for an ordinary thread between two students and a teacher; it is now
+  2 (the sign for mail from outside and the name sign), under the line.
+- This changes how such emails are judged: **the checks level is raised**.
+
 ## 0.6.98: a sender's history from Gmail, from the install's first day
 
 - **The service knew a sender only from its own install**, so for the first weeks every sender looked new or had no
