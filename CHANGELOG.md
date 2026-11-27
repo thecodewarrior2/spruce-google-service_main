@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.100: a stopped re-check leaves Today
+
+- **Today kept showing "Re-checking delivered mail" after an admin stopped the re-check after an update** (at 100%, 0
+  waiting). The stop emptied the queue, but only a run that checks emails ended the batch, and an empty queue never runs.
+  Now the stop ends it when nothing else is waiting, and the card goes; Recent activity says who stopped it and how many
+  emails weren't checked, and Threats → Re-checked still lists what was found. A re-check for the phishing lists or
+  look-alikes still waiting keeps the card, as before.
+- A batch left open by a stop under 0.6.95 to 0.6.99 is shown as ended at once, and ended at the next hourly run.
+- Dashboard and status only: the checks level is not raised.
+
 ## 0.6.99: a long conversation with a student or colleague on a personal account
 
 - **A long back-and-forth from outside was called padded.** Each reply through a district that tags outside mail adds

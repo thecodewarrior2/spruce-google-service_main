@@ -559,3 +559,26 @@ test('0.6.95: how far back an update\'s re-check goes is a Policy setting; a new
     assert.ok((await t.store.getState('updateRecheck')).doneAt);
     assert.equal(await t.svc.checksUpdate(), null, 'no more added');
 });
+
+test('0.6.100: stopped with nothing else waiting, the batch under way ends (Today stops saying "Re-checking"); one left open before is ended too', async () => {
+    const t = setup();
+    const now = t.clock.get();
+    await t.store.setState('recheckQueue', [{ user: `ana@${ORG}`, id: 'u1', receivedAt: now - HOUR, source: 'update', version: 'a' }]);
+    await t.store.setState('updateRecheck', { version: 'a', queued: 1, max: 10, startedAt: now - HOUR });
+    await t.store.setState('recheckProgress', { startedAt: now - HOUR, checked: 5, moved: 0, wouldMove: 0, suspicious: 0, notInInbox: 0, errors: 0, mailboxes: [], endedAt: null });
+    assert.equal((await t.svc.recheckStatus()).progress.endedAt, null, 'under way');
+    await t.svc.stopUpdateRecheck(`it@${ORG}`);
+    const st = await t.svc.recheckStatus();
+    assert.deepEqual([st.queued, !!st.progress.endedAt, st.progress.stoppedBy], [0, true, `it@${ORG}`]);
+    // Stopped under 0.6.95 to 0.6.99: the queue empty, the batch still open. Shown as ended, and the next run ends it.
+    await t.store.setState('recheckProgress', { startedAt: now - HOUR, checked: 5, mailboxes: [], endedAt: null, lastRun: { at: now - 30 * 60 * 1000, checked: 5 } });
+    const old = await t.svc.recheckStatus();
+    assert.deepEqual([!!old.progress.endedAt, old.progress.stoppedBy], [true, `it@${ORG}`]);
+    assert.equal(await t.svc.runRechecks({ budgetMs: 1000 }), null);
+    assert.ok((await t.store.getState('recheckProgress')).endedAt);
+    // A list's re-check still waiting: the batch goes on.
+    await t.store.setState('recheckQueue', [{ user: `ben@${ORG}`, id: 'l1', receivedAt: now, source: 'lists' }, { user: `ana@${ORG}`, id: 'u2', receivedAt: now, source: 'update', version: 'b' }]);
+    await t.store.setState('recheckProgress', { startedAt: now, checked: 0, mailboxes: [], endedAt: null });
+    await t.svc.stopUpdateRecheck(`it@${ORG}`);
+    assert.equal((await t.svc.recheckStatus()).progress.endedAt, null);
+});

@@ -579,6 +579,9 @@
         const p = r.progress, now = Date.now();
         const running = r.queued > 0 || (p && !p.endedAt);
         if (!running && !(p && p.endedAt && now - p.endedAt < 24 * 3600 * 1000)) return null;
+        // (0.6.100) Stopped by an admin (Today's "Stop the re-check after the update"): the card goes; Recent activity says who
+        // stopped it and how many emails weren't checked, and Threats → Re-checked still lists what was found.
+        if (!running && p.stoppedBy) return null;
         const cur = p && !p.endedAt ? p : null;      // the batch under way (a new one hasn't run yet: nothing checked)
         const done = running ? (cur ? cur.checked : 0) : p.checked, total = done + (running ? r.queued : 0);
         const share = total ? Math.min(1, done / total) : 1;

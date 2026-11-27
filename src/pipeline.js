@@ -2898,7 +2898,12 @@ class Service {
     async runRechecks({ budgetMs = RECHECK_BUDGET_MS } = {}) {
         const started = Date.now();
         const queue = (await this.store.getState('recheckQueue')) || [];
-        if (!queue.length) return null;
+        if (!queue.length) {
+            // (0.6.100) A batch left open by an emptied queue (an admin's stop before 0.6.100) is ended here.
+            const p = await this.store.getState('recheckProgress');
+            if (p && !p.endedAt) await this.store.setState('recheckProgress', Object.assign({}, p, { endedAt: this.now() }));
+            return null;
+        }
         const results = [], retry = [];
         // (0.6.73) RECHECK_PARALLEL at a time, each slot taking the next email as soon as its own is done (before, a batch of 12
         // waited for its slowest email: about 24 emails an hour were checked). No email is started once budgetMs is spent.
@@ -2972,6 +2977,10 @@ class Service {
         await this.store.setState('recheckQueue', kept);
         const sw = await this.store.getState('updateRecheck');
         if (sw && !sw.doneAt) await this.store.setState('updateRecheck', Object.assign({}, sw, { doneAt: this.now(), stoppedBy: by }));
+        // (0.6.100) Nothing else waiting: the batch under way ends here (only a run that checks emails ended it, and an empty
+        // queue never runs, so Today kept showing "Re-checking delivered mail" after the stop).
+        const p = kept.length ? null : await this.store.getState('recheckProgress');
+        if (p && !p.endedAt) await this.store.setState('recheckProgress', Object.assign({}, p, { endedAt: this.now(), stoppedBy: by }));
         await this.store.addEvent({ kind: 'recheck', text: `${by} stopped the re-check after an update${sw && sw.version ? ` (version ${sw.version})` : ''}: ${dropped.toLocaleString('en-US')} email${dropped === 1 ? '' : 's'} still waiting won't be checked again. The re-checks for the phishing lists and look-alikes go on.` });
         return { ok: true, dropped };
     }
@@ -2981,7 +2990,10 @@ class Service {
         const bySource = {};
         for (const it of q) bySource[it.source || 'lists'] = (bySource[it.source || 'lists'] || 0) + 1;
         const waiting = new Set(q.map(it => it.user));
-        const progress = p ? { startedAt: p.startedAt, endedAt: p.endedAt || null, checked: p.checked || 0, moved: p.moved || 0, wouldMove: p.wouldMove || 0, suspicious: p.suspicious || 0,
+        // (0.6.100) An empty queue with a batch still open (stopped before 0.6.100 fixed the stop): ended at its last run.
+        const openEmpty = p && !p.endedAt && !q.length;
+        const stoppedBy = (p && p.stoppedBy) || (openEmpty && sw && sw.stoppedBy) || null;
+        const progress = p ? { startedAt: p.startedAt, endedAt: p.endedAt || (openEmpty ? (sw && sw.doneAt) || (p.lastRun && p.lastRun.at) || this.now() : null), stoppedBy, checked: p.checked || 0, moved: p.moved || 0, wouldMove: p.wouldMove || 0, suspicious: p.suspicious || 0,
             notInInbox: p.notInInbox || 0, errors: p.errors || 0, mailboxes: (p.mailboxes || []).length, lastRun: p.lastRun || null, perHour: p.perHour || (p.lastRun ? p.lastRun.checked : 0) } : null;
         return { on: !!this.cfg.recheck, queued: q.length, queuedMailboxes: waiting.size, bySource, progress,
             sweep: sw && sw.version ? { version: sw.version, queued: sw.queued || 0, max: sw.max || 0, startedAt: sw.startedAt || null, doneAt: sw.doneAt || null } : null,

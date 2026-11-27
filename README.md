@@ -177,7 +177,8 @@ Since 0.5.51 two more things start a re-check:
   the hourly job checks about 500 an hour, so a day of a large district's mail takes days. A new update drops an
   earlier update's emails still waiting that are older than its own window (they no longer pile up), and Today's
   **Stop the re-check after the update** drops the update's emails still waiting; the re-checks for the phishing
-  lists, look-alikes and the second look go on either way.
+  lists, look-alikes and the second look go on either way. With nothing else waiting, Today's re-check card then goes
+  (0.6.100); Recent activity says who stopped it, and Threats → Re-checked still lists what was found.
 
 A lookup that fails leaves an email "not checked", never "safe". Short links are **not** looked up:
 there is no outside unshortening service. A short link is judged by its own host and by what decodes
