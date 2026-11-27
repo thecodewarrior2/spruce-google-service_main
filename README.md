@@ -172,7 +172,12 @@ Since 0.5.51 two more things start a re-check:
   over the next hourly runs. Only an update that changes the checks does this (a rule, a sign, the AI model,
   how the lists are matched, what the policy does with a score: `checksLevel` in `package.json` raised); one
   that changes only the dashboard, wording, documentation or installation re-checks nothing. Health →
-  Activity says when it starts.
+  Activity says when it starts. (0.6.95) **How far back** is a Policy setting (Settings → Policy → Re-check after an update: off, 6
+  or 12 hours, 1, 2 or 3 days; `RECHECK_AFTER_UPDATE_HOURS` its default): each email is downloaded from Gmail again and
+  the hourly job checks about 500 an hour, so a day of a large district's mail takes days. A new update drops an
+  earlier update's emails still waiting that are older than its own window (they no longer pile up), and Today's
+  **Stop the re-check after the update** drops the update's emails still waiting; the re-checks for the phishing
+  lists, look-alikes and the second look go on either way.
 
 A lookup that fails leaves an email "not checked", never "safe". Short links are **not** looked up:
 there is no outside unshortening service. A short link is judged by its own host and by what decodes

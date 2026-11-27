@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.95: the re-check after an update: how far back, in Settings; no pile-up; a stop button
+
+- **Settings → Policy → Re-check after an update:** off, the last 6 or 12 hours, the last day (the default, as before),
+  2 or 3 days. An update that changes how email is checked looks at that much delivered mail again; each email is
+  downloaded from Gmail again (a few seconds each) and the hourly job checks about 500 an hour, so a day of a large
+  district's mail takes days. `RECHECK_AFTER_UPDATE_HOURS` in settings.env is still its default.
+- **Updates no longer pile up:** several updates in a row each queued up to 5,000 emails, so the re-checks ran for days.
+  Now a new update drops an earlier update's emails still waiting that are older than its own window (the newer ones are
+  checked by the new update anyway).
+- **Today → Re-checking delivered mail → Stop the re-check after the update** (admins): the update's emails still waiting
+  are dropped and no more are added. Health → Activity notes who stopped it.
+- The re-checks when a phishing list adds a site or sender, a look-alike of your domain is found, and the second look at
+  suspicious mail an hour and a day later go on either way. Nothing is judged differently: no checks level change.
+
 ## 0.6.94: a colleague's name on another staff account
 
 - **A new check** (`src/staff-names.js`): mail from inside your domains that Gmail confirmed (DMARC), signed with the name of

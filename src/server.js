@@ -788,6 +788,8 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
         // (0.6.90) Promotional senders sent to Spam: companies answered Spam in Review → Promotional; an admin removes one.
         'GET /api/promotional-spam': async () => ({ list: await service.promoSpamList() }),
         // (0.6.94) Accounts that send under staff names (a Mark safe on an email signed with another staff member's name); an admin removes one.
+        // (0.6.95) Today → Re-checking delivered mail: stop the re-check after an update (admins).
+        'POST /api/recheck/stop-update': async (q, body, admin) => service.stopUpdateRecheck(admin.email),
         'GET /api/staff-name-senders': async () => ({ list: await service.staffNameSenderList() }),
         'POST /api/staff-name-senders': async (q, body, admin) => service.removeStaffNameSender(String(body.company || ''), admin.email).then(r => { cache.stale(); return r; }),
         'POST /api/promotional-spam': async (q, body, admin) => service.removePromoSpam(String(body.company || ''), admin.email).then(r => { cache.stale(); return r; }),

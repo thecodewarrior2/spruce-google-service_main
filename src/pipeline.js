@@ -235,7 +235,9 @@ function watchSummary({ ok, failed, stopped, groups, extra, ou, orgDomains, rene
 // by, at }) and applies to every instance within POLICY_REFRESH_MS. It records the settings.env value it
 // replaced (env): when settings.env later has another value for the same setting (changed, then
 // install.sh), that one is newer and applies. The most recent change wins, wherever it was made.
-const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'ignoreSuspicious', 'senderStanding', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam'];
+const POLICY_KEYS = ['mode', 'aiThreshold', 'aiSuspicious', 'aiScansInside', 'aiMovesInside', 'safeBrowsing', 'spamhaus', 'abusech', 'suspiciousLabel', 'ignoreSuspicious', 'senderStanding', 'recheck', 'brakePerHour', 'timeZone', 'allowDomains', 'allowAddresses', 'allowLinkDomains', 'retentionDays', 'watchScope', 'releasesRepo', 'modelRepo', 'strictSpam', 'recheckAfterUpdateHours'];
+// (0.6.95) How far back an update's re-check goes (Settings → Policy): off, or these many hours.
+const UPDATE_RECHECK_HOURS = [0, 6, 12, 24, 48, 72];
 const LIST_KEYS = ['allowDomains', 'allowAddresses', 'allowLinkDomains'];
 // (0.6.59; 0.6.65) Settings → Policy → Skip review (policy.js strictWhy).
 const STRICT_WORDS = { 'forged-headers': 'forged headers', 'spam-headers': 'spam headers', 'sender-listed': 'sender on a threat list', 'dmarc-fail': 'failed sender check', 'dmarc-missing': 'no DMARC', 'dangerous-links': 'dangerous links' };
@@ -343,6 +345,7 @@ function policyValue(key, v, now = {}) {
     if (key === 'brakePerHour') { const n = Number(v); return n === 0 || (Number.isInteger(n) && n >= 10 && n <= 100000) ? n : bad('The brake is automatic, or a whole number of moves an hour from 10 to 100,000.'); }
     if (key === 'timeZone') { const z = String(v || '').trim(); return z && validTimeZone(z) ? z : bad('The time zone is an IANA name, for example America/New_York.'); }
     if (key === 'retentionDays') { const n = Number(v); return Number.isInteger(n) && n >= MIN_KEEP_DAYS && n <= MAX_KEEP_DAYS ? n : bad(`Records are kept a whole number of days, from ${MIN_KEEP_DAYS} to ${MAX_KEEP_DAYS}.`); }
+    if (key === 'recheckAfterUpdateHours') { const n = Number(v); return UPDATE_RECHECK_HOURS.includes(n) ? n : bad('The re-check after an update goes back 0 (off), 6, 12, 24, 48 or 72 hours.'); }
     return bad('That setting can\'t be changed on the dashboard.');
 }
 function policyWords(key, v) {
@@ -355,6 +358,7 @@ function policyWords(key, v) {
     if (key === 'aiThreshold' || key === 'aiSuspicious') return `${Math.round(Number(v) * 1000) / 10}%`;
     if (key === 'brakePerHour') return Number(v) ? `${Number(v).toLocaleString('en-US')} moves an hour` : 'automatic (half the watched mailboxes, at least 100)';
     if (key === 'retentionDays') return `${Number(v)} days`;
+    if (key === 'recheckAfterUpdateHours') return Number(v) ? (Number(v) % 24 ? `the last ${Number(v)} hours` : `the last ${Number(v) / 24} day${Number(v) === 24 ? '' : 's'}`) : 'off';
     if (key === 'aiScansInside' || key === 'aiMovesInside' || key === 'safeBrowsing' || key === 'spamhaus' || key === 'abusech' || key === 'suspiciousLabel' || key === 'ignoreSuspicious' || key === 'recheck') return v ? 'on' : 'off';
     return String(v);
 }
@@ -2797,6 +2801,11 @@ class Service {
                 const until = Math.min(now, PROCESS_STARTED);
                 started = { level, version: PKG_VERSION, since: until - hours * HOUR, until, boundary: [], queued: 0, max, startedAt: now, doneAt: null };
                 await this.store.setState('updateRecheck', started);
+                // (0.6.95) An earlier update's re-check still waiting doesn't pile up under this one: its emails older than this
+                // one's window are dropped (the newer ones are checked by this one); the lists' and look-alikes' stay.
+                const q0 = (await this.store.getState('recheckQueue')) || [];
+                const kept = q0.filter(it => it.source !== 'update' || (it.receivedAt && it.receivedAt >= started.since));
+                if (kept.length !== q0.length) await this.store.setState('recheckQueue', kept);
                 await this.store.addEvent({ kind: 'recheck', text: `Version ${PKG_VERSION} changes how email is checked: the mail delivered in the last ${hours} hours that is still in the Inbox is being checked again, newest first (at most ${max.toLocaleString('en-US')} emails).` });
             } else if (level > st.level) {
                 await this.store.addEvent({ kind: 'recheck', text: `Version ${PKG_VERSION} changes how email is checked; delivered mail isn't checked again (${this.cfg.recheck ? 'RECHECK_AFTER_UPDATE_HOURS or RECHECK_AFTER_UPDATE_MAX is 0' : 're-checking delivered mail is off'}).` });
@@ -2897,6 +2906,18 @@ class Service {
     }
     // (0.6.70) Today's "Re-checking delivered mail": what waits (emails, mailboxes, why), what was done (above), and the
     // update sweep. Nothing readable about a mailbox or an email.
+    // (0.6.95) An admin stops the re-check after an update (Today): the update's emails still waiting are dropped and no more
+    // are added; the re-checks a phishing list, a look-alike or the second look queued go on.
+    async stopUpdateRecheck(by) {
+        const q = (await this.store.getState('recheckQueue')) || [];
+        const kept = q.filter(it => it.source !== 'update');
+        const dropped = q.length - kept.length;
+        await this.store.setState('recheckQueue', kept);
+        const sw = await this.store.getState('updateRecheck');
+        if (sw && !sw.doneAt) await this.store.setState('updateRecheck', Object.assign({}, sw, { doneAt: this.now(), stoppedBy: by }));
+        await this.store.addEvent({ kind: 'recheck', text: `${by} stopped the re-check after an update${sw && sw.version ? ` (version ${sw.version})` : ''}: ${dropped.toLocaleString('en-US')} email${dropped === 1 ? '' : 's'} still waiting won't be checked again. The re-checks for the phishing lists and look-alikes go on.` });
+        return { ok: true, dropped };
+    }
     async recheckStatus() {
         const [queue, p, sw] = await Promise.all([this.store.getState('recheckQueue'), this.store.getState('recheckProgress'), this.store.getState('updateRecheck')]);
         const q = queue || [];

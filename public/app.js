@@ -639,10 +639,16 @@
             h('div', { class: 'recheck-line' }, h('b', { text: `Finished ${when(p.endedAt)}: ${num(p.checked)} emails in ${num(p.mailboxes)} mailbox${p.mailboxes === 1 ? '' : 'es'}.` })),
             h('div', { class: 'small muted', text: found(p) })
         ];
+        // (0.6.95) An update's re-check under way: stopped here (its emails waiting are dropped; the lists' re-checks go on).
+        const updateWaiting = (r.bySource && r.bySource.update) || 0;
+        const stop = running && updateWaiting && !isModerator() ? h('div', { class: 'actions' },
+            h('button', { class: 'btn', type: 'button', onclick: postButton('/api/recheck/stop-update', () => ({}), (o) => `Stopped: ${num(o.dropped || 0)} emails won't be checked again. The re-checks for the phishing lists and look-alikes go on.`,
+                `Stop the re-check after the update? ${num(updateWaiting)} emails still waiting won't be checked again with the new checks. The re-checks for the phishing lists and look-alikes go on.`) }, 'Stop the re-check after the update'),
+            h('a', { href: '#/settings', class: 'small', text: 'How far back it goes: Settings → Policy' })) : null;
         return h('section', { class: 'card recheck-status', 'aria-labelledby': 'recheck-status-title' },
             h('div', { class: 'card-head' }, h('h2', { id: 'recheck-status-title', text: running ? 'Re-checking delivered mail' : 'Last re-check of delivered mail' }),
                 h('a', { href: '#/rechecked', text: 'What was found' })),
-            body);
+            body, stop);
     }
     // A button's click handler that posts to the service (asking first when ask is set), says the
     // outcome, and redraws the page.
@@ -3161,12 +3167,15 @@
         } },
         { key: 'recheck', label: 'Re-check delivered mail', show: (v, d) => (v ? `On: when a phishing list adds a site or sender that an email of the last ${num(d.recheckDays || 7)} days has, every copy still in an Inbox is checked again in full and ${d.mode === 'enforce' ? 'moved to Spam' : 'recorded as "would move" (monitor mode)'} if the checks now say so; suspicious mail is also looked at again an hour and a day after it arrived; so is mail from, replying to or linking to a look-alike of your domain once it is found or marked a threat${d.recheckAfterUpdateHours ? `, and the mail of the last ${num(d.recheckAfterUpdateHours)} hours still in the Inbox after an update that changes how email is checked (not one that only changes the dashboard or wording)` : ''}. Threats → Re-checked lists what was found`
             : 'Off: mail is checked once, when it arrives. Nothing is kept to find it again') },
+        // (0.6.95) How far back the re-check after an update goes: each update that changes how email is checked looks at the
+        // mail of that many hours still in the Inbox again.
+        { key: 'recheckAfterUpdateHours', label: 'Re-check after an update', show: (v) => (Number(v) ? `The mail delivered in the last ${(Number(v) === 24 ? 'day' : Number(v) % 24 ? `${num(Number(v))} hours` : `${num(Number(v) / 24)} days`)} that is still in the Inbox is checked again after an update that changes how email is checked (at most 5,000 emails an update; about 500 an hour)` : 'Off: an update that changes how email is checked doesn\'t look at delivered mail again (the phishing lists\' and look-alikes\' re-checks go on)') },
         { key: 'brakePerHour', label: 'Brake (whole domain)', show: (v, d) => `${v ? `${num(v)} moves an hour, then moving stops everywhere until an admin resumes` : `Automatic: ${num(d.brakeLimit)} moves an hour now (half the watched mailboxes, at least 100), then moving stops until an admin resumes`}. (0.6.63) Spam is counted apart, with its own limit (${d.spamBrakePerHour ? `${num(d.spamBrakePerHour)} an hour, SPAM_BRAKE_PER_HOUR` : 'the same number, SPAM_BRAKE_PER_HOUR to change it'}): too much spam stops only spam, never phishing` },
         { key: 'timeZone', label: 'Time zone', show: (v) => `${v || 'UTC'}: the dashboard's days (the charts and daily counts), the weekly summary, and the nightly jobs` },
         { key: 'retentionDays', label: 'Records kept', show: (v) => `${num(v)} days: each email's record is deleted ${num(v)} days after it arrived, the oldest first` }
     ];
     // Each setting's default, and how the page names it when it is in force (0.6.0).
-    const POLICY_DEFAULTS = { mode: ['monitor', 'Safe default'], aiMovesInside: [false, 'Safe default'], aiScansInside: [false, 'Default'], suspiciousLabel: [false, 'Default'], ignoreSuspicious: [false, 'Default'], senderStanding: ['show', 'Default'], recheck: [true, 'Default'], brakePerHour: [0, 'Safe default'] };
+    const POLICY_DEFAULTS = { mode: ['monitor', 'Safe default'], aiMovesInside: [false, 'Safe default'], aiScansInside: [false, 'Default'], suspiciousLabel: [false, 'Default'], ignoreSuspicious: [false, 'Default'], senderStanding: ['show', 'Default'], recheck: [true, 'Default'], brakePerHour: [0, 'Safe default'], recheckAfterUpdateHours: [24, 'Default'] };
     const entries = (l, none) => {
         const list = l || [];
         if (!list.length) return h('div', { text: none });
@@ -3179,13 +3188,13 @@
         // (0.5.73) Not a sender: link sites a phishing list's listing of the whole domain doesn't flag.
         { key: 'allowLinkDomains', label: 'Link domains', show: (v) => entries(v, 'None. Every phishing list counts for every link.') }
     ];
-    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', ignoreSuspicious: 'IGNORE_SUSPICIOUS', senderStanding: 'SENDER_STANDING', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', allowLinkDomains: 'ALLOW_LINK_DOMAINS', retentionDays: 'RETENTION_DAYS' };
+    const ENV_NAME = { mode: 'MODE', aiThreshold: 'AI_MOVE_THRESHOLD', aiSuspicious: 'AI_SUSPICIOUS_THRESHOLD', aiScansInside: 'AI_SCANS_INSIDE', aiMovesInside: 'AI_MOVES_INSIDE', safeBrowsing: 'SAFE_BROWSING', suspiciousLabel: 'SUSPICIOUS_LABEL', ignoreSuspicious: 'IGNORE_SUSPICIOUS', senderStanding: 'SENDER_STANDING', recheck: 'RECHECK', brakePerHour: 'BRAKE_PER_HOUR', timeZone: 'TIME_ZONE', allowDomains: 'ALLOW_DOMAINS', allowAddresses: 'ALLOW_ADDRESSES', allowLinkDomains: 'ALLOW_LINK_DOMAINS', retentionDays: 'RETENTION_DAYS', recheckAfterUpdateHours: 'RECHECK_AFTER_UPDATE_HOURS' };
     function policyCard(d, ROWS, title, sub) {
         const P = d.policy || {};
         let openKey = null;
         pageBusy = () => !!openKey;
         const short = (key, v) => (Array.isArray(v) ? (v.length ? `${num(v.length)} entr${v.length === 1 ? 'y' : 'ies'}` : 'none')
-            : key === 'mode' ? v : key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel' || key === 'ignoreSuspicious' || key === 'recheck' ? (v ? 'on' : 'off') : key === 'aiThreshold' || key === 'aiSuspicious' ? pct(v) : key === 'brakePerHour' ? (v ? `${num(v)} an hour` : 'automatic') : key === 'retentionDays' ? `${num(v)} days` : v);
+            : key === 'mode' ? v : key === 'aiScansInside' || key === 'aiMovesInside' || key === 'suspiciousLabel' || key === 'ignoreSuspicious' || key === 'recheck' ? (v ? 'on' : 'off') : key === 'aiThreshold' || key === 'aiSuspicious' ? pct(v) : key === 'brakePerHour' ? (v ? `${num(v)} an hour` : 'automatic') : key === 'retentionDays' ? `${num(v)} days` : key === 'recheckAfterUpdateHours' ? ((v) => (Number(v) ? (Number(v) % 24 ? `${num(Number(v))} hours` : `${num(Number(v) / 24)} day${Number(v) === 24 ? '' : 's'}`) : 'off'))(v) : v);
         const source = (key) => {
             const p = P[key] || {};
             if (p.changed && key === 'allowLinkDomains') return `Changed here by ${p.changed.by}, ${when(p.changed.at)}.`;
@@ -3305,6 +3314,12 @@
             const choices = h('div', { class: 'choices' }, radio(true, 'On: delivered mail is checked again when a phishing list adds one of its sites or senders, when a look-alike of your domain is found or marked a threat, and after an update that changes how email is checked (the default)'), radio(false, 'Off: mail is checked once, when it arrives'));
             read = () => choices.querySelector('input:checked').value === 'on';
             extra = [choices, h('div', { class: 'small muted', text: `Each email left in the Inbox keeps short one-way hashes of its link sites, its sender, and its sender's and Reply-To domains (never readable, never shown) for ${num(d.recheckDays || 7)} days of looking (RECHECK_DAYS): a list's new entry or a look-alike found or marked a threat finds the emails that have it. Suspicious mail is also looked at again an hour and a day after it arrived. After an update that changes how email is checked${d.recheckAfterUpdateHours ? `, the mail of the last ${num(d.recheckAfterUpdateHours)} hours still in the Inbox is checked again, newest first (for IT: RECHECK_AFTER_UPDATE_HOURS); an update that only changes the dashboard, wording or documentation checks nothing again` : ' (turned off: nothing is checked again after updates)'}. A re-check is a full check, with the mode and the brake as on arrival; an email its reader already archived or deleted, or one an admin released or marked, is never moved. Turning it off keeps no more hashes.` })];
+        } else if (key === 'recheckAfterUpdateHours') {
+            // (0.6.95) Off, or how far back; a shorter window ends an update's re-check sooner.
+            const radio = (hours, label) => h('label', { class: 'choice' }, h('input', { type: 'radio', name: 'policy-update-recheck', value: String(hours), checked: Number(value) === hours }), h('span', { text: label }));
+            const choices = h('div', { class: 'choices' }, radio(0, 'Off'), radio(6, 'The last 6 hours'), radio(12, 'The last 12 hours'), radio(24, 'The last day (the default)'), radio(48, 'The last 2 days'), radio(72, 'The last 3 days'));
+            read = () => Number((choices.querySelector('input:checked') || {}).value || 0);
+            extra = [choices, h('div', { class: 'small muted', text: 'Each email is downloaded from Gmail again (a few seconds each), and the hourly job checks about 500 an hour, so a day of a district\'s mail can take several days. The re-checks when a phishing list adds a site or a look-alike is found don\'t depend on this. Today can also stop an update\'s re-check that is under way.' })];
         } else if (key === 'brakePerHour') {
             const auto = h('input', { type: 'radio', name: 'policy-brake', value: 'auto', checked: !value });
             const fixed = h('input', { type: 'radio', name: 'policy-brake', value: 'fixed', checked: !!value });

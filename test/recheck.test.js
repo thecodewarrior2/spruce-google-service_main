@@ -534,3 +534,28 @@ test('0.6.92: once after the update, re-checked copies already waiting whose ema
     assert.equal((await t.store.getRecord(`cy@${ORG}|c`)).markedBy, null, 'another email (fingerprint) of the campaign: left for the admins');
     assert.equal(await t.svc.answerRecheckedCopies(), null, 'once');
 });
+
+test('0.6.95: how far back an update\'s re-check goes is a Policy setting; a new update drops an older one\'s emails outside its window; an admin stops it', async () => {
+    const t = setup();
+    await assert.rejects(t.svc.setPolicy('recheckAfterUpdateHours', 30, `it@${ORG}`), /0 \(off\), 6, 12, 24, 48 or 72 hours/);
+    await t.svc.setPolicy('recheckAfterUpdateHours', 6, `it@${ORG}`);
+    await t.svc.refreshPolicy({ force: true });
+    assert.equal(t.svc.cfg.recheckAfterUpdateHours, 6);
+    // An earlier update's emails still waiting, one older than 6 hours; a list's re-check too.
+    const now = t.clock.get();
+    await t.store.setState('recheckQueue', [
+        { user: `ana@${ORG}`, id: 'old', receivedAt: now - 20 * HOUR, source: 'update', version: 'a' },
+        { user: `ana@${ORG}`, id: 'new', receivedAt: now - 2 * HOUR, source: 'update', version: 'a' },
+        { user: `ben@${ORG}`, id: 'l1', receivedAt: now - 20 * HOUR, source: 'lists' }]);
+    await t.store.setState('checksLevel', { level: 1, version: 'a', at: now - DAY });
+    t.svc.checksLevel = () => 2;
+    await t.svc.checksUpdate();
+    const ids = ((await t.store.getState('recheckQueue')) || []).map(x => x.id);
+    assert.ok(!ids.includes('old') && ids.includes('l1'), JSON.stringify(ids));
+    // Stopped by an admin: the update's emails dropped, the list's kept, nothing more added.
+    const out = await t.svc.stopUpdateRecheck(`it@${ORG}`);
+    assert.ok(out.ok);
+    assert.deepEqual(((await t.store.getState('recheckQueue')) || []).map(x => x.id), ['l1']);
+    assert.ok((await t.store.getState('updateRecheck')).doneAt);
+    assert.equal(await t.svc.checksUpdate(), null, 'no more added');
+});
