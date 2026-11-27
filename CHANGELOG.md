@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.92: one email screen (Review's card), counts in items, answered re-checks stay answered
+
+- **Answered emails no longer come back to Review after a re-check.** A re-check (a phishing list adding a site, an update,
+  the second look) that found a copy nobody had recorded made a new, unanswered record of it, even when an admin had answered
+  the same email on another copy: it waited in Review again. Now a copy of an email answered Phishing or Spam gets that
+  answer (and the move it makes); one marked safe is left alone, unless the re-check found strong evidence (a phishing list,
+  a dangerous link) the answer didn't know. Re-checked copies already waiting are given their email's answer once, after the
+  update (Health → Activity says how many).
+- **Review counts items, not emails:** each tab, the sidebar's number and Today count what Review lists (every copy of
+  one email is one item; a company is one item in Promotional). The line above the list still says both.
+- **"More details" is gone:** what it showed beside Review's evidence is now in the card, under **Details**: the answer,
+  how strong the evidence is, what the AI thought (with its spam answer), the sender check in full, what moved it, the mode,
+  the lookups, the attachments, the Message-ID (Copy, Copy for Vault), the Gmail ID and when it was checked. An email opened
+  from Mail, Activity or an alert is the same card, open, with its answer said under the verdict; any answer can be changed
+  there, with the same keys.
+- **A campaign is Review's card too** (Threats → Campaigns → Open every copy): the same evidence, details and buttons, for
+  every copy. Phishing and Mark safe decide the campaign as before (later copies too; with Phishing, every watched mailbox
+  can be searched for copies not recorded); Spam and Not sure answer its copies. Every copy is listed below.
+- Nothing is judged differently: no checks level change.
+
 ## 0.6.91: a Message-ID Gmail had to write itself counts half a point
 
 - **A new, small sign:** when the sending server gives an email no Message-ID, or one that breaks the email standard (no

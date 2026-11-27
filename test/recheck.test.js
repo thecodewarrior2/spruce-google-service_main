@@ -470,3 +470,67 @@ test('0.6.70: the queue stays well under one Firestore document; Today sees how 
     st = await svc.recheckStatus();
     assert.equal(st.progress.checked, 1, 'a new batch starts a new count');
 });
+
+test('0.6.92: a re-check never puts an answered email back in Review: a copy found later gets the answer another copy was given', async () => {
+    const t = setup({ mode: 'monitor' });
+    await t.feeds.sync();
+    await t.store.setState('feedsAttemptedAt', t.clock.get());
+    const users = [`ana@${ORG}`, `ben@${ORG}`, `cy@${ORG}`];
+    for (const [i, u] of users.entries()) await t.deliver(u, `m${i}`, lure(u, i));
+    t.clock.add(21 * HOUR); t.listed.add('fresh-phish.example');
+    await t.feeds.sync();   // (the lists' new download; the hourly job would also queue the re-checks)
+    // Ana's copy is found first and answered Phishing by an admin in Review.
+    const first = await t.svc.recheckMessage({ user: users[0], id: 'm0', source: 'lists', site: 'fresh-phish.example', list: 'Phishing Army' });
+    assert.equal(first.outcome, 'would-move');
+    const a = await t.store.getRecord(`${users[0]}|m0`);
+    assert.ok(a.fingerprint, 'a re-checked record keeps the email\'s fingerprint');
+    await t.svc.mark(a.key, false, `it@${ORG}`);
+    // Ben's copy, found after the answer: answered the same way, never waiting in Review.
+    const second = await t.svc.recheckMessage({ user: users[1], id: 'm1', source: 'lists', site: 'fresh-phish.example', list: 'Phishing Army' });
+    assert.equal(second.outcome, 'would-move');
+    const b = await t.store.getRecord(`${users[1]}|m1`);
+    assert.deepEqual([b.markedBy, b.falseAlarm, !!b.spam, b.answeredFrom], [`it@${ORG}`, false, false, 'another copy']);
+    assert.match(b.why, /answered this email Phishing on another copy/);
+    const RQ = require('../src/review-queues');
+    assert.equal(RQ.baseQueueOf(b, { cfg: t.cfg }), null, 'not in Review');
+    assert.equal(RQ.baseQueueOf(await t.store.getRecord(`${users[0]}|m0`), { cfg: t.cfg }), null);
+});
+
+test('0.6.92: a Spam answer on another copy is given too; the earlier answers the lookup finds', async () => {
+    const t = setup({ mode: 'monitor' });
+    await t.feeds.sync();
+    await t.store.setState('feedsAttemptedAt', t.clock.get());
+    for (const u of [`ana@${ORG}`, `ben@${ORG}`]) await t.deliver(u, 'm', lure(u, 1));
+    t.clock.add(21 * HOUR); t.listed.add('fresh-phish.example');
+    await t.feeds.sync();
+    await t.svc.recheckMessage({ user: `ana@${ORG}`, id: 'm', source: 'lists', site: 'fresh-phish.example', list: 'Phishing Army' });
+    const a = await t.store.getRecord(`ana@${ORG}|m`);
+    await t.svc.mark(a.key, false, `it@${ORG}`, { spam: true });
+    await t.svc.recheckMessage({ user: `ben@${ORG}`, id: 'm', source: 'lists', site: 'fresh-phish.example', list: 'Phishing Army' });
+    const b = await t.store.getRecord(`ben@${ORG}|m`);
+    assert.deepEqual([b.markedBy, b.falseAlarm, b.spam, b.trigger], [`it@${ORG}`, false, true, 'spam']);
+    // The lookup itself: another copy marked safe; the campaign confirmed or released; nothing.
+    t.svc._answeredCopies = null;
+    await t.store.updateRecord(a.key, { falseAlarm: true, spam: false });
+    assert.deepEqual(await t.svc.earlierAnswerOf(a.fingerprint, a.campaign), { safe: true, spam: false, by: `it@${ORG}` });
+    assert.equal(await t.svc.earlierAnswerOf('another-email', a.campaign), null, 'another email of the campaign: no answer');
+    await t.store.setCampaign(a.campaign, { decision: 'confirmed', decidedBy: `lee@${ORG}` });
+    assert.deepEqual(await t.svc.earlierAnswerOf('another-email', a.campaign), { safe: false, spam: false, by: `lee@${ORG}` });
+    await t.store.setCampaign(a.campaign, { decision: 'released', decidedBy: `lee@${ORG}` });
+    assert.equal((await t.svc.earlierAnswerOf('another-email', a.campaign)).safe, true);
+});
+
+test('0.6.92: once after the update, re-checked copies already waiting whose email was answered Phishing elsewhere get that answer', async () => {
+    const t = setup({ mode: 'monitor' });
+    const base = { processedAt: t.clock.get(), receivedAt: t.clock.get(), state: 'inbox', campaign: 'c-pay', sender: { address: 'notices@payroll-center.example', domain: 'payroll-center.example' }, signals: [] };
+    await t.store.saveRecord(Object.assign({ key: `ana@${ORG}|a`, user: `ana@${ORG}`, messageId: 'a', action: 'would-move', fingerprint: 'fp1', falseAlarm: false, markedBy: `it@${ORG}` }, base));
+    // Recorded by a re-check before 0.6.92: unanswered, waiting in Review (one without a fingerprint, as those were).
+    await t.store.saveRecord(Object.assign({ key: `ben@${ORG}|b`, user: `ben@${ORG}`, messageId: 'b', action: 'would-move', recheck: { at: t.clock.get(), outcome: 'would-move' } }, base));
+    await t.store.saveRecord(Object.assign({ key: `cy@${ORG}|c`, user: `cy@${ORG}`, messageId: 'c', action: 'flag', fingerprint: 'fp2', recheck: { at: t.clock.get(), outcome: 'flag' } }, base));
+    const out = await t.svc.answerRecheckedCopies();
+    assert.deepEqual(out, { answered: 1 });
+    const b = await t.store.getRecord(`ben@${ORG}|b`);
+    assert.deepEqual([b.markedBy, b.falseAlarm, b.answeredFrom], [`it@${ORG}`, false, 'another copy']);
+    assert.equal((await t.store.getRecord(`cy@${ORG}|c`)).markedBy, null, 'another email (fingerprint) of the campaign: left for the admins');
+    assert.equal(await t.svc.answerRecheckedCopies(), null, 'once');
+});

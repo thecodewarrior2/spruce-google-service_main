@@ -128,6 +128,10 @@ async function reviewRecords(service, cache, sinceMs) {
 // is), each with its keys, recipients and senders (at most 2000 of each), and what the list shows of it
 // (src/dashboard/aggregate.js, shared with the clickable mockup).
 const reviewGroups = A.reviewGroups;
+// (0.6.92) Review's counts are items, as Review lists them (the copies of one email are one item; a company is one item in
+// Promotional), not emails. emails: the same queues in emails, for the sentences that say both.
+const itemCounts = (Q) => ({ moved: reviewGroups(Q.moved).length, suspicious: reviewGroups(Q.suspicious).length, promotional: A.promoGroups(Q.promotional).length, reported: reviewGroups(Q.reported).length });
+const emailCounts = (Q) => ({ moved: Q.moved.length, suspicious: Q.suspicious.length, promotional: Q.promotional.length, reported: Q.reported.length });
 // (0.6.1) What a moderator (MODERATOR_GROUP) may use: Today, Review, Threats → Campaigns and Re-checked, Mail
 // (Messages, an email's page, Check an email, Users) and Help; the review answers: phishing, false alarm (which moves
 // one in Spam back to the Inbox), ignore and re-scan, one at a time or ticked together; reading an email from Gmail
@@ -930,16 +934,16 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             // One email in one tab (review-queues.js): an email with any copy in the moved tab is only there, with its
             // suspicious copies too, so one answer covers every copy (0.6.39); the suspicious tab holds the rest.
             const Q = RQ.queuesOf(records, { cfg, listed });
-            const counts = { moved: Q.moved.length, suspicious: Q.suspicious.length, promotional: Q.promotional.length, reported: Q.reported.length };
+            const counts = itemCounts(Q), emails = emailCounts(Q);
             // (0.6.61) The Reported tab is shown only while Settings → User reports is on, or while reports still wait.
             const reportedOn = service.userReportsOn ? await service.userReportsOn() : false;
             // (0.6.75) suspiciousOff: Settings → Policy → Ignore suspicious is on (no Suspicious tab).
             const suspiciousOff = !!cfg.ignoreSuspicious;
-            if (queue === 'promotional') return { queue, total: Q.promotional.length, companies: A.promoGroups(Q.promotional).slice(0, 1000), mode: cfg.mode, counts, reportedOn, suspiciousOff };
+            if (queue === 'promotional') return { queue, total: Q.promotional.length, companies: A.promoGroups(Q.promotional).slice(0, 1000), mode: cfg.mode, counts, emails, reportedOn, suspiciousOff };
             const list = queue === 'reported' ? Q.reported.sort((a, b) => (b.userReported.at || 0) - (a.userReported.at || 0))
                 : queue === 'suspicious' ? Q.suspicious.sort((a, b) => b.processedAt - a.processedAt)
                 : Q.moved.sort((a, b) => a.processedAt - b.processedAt);
-            return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode, counts, reportedOn, suspiciousOff };
+            return { queue, total: list.length, groups: reviewGroups(list).slice(0, 1000), keys: list.slice(0, 1000).map(r => r.key), mode: cfg.mode, counts, emails, reportedOn, suspiciousOff };
         },
         // Several emails at once: release, false-alarm, phishing or unclear (ignore, treat as suspicious), at most
         // 500. Moderators: not release (moderatorMay).
@@ -965,11 +969,13 @@ function createApp({ cfg, store, service, scheduler = null, cloudrun = null, rel
             const spamBrake = !!(await shortLived('spamBrake', 15000, () => store.getState('spamBrake')));
             const held = (await shortLived('held', 15000, () => store.listHeldCampaigns())).filter(c => !c.decision).length;
             const rescues = records.filter(rescueToCheck).length;
-            const suspicious = Q.suspicious.length, suspiciousAll = QA.suspicious.length;
-            const olderMoved = Math.max(0, QA.moved.length - Q.moved.length);
-            const reported = Q.reported.length;
+            // (0.6.92) Items, as Review lists them; unreviewedEmails: the moved emails, for noticing a new copy of a listed item.
+            const items = itemCounts(Q), itemsAll = itemCounts(QA);
+            const suspicious = items.suspicious, suspiciousAll = itemsAll.suspicious;
+            const olderMoved = Math.max(0, itemsAll.moved - items.moved);
+            const reported = items.reported;
             const reportedOn = service.userReportsOn ? await service.userReportsOn() : false;
-            return { brake, held, rescues, days: n, unreviewed: Q.moved.length, suspicious, promotional: Q.promotional.length, reported, reportedOn, suspiciousOff: !!cfg.ignoreSuspicious, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
+            return { brake, held, rescues, days: n, unreviewed: items.moved, unreviewedEmails: Q.moved.length, suspiciousEmails: Q.suspicious.length, suspicious, promotional: items.promotional, reported, reportedOn, suspiciousOff: !!cfg.ignoreSuspicious, older: olderMoved + Math.max(0, suspiciousAll - suspicious), olderMoved,
                 spamBrake, total: (brake ? 1 : 0) + (spamBrake ? 1 : 0) + held + rescues + reported };
         },
         // Health → Service status: what troubleshooting needs, checked in one place (statusChecks).

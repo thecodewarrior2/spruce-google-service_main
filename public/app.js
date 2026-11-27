@@ -503,12 +503,12 @@
                 `The 30-day check found a change in ${ar.length === 1 ? 'its' : 'their'} registration or reputation: ${ar.length === 1 ? 'it' : 'each'} may have lapsed and been registered by someone else, or been sold. ${sus ? 'A suspended one isn\'t trusted until you answer. ' : ''}The admins were emailed.`,
                 isModerator() ? null : link('#/allowlist', 'Review it'));
         }
-        if (unreviewed) item('info', `${num(unreviewed)} email${unreviewed === 1 ? '' : 's'} ${unreviewed === 1 ? 'waits' : 'wait'} for review.`, 'Copies of one email are answered together. Every answer helps measure false alarms before enforce mode, and retraining.', h('a', { class: 'btn primary', href: '#/review', text: 'Start reviewing' }));
+        if (unreviewed) item('info', `${num(unreviewed)} item${unreviewed === 1 ? '' : 's'} ${unreviewed === 1 ? 'waits' : 'wait'} for review.`, 'Copies of one email are answered together. Every answer helps measure false alarms before enforce mode, and retraining.', h('a', { class: 'btn primary', href: '#/review', text: 'Start reviewing' }));
         const hour = new Date().getHours();
         const urgent = need.filter(n => n.tone !== 'info').length;
         out.push(h('header', { class: 'hello' },
             h('div', { class: 'hello-date', text: new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) }),
-            h('h1', { text: `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}. ${urgent ? `${num(urgent)} thing${urgent === 1 ? ' needs' : 's need'} you${unreviewed ? `, and ${num(unreviewed)} email${unreviewed === 1 ? ' waits' : 's wait'} for an answer` : ''}.` : unreviewed ? `${num(unreviewed)} email${unreviewed === 1 ? ' waits' : 's wait'} for an answer.` : 'All clear.'}` })));
+            h('h1', { text: `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}. ${urgent ? `${num(urgent)} thing${urgent === 1 ? ' needs' : 's need'} you${unreviewed ? `, and ${num(unreviewed)} item${unreviewed === 1 ? ' waits' : 's wait'} for an answer` : ''}.` : unreviewed ? `${num(unreviewed)} item${unreviewed === 1 ? ' waits' : 's wait'} for an answer.` : 'All clear.'}` })));
         if (need.length) out.push(h('section', { class: 'card attention', 'aria-labelledby': 'needs-title' }, h('h2', { id: 'needs-title', text: 'Needs attention' }),
             need.map(n => h('div', { class: `need ${n.tone}`, role: n.tone === 'critical' ? 'alert' : null },
                 h('span', { class: 'need-icon', 'aria-hidden': 'true', text: n.tone === 'info' ? num(unreviewed) : '!' }),
@@ -659,29 +659,33 @@
         };
     }
     // A campaign's state and an admin's decisions for every copy (Messages, filtered to a campaign).
-    // (0.6.39) A campaign's box: the same four answers as anywhere else, for every copy (the last 90 days). Phishing
-    // ("confirm": later copies are moved too) and Not phishing ("dismiss": moved copies back, later ones not moved)
-    // decide the campaign; Spam and Not sure answer its copies, with Undo, until it is decided. "Move" only in enforce mode.
-    async function campaignBar(key) {
+    // (0.6.39) The same four answers as anywhere else, for every copy (the last 90 days). Phishing ("confirm": later copies
+    // are moved too) and Mark safe ("dismiss": moved copies back, later ones not moved) decide the campaign; Spam and Not sure
+    // answer its copies, with Undo, until it is decided. (0.6.92) Shown as Review's card: the same evidence, details and
+    // buttons, for every copy; the campaign's own state and choices under the buttons. list: the campaign's copies (Mail's rows).
+    async function campaignCard(key, list) {
         let c;
         try { ({ campaign: c } = await api(`/api/campaign?${q({ key })}`)); } catch (e) { return null; }
-        const enforce = currentMode === 'enforce';
+        const firstKey = (list.find(x => x.action && x.action !== 'none') || list[0] || {}).key;
+        let m = null, mode = currentMode;
+        if (firstKey) { try { ({ message: m, mode } = await api(`/api/message?${q({ key: firstKey })}`)); } catch (e) { m = null; } }
+        const enforce = (mode || currentMode) === 'enforce';
         const status = c.decision === 'confirmed' ? `Marked Phishing by ${c.decidedBy}: every copy is ${enforce ? 'moved to the Spam folder' : 'marked'}, and later copies too.`
             : c.decision === 'released' ? `Marked safe by ${c.decidedBy}: its copies went back to the Inbox, and later copies aren't moved.`
             : c.held ? `Moving is paused: ${num(c.held)} copies were left in the Inbox, because more than ${num(c.holdAfter)} were moved on weaker evidence (only the email itself looked bad). Mark it Phishing or Mark safe.`
             : `${num(c.copies)} copies: ${num(c.moved)} in the Spam folder, ${num(c.recorded)} in the Inbox, ${num(c.released)} moved back.`;
         const search = h('input', { type: 'checkbox', checked: true });
         const found = (f) => (f ? `; ${num(f.found)} more found in ${num(f.searched)} of ${num(f.of)} mailboxes${f.moved ? `, ${num(f.moved)} moved` : ''}` : '');
-        const run = (label, fn) => async (e) => {
-            const btn = e.currentTarget; btn.disabled = true; acting++; const bt = busyStart(label);
-            try { await fn(); } catch (err) { toast(`Couldn't save your answer: ${err.message}`, { error: true }); btn.disabled = false; } finally { acting--; busyEnd(bt); }
+        const run = async (label, fn) => {
+            acting++; const bt = busyStart(label);
+            try { await fn(); } catch (err) { toast(`Couldn't save your answer: ${err.message}`, { error: true }); } finally { acting--; busyEnd(bt); }
         };
         const answerAll = (action) => run('Answering every copy…', async () => {
             if (!window.confirm(`Mark every copy of "${c.label}" ${ANSWER[action].label}?${action === 'spam' && enforce ? ' Copies in the Inbox are moved to the Spam folder.' : ''} You can undo it for an hour.`)) return;
             const o = await api('/api/campaign/answer', { method: 'POST', body: { key, action, addSender: action === 'spam' && spamAddSender && !isModerator() } });
             forgetAnswered((o.keys || []).concat((o.sameSender && o.sameSender.keys) || []));
             toast(answeredText(action, o, Math.max(2, o.done || 0)), { undo: undoKeys((o.keys || []).concat((o.sameSender && o.sameSender.keys) || [])) });
-            render();
+            render(); pendingAt = 0; refreshPending();
         });
         const decide = (action) => run('Answering every copy…', async () => {
             const back = action === 'false-alarm';
@@ -691,20 +695,21 @@
             forgetReviewLists();   // (0.6.70) every copy answered: Review reads its lists again
             toast(back ? `Marked safe: every copy${o.released ? `, ${num(o.released)} moved back to the Inbox` : ''}.`
                 : `Marked Phishing: every copy${o.moved && !o.moved.monitor && o.moved.moved ? `, ${num(o.moved.moved)} moved to the Spam folder` : ''}${found(o.found)}.`);
-            render();
+            render(); pendingAt = 0; refreshPending();
         });
-        const label = (action) => `${ANSWER[action].label}${enforce && action === 'phishing' ? ': move every copy to the Spam folder' : enforce && action === 'false-alarm' ? ': move every copy back' : ' (every copy)'}`;
-        return h('section', { class: `card campaign-bar${c.held && !c.decision ? ' held' : ''}` },
-            h('div', {}, h('b', { text: c.label }), h('div', { class: 'small muted', text: status })),
-            h('div', { class: 'actions' },
-                c.decision !== 'confirmed' ? h('button', { class: 'btn phish', type: 'button', title: ANSWER.phishing.help, onclick: decide('phishing') }, label('phishing')) : null,
-                !c.decision ? h('button', { class: 'btn', type: 'button', title: ANSWER.spam.help, onclick: answerAll('spam') }, label('spam')) : null,
-                c.decision !== 'released' ? h('button', { class: 'btn safe', type: 'button', title: ANSWER['false-alarm'].help, onclick: decide('false-alarm') }, label('false-alarm')) : null,
-                !c.decision ? h('button', { class: 'btn', type: 'button', title: ANSWER.unclear.help, onclick: answerAll('unclear') }, label('unclear')) : null),
+        // The card's answers, for every copy: Phishing and Mark safe decide the campaign; Spam and Not sure answer its copies.
+        const act = (groups, action) => (action === 'phishing' || action === 'false-alarm' ? decide(action) : answerAll(action));
+        const extra = h('div', { class: `campaign-state${c.held && !c.decision ? ' held' : ''}` },
+            h('div', { class: 'small' }, h('b', { text: 'Every copy: ' }), status),
             h('div', { class: 'actions small' },
                 c.decision !== 'confirmed' ? h('label', { class: 'small' }, search, ' with Phishing, also search every watched mailbox for copies not recorded') : null,
-                !c.decision ? spamSenderBox('its sender\'s') : null,
-                c.decision === 'confirmed' ? h('button', { class: 'btn', type: 'button', onclick: postButton('/api/campaign/find', () => ({ key }), (o) => `Searched: ${num(o.found.found)} more found in ${num(o.found.searched)} of ${num(o.found.of)} mailboxes${o.found.moved ? `, ${num(o.found.moved)} moved` : ''}.`) }, 'Search every mailbox for more copies') : null));
+                c.decision === 'confirmed' ? h('button', { class: 'btn', type: 'button', onclick: postButton('/api/campaign/find', () => ({ key }), (o) => `Searched: ${num(o.found.found)} more found in ${num(o.found.searched)} of ${num(o.found.of)} mailboxes${o.found.moved ? `, ${num(o.found.moved)} moved` : ''}.`) }, 'Search every mailbox again') : null));
+        if (!m) return h('section', { class: 'card' }, h('b', { text: c.label }), extra);
+        const g = Object.assign(groupOfRecords(list.length ? list : [m], key), { subject: m.subject || c.label, sender: m.sender, kind: kindOf(m), dmarc: (m.auth && m.auth.dmarc) || 'none',
+            signs: (m.signals || []).filter(x => x.weight > 0).sort((a, b) => b.weight - a.weight).slice(0, 3).map(x => ({ text: x.text, weight: x.weight })) });
+        const st = { queue: queueOfRecord(m), mode: mode || currentMode, single: true, picked: new Set(), groups: [g], open: 0 };
+        reviewKeys = { p: () => act([g], 'phishing'), s: () => act([g], 'spam'), f: () => act([g], 'false-alarm'), i: () => act([g], 'unclear') };
+        return h('section', { class: 'card rv-list single', 'aria-label': 'The campaign' }, reviewRow(st, g, 0, reviewEvidence(st, g, m, act, null, { campaignView: true, extra }), act, () => {}));
     }
     const kpi = (label, value, note) => h('div', { class: 'card kpi' }, h('div', { class: 'label', text: label }), h('div', { class: 'value', text: value }), note ? h('div', { class: 'note', text: note }) : null);
 
@@ -800,6 +805,7 @@
     }
 
     async function messages(params) {
+        reviewKeys = null;   // (0.6.92) Review's keys only for a campaign's card (campaignCard), never for the list
         const filt = { user: params.get('user') || '', campaign: params.get('campaign') || '', action: params.get('action') || '', state: params.get('state') || '', q: params.get('q') || '' };
         const d = await api(`/api/messages?days=${days}&${q(filt)}`);
         const search = h('input', { type: 'search', placeholder: 'Search sender, recipient, subject or Message-ID', value: filt.q, 'aria-label': 'Search' });
@@ -812,7 +818,7 @@
         search.addEventListener('keydown', (e) => { if (e.key === 'Enter') apply(); });
         action.addEventListener('change', apply); state.addEventListener('change', apply);
         const scope = filt.user ? `for ${filt.user}` : filt.campaign ? 'in this campaign' : '';
-        const bar = filt.campaign ? await campaignBar(filt.campaign) : null;
+        const bar = filt.campaign ? await campaignCard(filt.campaign, d.messages || []) : null;
         const csv = MEMORY || isModerator() ? null : h('a', { class: 'btn', href: `/api/export.csv?${q(Object.assign({ days: String(days) }, filt))}`, download: '' }, 'Download CSV');
         // Several at once: a checkbox on each row, and a bar with what to do with the selected ones.
         const selected = new Set(), boxes = [];
@@ -861,10 +867,43 @@
             ], d.messages, m => go(`#/message?${q({ key: m.key })}`), 'No messages match.', m => (m.recheck && RECHECK_BAD.includes(m.recheck.outcome) ? 'row-alert' : '')))];
     }
 
+    // (0.6.92) An email's records as one Review item (aggregate.js reviewGroups' fields): one email, or a campaign's copies.
+    function groupOfRecords(list, campaign = null) {
+        const first = list[0] || {};
+        const dm = (r) => (r.auth && r.auth.dmarc) || r.dmarc || 'none';
+        let dmarc = null, ai = null, score = null, firstAt = null;
+        for (const r of list) {
+            const d = dm(r);
+            dmarc = !dmarc ? (d === 'pass' || d === 'fail' ? d : 'none') : dmarc === 'fail' || d === 'fail' ? 'fail' : dmarc === 'pass' && d === 'pass' ? 'pass' : 'none';
+            const a = r.ai && typeof r.ai === 'object' ? r.ai.probability : r.ai;
+            if (typeof a === 'number' && (ai === null || a > ai)) ai = a;
+            if (typeof r.score === 'number' && (score === null || r.score > score)) score = r.score;
+            const at = r.receivedAt || r.processedAt;
+            if (at && (!firstAt || at < firstAt)) firstAt = at;
+        }
+        return { campaign: campaign || first.campaign || null, label: first.campaignLabel || '', count: list.length, keys: list.map(r => r.key).filter(Boolean),
+            users: [...new Set(list.map(r => r.user).filter(Boolean))], senders: [...new Set(list.map(r => r.sender && r.sender.address).filter(Boolean))],
+            subject: first.subject || '', sender: first.sender ? { name: first.sender.name || '', address: first.sender.address || '' } : null, firstAt, ai, score, inside: !!first.inside,
+            kind: kindOf(first), dmarc: dmarc || 'none',
+            signs: (first.signals || []).filter(x => x.weight > 0).sort((a, b) => b.weight - a.weight).slice(0, 3).map(x => ({ text: x.text, weight: x.weight })) };
+    }
+    // The queue an email would be listed in, for the card's wording (QUEUES).
+    const queueOfRecord = (m) => (m.userReported ? 'reported' : m.action === 'flag' ? 'suspicious' : 'moved');
+    // (0.6.92) An email (from Mail, Activity, an alert): the same card as Review, open, with its details; any answer can be
+    // given or changed here (it was the "More details" page).
     async function message(params) {
         const key = params.get('key') || '';
         const { message: m, mode } = await api(`/api/message?${q({ key })}`);
-        return emailView(m, { mode });
+        const g = groupOfRecords([m]);
+        const st = { queue: queueOfRecord(m), mode: mode || currentMode, single: true, picked: new Set(), groups: [g], open: 0 };
+        const act = async (groups, action) => {
+            acting++; const bt = busyStart();
+            try { const done = await answerKeys([m.key], action); if (done) { toast(done.text, { undo: undoKeys(done.keys) }); render(); pendingAt = 0; refreshPending(); } }
+            catch (e) { toast(`Couldn't save your answer: ${e.message}`, { error: true }); } finally { acting--; busyEnd(bt); }
+        };
+        reviewKeys = { p: () => act([g], 'phishing'), s: () => act([g], 'spam'), f: () => act([g], 'false-alarm'), i: () => act([g], 'unclear') };
+        return [h('button', { class: 'linkbtn back', type: 'button', onclick: back }, '← Back'),
+            h('section', { class: 'card rv-list single', 'aria-label': 'The email' }, reviewRow(st, g, 0, reviewEvidence(st, g, m, act, null, { detailsOpen: true }), act, () => {}))];
     }
     // Copies text to the clipboard (or, where the browser doesn't allow it, through a hidden field), then says
     // done in a toast. copyButton: a Copy button for an identifier (what: what it is; label: the button's text).
@@ -1114,6 +1153,44 @@
     }
     // One email's decision: a record (Messages), or a pasted email's answer (Check an email: m.pasted).
     // opts.inReview: the review queue shows its own buttons and title.
+    // (0.6.92) Whether and how an email was answered, in one sentence (the email's card, and the pasted check).
+    function answerStatus(m) {
+        if (m.pasted) return 'Checked from a pasted copy: nothing was stored, moved or counted.';
+        if (m.userReported && !m.markedBy) return `Its reader reported it as phishing with Gmail's Report phishing${m.userReported.at ? `, ${when(m.userReported.at)}` : ''}. No admin has answered it yet.`;
+        if (m.falseAlarm === true && m.releasedByUser && !m.markedBy) return 'Its reader moved it back to the Inbox, so it counts as safe for now. No admin has looked at it yet.';
+        if (m.falseAlarm === true && m.autoAnswered) return m.autoAnswered.kind === 'campaign' ? `Marked safe automatically: ${m.markedBy || 'an admin'} dismissed its campaign as a false alarm.` : `Marked safe automatically: ${m.markedBy || 'an admin'} marked an identical email safe.`;
+        if (m.falseAlarm === true) return `Marked safe by ${m.markedBy || 'an admin'}.`;
+        if (m.falseAlarm === false) return `${m.spam ? 'Answered Spam' : 'Answered Phishing'} by ${m.markedBy || 'an admin'}${m.answeredFrom === 'another copy' ? ' (on another copy of the same email)' : ''}.`;
+        if (m.unclear && m.markedBy) return `Answered Not sure by ${m.markedBy}: left as it is, and not used to train the AI.`;
+        return 'Not answered yet.';
+    }
+    // (0.6.92) What the email's page ("More details", retired) showed beside Review's evidence, now in the card itself: the
+    // answer, how strong the evidence is, what the AI thought (its spam answer too), the sender check in full, what moved it,
+    // the mode, the lookups, the attachments, and the IDs with Copy (and Copy for Vault). Open: opts.open.
+    function emailDetails(m, opts = {}) {
+        const ai = m.ai && typeof m.ai.probability === 'number' ? m.ai.probability : null;
+        const notMoved = m.action === 'flag';
+        const evidence = m.evidence && !notMoved && !(m.heldMovedBy && !m.trigger) ? (m.evidence === 'strong' ? `Strong evidence: the rules flagged it, and ${(m.confirmedBy || []).join('; ')}.`
+            : m.evidence === 'admin' ? 'A copy found by an admin\'s search for a campaign.' : 'Weaker evidence: nothing outside the email confirms it, so moving its campaign\'s copies can pause for your decision (they stay in the Inbox meanwhile).') : null;
+        const kv = h('dl', { class: 'kv' },
+            h('dt', { text: 'Answer' }), h('dd', { text: answerStatus(m) }),
+            evidence ? [h('dt', { text: 'Evidence' }), h('dd', { text: evidence })] : null,
+            h('dt', { text: 'Sender check' }), h('dd', { text: m.auth ? `DMARC ${m.auth.dmarc || '–'}${m.auth.derived ? ` (worked out from ${m.auth.derived}: Gmail wrote no DMARC result)` : ''}, SPF ${m.auth.spf || '–'}, DKIM ${m.auth.dkim || '–'}` : 'not recorded' }),
+            h('dt', { text: 'What moved it' }), h('dd', { text: m.trigger ? ({ rules: 'Rules', ai: 'AI score', 'rules+ai': 'Rules and AI', admin: 'An admin marked its campaign Phishing, and the search for its copies found it', spam: 'Taken for spam', promotional: 'Promotional (never moved for that)' })[m.trigger] || m.trigger : m.state === 'moved' && m.heldMovedBy ? `none: ${m.heldMovedBy} confirmed it as phishing` : 'none' }),
+            m.mode ? [h('dt', { text: 'Mode when it arrived' }), h('dd', { text: m.mode === 'enforce' ? 'Enforce (moves mail)' : m.mode === 'monitor' ? 'Monitor (moves nothing)' : m.mode })] : null,
+            m.pasted ? null : [h('dt', { text: 'Looked up' }), h('dd', { text: m.checks ? [m.checks.cloudflare ? `Cloudflare: ${m.checks.cloudflare} site${m.checks.cloudflare === 1 ? '' : 's'}` : '', m.checks.safeBrowsing ? `Safe Browsing: ${m.checks.safeBrowsing} link${m.checks.safeBrowsing === 1 ? '' : 's'}` : '', m.checks.lists ? 'phishing lists' : '', m.checks.ages ? `site age: ${m.checks.ages}` : '', m.checks.notChecked ? `${m.checks.notChecked} not checked` : ''].filter(Boolean).join(' · ') || 'nothing to look up' : 'offline checks only' })],
+            h('dt', { text: 'Attachments' }), h('dd', { text: m.attachments && m.attachments.length ? m.attachments.map(a => a.name || a.type).join(', ') : 'none' }),
+            m.attachmentFindings && m.attachmentFindings.length ? [h('dt', { text: 'Found in them' }), h('dd', {}, h('ul', { class: 'plain-list' }, m.attachmentFindings.map(f => h('li', { text: f.what }))))] : null,
+            m.pasted ? null : idRow('Message-ID', m.rfc822MessageId, 'To look it up in Google Workspace: Admin console → Reporting → Email log search (Message ID), or the security investigation tool. Copy for Vault gives Google Vault\'s search for it (rfc822msgid:…).',
+                m.rfc822MessageId ? [copyButton(vaultQuery(m.rfc822MessageId), 'Vault search', 'Copy for Vault')] : []),
+            m.pasted ? null : idRow('Gmail ID', m.messageId, 'The Gmail API\'s id of this copy, in this mailbox.'),
+            m.processedAt ? [h('dt', { text: 'Checked' }), h('dd', { text: when(m.processedAt) })] : null);
+        return h('details', { class: 'rv-more', open: !!opts.open },
+            h('summary', {}, 'Details: the answer, what the AI thought, the sender check, lookups and IDs'),
+            h('div', { class: 'rv-more-grid' },
+                h('section', { 'aria-label': 'What the AI thought' }, h('h3', { text: 'What the AI thought' }), aiNotTheCause(m), aiOpinion(m, ai, opts)),
+                h('section', { 'aria-label': 'Details' }, h('h3', { text: 'Details' }), kv)));
+    }
     function emailView(m, opts = {}) {
         const pasted = !!m.pasted, quiet = pasted || !!opts.inReview;
         const ai = m.ai && typeof m.ai.probability === 'number' ? m.ai.probability : null;
@@ -2380,7 +2457,8 @@
         }
         reviewKeys = null;
         const emails = (o) => (o.companies || o.groups || []).reduce((a, g) => a + g.keys.length, 0);
-        const left = (k) => { const o = reviewStates[k]; return o && o.days === days && (o.companies || o.groups) ? emails(o) : (st.counts[k] || 0); };
+        // (0.6.92) Each tab counts items (one per email, whatever its copies; one per company in Promotional), as the list shows them.
+        const left = (k) => { const o = reviewStates[k]; return o && o.days === days && (o.companies || o.groups) ? (o.companies || o.groups).length : (st.counts[k] || 0); };
         const enforce = st.mode === 'enforce';
         const answer = async (c, what) => {
             acting++; const bt = busyStart();
@@ -2452,7 +2530,8 @@
         else if (Date.now() - reviewSyncedAt > 5000) setTimeout(reviewArrived, 0);   // (0.6.70) a kept list: checked against the service
         reviewKeys = null;
         const emails = (o) => (o.companies || o.groups).reduce((a, g) => a + g.keys.length, 0);
-        const left = (k) => { const o = reviewStates[k]; return o && o.days === days && (o.companies || o.groups) ? emails(o) : (st.counts[k] || 0); };
+        // (0.6.92) Each tab counts items (one per email, whatever its copies; one per company in Promotional), as the list shows them.
+        const left = (k) => { const o = reviewStates[k]; return o && o.days === days && (o.companies || o.groups) ? (o.companies || o.groups).length : (st.counts[k] || 0); };
         const act = async (groups, action) => {
             acting++; const bt = busyStart();
             try {
@@ -2477,7 +2556,7 @@
                 (() => {
                     const longest = Math.max(...[...document.querySelectorAll('.range')].filter(b => !b.hidden).map(b => Number(b.dataset.days) || 0), days);
                     if (!olderWaiting || days >= longest) return null;
-                    return h('div', { class: 'alert warning' }, h('div', { class: 'grow' }, h('b', { text: `${num(olderWaiting)} email${olderWaiting === 1 ? '' : 's'} from before the last ${days} days still wait${olderWaiting === 1 ? 's' : ''} for an answer.` }), ' The menu counts the period you pick.'),
+                    return h('div', { class: 'alert warning' }, h('div', { class: 'grow' }, h('b', { text: `${num(olderWaiting)} item${olderWaiting === 1 ? '' : 's'} from before the last ${days} days still wait${olderWaiting === 1 ? 's' : ''} for an answer.` }), ' The menu counts the period you pick.'),
                         h('button', { class: 'btn', type: 'button', onclick: () => { days = longest; try { localStorage.setItem('spruce.days', String(longest)); } catch (e) { /* not kept */ } reviewStates = {}; pendingAt = 0; pendingSeen = false; refreshPending(); go(olderMovedWaiting || !olderWaiting ? '#/review' : '#/review?queue=suspicious'); render(); } }, `Show the last ${longest} days`));
                 })(),
                 h('div', { class: 'actions' }, queue === 'moved' ? h('a', { class: 'btn', href: '#/readiness' }, 'See Readiness') : h('a', { class: 'btn', href: '#/health' }, 'See Model health'),
@@ -2580,9 +2659,10 @@
     function reviewRow(st, g, i, evidence, act, drawBar) {
         const Q = QUEUES[st.queue], open = !!evidence;
         const ai = typeof g.ai === 'number' ? g.ai : null;
-        const toggle = () => { st.open = open ? -1 : i; render(); };
-        const pick = h('input', { type: 'checkbox', class: 'rv-pick', 'aria-label': `Tick "${g.subject || 'this email'}"`, checked: st.picked.has(g) });
-        pick.addEventListener('change', () => { if (pick.checked) st.picked.add(g); else st.picked.delete(g); drawBar(); });
+        // (0.6.92) st.single: one card on its own page (an email, a campaign): always open, nothing to tick.
+        const toggle = () => { if (st.single) return; st.open = open ? -1 : i; render(); };
+        const pick = st.single ? null : h('input', { type: 'checkbox', class: 'rv-pick', 'aria-label': `Tick "${g.subject || 'this email'}"`, checked: st.picked.has(g) });
+        if (pick) pick.addEventListener('change', () => { if (pick.checked) st.picked.add(g); else st.picked.delete(g); drawBar(); });
         const people = g.users.length || g.count || g.keys.length;
         const meta = [g.sender ? (g.sender.name || g.sender.address) : null, g.keys.length > 1 ? `${num(g.keys.length)} copies, ${num(people)} people` : g.users[0] || null, g.firstAt ? when(g.firstAt) : null].filter(Boolean).join(' · ');
         const ring = h('span', { class: `rv-ai ${ai === null ? '' : ai >= aiThreshold ? 'hot' : ai >= aiSuspicious ? 'warm' : ''}`, title: ai === null ? 'No AI score' : `AI score ${pct(ai)}` }, ai === null ? '–' : String(Math.round(ai * 100)));
@@ -2595,16 +2675,16 @@
                 g.sender && g.sender.address ? h('button', { class: 'rv-only', type: 'button', title: `Show only mail from ${g.sender.address}`, 'aria-label': `Show only mail from ${g.sender.address}`,
                     onclick: () => { st.filter = Object.assign(st.filter || {}, { q: g.sender.address }); st.open = -1; render({ quiet: true }); } }, '⌕') : null,
                 sign,
-                open ? null : h('div', { class: 'rv-quick', role: 'group', 'aria-label': 'Quick answer' },
+                open || st.single ? null : h('div', { class: 'rv-quick', role: 'group', 'aria-label': 'Quick answer' },
                     // (0.6.39) The four answers, as on the open item (Spam too); what they move is said above the list.
                     ['phishing', 'spam', 'false-alarm', 'unclear'].map(a => h('button', { class: `btn sm ${ANSWER[a].cls}`, type: 'button', title: ANSWER[a].help, onclick: () => act([g], a) }, ANSWER[a].label))),
-                h('button', { class: 'rv-chevron', type: 'button', 'aria-label': open ? 'Close' : 'Open and weigh the evidence', 'aria-expanded': String(open), onclick: toggle },
+                st.single ? null : h('button', { class: 'rv-chevron', type: 'button', 'aria-label': open ? 'Close' : 'Open and weigh the evidence', 'aria-expanded': String(open), onclick: toggle },
                     s('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, s('path', { d: 'm6 9 6 6 6-6' })))),
             evidence);
     }
     // The open item: who sent it to whom, where the scores stand, the signs for and against, what the AI weighed
     // most, and the five answers.
-    function reviewEvidence(st, g, m, act, skip) {
+    function reviewEvidence(st, g, m, act, skip, opts = {}) {
         const Q = QUEUES[st.queue];
         const ai = m.ai && typeof m.ai.probability === 'number' ? m.ai.probability : null;
         const moves = st.mode === 'enforce' && m.state === 'inbox' && m.action !== 'move';
@@ -2650,7 +2730,9 @@
                     h('br'), 'To ', shortList(users, `Who received "${m.subject || 'this email'}"`, { copy: true, describe: (k) => `${num(k)} people in your organization received a copy${g.keys.length > 1 ? `; ${num(g.keys.length)} copies wait for review` : ''}.` }),
                     g.senders.length > 1 ? [h('br'), `From ${num(g.senders.length)} addresses: `, shortList(g.senders, 'Who sent it', { copy: true, describe: (k) => `The copies came from ${num(k)} sender addresses.` })] : null,
                     h('div', { class: 'rv-verdict' }, kindTag(kindOf(m)), h('b', { text: asKind(m) })),
-                    h('div', { class: 'small muted', text: m.why ? `Because ${m.why}.` : '' })),
+                    h('div', { class: 'small muted', text: m.why ? `Because ${m.why}.` : '' }),
+                    // (0.6.92) Answered already (an email opened from Mail, a campaign): said here; any answer can still be changed.
+                    m.markedBy || m.userReported || m.falseAlarm != null ? h('div', { class: 'rv-answered', text: answerStatus(m) }) : null),
                 lean),
             recheckBox(m), rescanBox(m),
             h('div', { class: 'ev-cols' },
@@ -2664,12 +2746,12 @@
                 h('button', { class: 'btn big', type: 'button', title: ANSWER.spam.help, onclick: () => act([g], 'spam') }, answerLabel('spam', moves), h('kbd', { text: 'S' })),
                 h('button', { class: 'btn big safe', type: 'button', title: ANSWER['false-alarm'].help, onclick: () => act([g], 'false-alarm') }, answerLabel('false-alarm', st.mode === 'enforce' && m.state === 'moved'), h('kbd', { text: 'F' })),
                 h('button', { class: 'btn big', type: 'button', title: ANSWER.unclear.help, onclick: () => act([g], 'unclear') }, ANSWER.unclear.label, h('kbd', { text: 'I' })),
-                h('button', { class: 'btn big ghost', type: 'button', onclick: skip, title: 'Go to the next one; this one stays here, unanswered' }, 'Skip for now (answer later)', h('kbd', { text: 'N' })),
+                skip ? h('button', { class: 'btn big ghost', type: 'button', onclick: skip, title: 'Go to the next one; this one stays here, unanswered' }, 'Skip for now (answer later)', h('kbd', { text: 'N' })) : null,
                 h('span', { class: 'grow' }),
-                h('a', { class: 'rv-link', href: `#/message?${q({ key: m.key })}` }, 'More details'),
                 canRead ? h('button', { class: 'rv-link', type: 'button', onclick: () => showAiReading(m), title: 'Read from Gmail now: the whole email as received, and what the AI reads of it (nothing is kept)' }, 'Show the email') : null,
                 rescanButton(m, 'rv-link review-rescan'),
-                g.campaign ? h('a', { class: 'rv-link', href: `#/messages?${q({ campaign: g.campaign })}` }, 'Every copy') : null),
+                g.campaign && !opts.campaignView ? h('a', { class: 'rv-link', href: `#/messages?${q({ campaign: g.campaign })}` }, g.keys.length > 1 ? 'The campaign: every copy' : 'Its campaign') : null),
+            opts.extra || null,
             // (0.6.35) The Spam answer can add the sender to Spam senders (admins; a verified outside sender only).
             isModerator() ? null : (() => {
                 const can = m.auth && m.auth.dmarc === 'pass' && !m.inside && m.sender && m.sender.address;
@@ -2678,7 +2760,9 @@
                 box.addEventListener('change', () => { spamAddSender = box.checked; });
                 return h('label', { class: 'choice spam-sender-opt' }, box, h('span', {}, 'With Spam, also send future mail from ', h('b', { text: m.spamKey || m.sender.address }), ' straight to Spam (Settings → Sender lists → Spam senders; it skips the other checks).'));
             })(),
-            h('p', { class: 'small muted rv-help', text: `${g.keys.length > 1 ? `One answer covers all ${num(g.keys.length)} copies. ` : ''}Spam also answers this address's other emails waiting here. Not sure takes it out of the queue and keeps it out of AI training; Skip leaves it here, undecided.${canRead ? ' Show the email reads it from Gmail now, the whole email and what the AI reads of it: nothing is kept.' : ''}${st.mode === 'enforce' ? '' : ' Monitor mode: nothing is moved.'}` }));
+            h('p', { class: 'small muted rv-help', text: `${g.keys.length > 1 ? `One answer covers all ${num(g.keys.length)} copies. ` : ''}Spam also answers this address's other emails waiting here. Not sure takes it out of the queue and keeps it out of AI training; Skip leaves it here, undecided.${canRead ? ' Show the email reads it from Gmail now, the whole email and what the AI reads of it: nothing is kept.' : ''}${st.mode === 'enforce' ? '' : ' Monitor mode: nothing is moved.'}` }),
+            // (0.6.92) What the email's own page (More details, retired) showed beside this: the answer, the AI's view, the IDs.
+            emailDetails(m, { open: !!opts.detailsOpen, mode: st.mode }));
     }
 
     // --- Health → Service status (0.6.0, as a status page): one line on how it is, each check with what to do,
@@ -3289,12 +3373,12 @@
     // mail back); the Review item in the menu (and in the phone's tab bar), how many emails wait for review.
     // Read at most every 25 s, from the live updates' tick (paused or not, but not while the person is away) and
     // after an action.
-    let pendingAt = 0, unreviewed = 0, suspiciousWaiting = 0, pendingSeen = false, olderWaiting = 0, olderMovedWaiting = 0;
+    let pendingAt = 0, unreviewed = 0, suspiciousWaiting = 0, unreviewedEmails = 0, suspiciousEmails = 0, pendingSeen = false, olderWaiting = 0, olderMovedWaiting = 0;
     function showUnreviewed() {
         for (const badge of [$('#reviewCount'), $('#reviewCountTab')]) {
             if (!badge) continue;
             badge.hidden = !unreviewed; badge.textContent = num(unreviewed);
-            badge.title = `${num(unreviewed)} email${unreviewed === 1 ? '' : 's'} to review`;
+            badge.title = `${num(unreviewed)} item${unreviewed === 1 ? '' : 's'} to review (the copies of one email are one item)`;
         }
     }
     // (0.6.1) The brake, across the top of every page, for admins and moderators alike, until an admin resumes moving.
@@ -3349,10 +3433,12 @@
             olderWaiting = p.older || 0; olderMovedWaiting = p.olderMoved || 0;
             if (olderWas !== olderWaiting && pendingSeen) reviewArrived();   // (0.6.50) an empty Review says so
             document.title = p.total ? `(${p.total}) S.P.R.U.C.E Mail Protection Service` : 'S.P.R.U.C.E Mail Protection Service';
-            const was = unreviewed, wasSusp = suspiciousWaiting;
+            const was = unreviewedEmails, wasSusp = suspiciousEmails;
             unreviewed = p.unreviewed || 0; suspiciousWaiting = p.suspicious || 0;
+            // (0.6.92) The counts are items; a new copy of an item already listed is noticed by the emails' counts.
+            unreviewedEmails = p.unreviewedEmails != null ? p.unreviewedEmails : unreviewed; suspiciousEmails = p.suspiciousEmails != null ? p.suspiciousEmails : suspiciousWaiting;
             showUnreviewed();
-            if (pendingSeen && (was !== unreviewed || wasSusp !== suspiciousWaiting)) reviewArrived();
+            if (pendingSeen && (was !== unreviewedEmails || wasSusp !== suspiciousEmails)) reviewArrived();
             else if (!pendingSeen && olderWaiting && /^#\/?review/.test(currentHash())) reviewArrived();
             pendingSeen = true;
             showBrake(!!p.brake);
@@ -4112,7 +4198,7 @@
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#sidebar') && $('#sidebar').classList.contains('open')) setDrawer(false); });
         // The review queue's keys (not while typing, nor with Ctrl, Alt or Cmd).
         document.addEventListener('keydown', (e) => {
-            if (!reviewKeys || !/^#\/?review/.test(currentHash()) || e.ctrlKey || e.metaKey || e.altKey || acting || popupOpen()) return;
+            if (!reviewKeys || !/^#\/?(review|message)/.test(currentHash()) || e.ctrlKey || e.metaKey || e.altKey || acting || popupOpen()) return;
             // (0.6.39) A ticked box keeps the keys working (only typing in a field stops them).
             if (e.target && (/^(TEXTAREA|SELECT)$/.test(e.target.tagName) || (e.target.tagName === 'INPUT' && !/^(checkbox|radio)$/.test(e.target.type)))) return;
             const f = reviewKeys[String(e.key).toLowerCase()];

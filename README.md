@@ -392,6 +392,8 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
   A Phishing answer ends a sender's standing. **Show only** changes nothing: each email it would have changed says so on
   its page, and the Policy row counts the last 7 days. Free-mail domains and your own never get standing; only one-way
   hashes are kept (docs/PRIVACY.md).
+  - **Counts are items** (0.6.92): each tab, the sidebar's number and Today count items as Review lists them (all the
+    copies of one email are one item; one company is one item in Promotional), not emails; the line above the list says both.
   - **Filter** (0.6.44): search by sender, domain or subject; filter by the sender check, the AI score and the kind;
     **Tick all shown**, then answer them at once. Each row shows its sender check, and ⌕ shows only that sender's mail.
   - **The same four answers everywhere** (0.6.39: Review, an email's page, Mail's ticked emails, a campaign's
@@ -427,7 +429,10 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
       (kept on its record, so every instance knows), and the same email is refused while its re-scan runs; each
       instance runs 2 at a time, with up to 8 more waiting, then says to try again in a moment. The button is
       greyed out while it runs. A mailbox owner's own sent copy is never judged (0.6.3), and Check again says so;
-    - **More details** opens the email's own page (Mail → Messages); **Show the email** reads it from Gmail at that
+    - **Details** (0.6.92, folded under the card; it replaced the separate "More details" page): the answer it has, how
+      strong the evidence is, what the AI thought (with its spam answer and where its score stands), the sender check in
+      full (DMARC, SPF, DKIM), what moved it, the mode when it arrived, the lookups, the attachments and what was found in
+      them, the Message-ID (Copy, Copy for Vault), the Gmail ID and when it was checked. **Show the email** reads it from Gmail at that
       moment and shows it as text only (0.6.6): who sent it to whom (with Cc and Reply-To), the date and subject,
       all its text, the earlier messages quoted below it and any text hidden from the reader (folded away), every
       link with where it really goes (not clickable), the attachments (name, type, size) and how many pictures
@@ -467,10 +472,11 @@ The classic tabs (before 0.6.0) are kept in `ui-classic/` and can be put back: `
     and when; every column sorts. On a phone each email is a card. An email found to be phishing after it was
     delivered has a red mark and "found later".
     - Tick several to answer them at once: **Phishing**, **Spam**, **Mark safe** or **Not sure**, with Undo.
-    - Each email's page leads with why it was moved or flagged (when the rule checks or a list did it, not the AI,
-      it says so above the AI's number), then the signs found with their weights, flagged links, what the AI
-      thought with what weighed most, the sender check, and how strong the evidence was. Buttons: the four
-      answers (the email's current answer is left out) and **Check again**. **Spam** (0.6.26: unwanted bulk mail,
+    - Each email opens as Review's card (0.6.92: the same card, evidence, buttons and Details as in Review, open, with
+      the answer it has said under its verdict; any answer can be given or changed there, and the keys P, S, F, I work).
+      A campaign (Threats → Campaigns, Open every copy) is the same card for all its copies: Phishing and Mark safe
+      decide the campaign (later copies too; with Phishing, every watched mailbox can be searched for copies not
+      recorded), Spam and Not sure answer its copies; every copy is listed below. **Spam** (0.6.26: unwanted bulk mail,
       not phishing) is moved the same way as Phishing, and the retraining export says spam.
     - Each email also shows its **Message-ID** and Gmail ID, each with a **Copy** button. The Message-ID
       is what Google Workspace's Email log search and the security investigation tool look an email

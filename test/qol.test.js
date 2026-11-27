@@ -106,7 +106,10 @@ test('dashboard: the review list, what needs an admin, the summary\'s switch and
         const first = (await get(`/api/message?key=${encodeURIComponent(rv.keys[0])}`)).message;
         assert.ok(!first.markedBy && (first.action === 'would-move' || first.action === 'move'));
         const p = await get('/api/pending');
-        assert.equal(typeof p.total, 'number'); assert.equal(p.unreviewed, (await get('/api/review?days=30')).total);
+        const rv30 = await get('/api/review?days=30');
+        // (0.6.92) Items, as Review lists them; the emails beside them.
+        assert.equal(typeof p.total, 'number'); assert.equal(p.unreviewed, rv30.groups.length); assert.equal(p.unreviewedEmails, rv30.total);
+        assert.equal(rv30.counts.moved, rv30.groups.length); assert.equal(rv30.emails.moved, rv30.total);
         // Marked through the dashboard: the list (from the cache) knows at once.
         await post('/api/mark', { key: rv.keys[0], falseAlarm: true });
         assert.equal((await get('/api/review?days=90')).total, rv.total - 1);
@@ -247,7 +250,9 @@ test('dashboard: Review\'s suspicious queue (not moved, still in the Inbox, unre
         const sus = await get('/api/review?days=90&queue=suspicious');
         assert.equal(moved.queue, 'moved'); assert.equal(sus.queue, 'suspicious');
         assert.ok(sus.total > 0, 'the demo has suspicious emails');
-        assert.deepEqual(sus.counts, { moved: moved.total, suspicious: sus.total, promotional: sus.counts.promotional, reported: sus.counts.reported }); assert.deepEqual(moved.counts, sus.counts);
+        // (0.6.92) counts: items (one per email, whatever its copies); emails: the same queues in emails.
+        assert.deepEqual(sus.counts, { moved: moved.groups.length, suspicious: sus.groups.length, promotional: sus.counts.promotional, reported: sus.counts.reported }); assert.deepEqual(moved.counts, sus.counts);
+        assert.deepEqual([sus.emails.moved, sus.emails.suspicious], [moved.total, sus.total]);
         assert.ok(sus.counts.promotional > 0, '(0.6.52) the promotional queue\'s count too (the demo\'s two store newsletters)');
         assert.equal(sus.mode, 'monitor');
         const msgs = [];
@@ -259,7 +264,7 @@ test('dashboard: Review\'s suspicious queue (not moved, still in the Inbox, unre
         const r = await post('/api/mark', { key: sus.keys[0], falseAlarm: false, move: true });
         assert.equal(r.moved, 'monitor'); assert.equal(r.record.state, 'inbox');
         const after = await get('/api/review?days=90&queue=suspicious');
-        assert.equal(after.total, sus.total - 1); assert.equal(after.counts.moved, moved.total);
+        assert.equal(after.total, sus.total - 1); assert.equal(after.counts.moved, moved.groups.length); assert.equal(after.emails.moved, moved.total);
         await post('/api/mark', { key: sus.keys[1], falseAlarm: true });
         // (0.6.56) Not phishing also answers the identical copies waiting (a remembered answer): they leave the queue too.
         const fp = (await store.getRecord(sus.keys[1])).fingerprint;

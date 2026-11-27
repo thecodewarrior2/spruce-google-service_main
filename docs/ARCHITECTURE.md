@@ -232,7 +232,12 @@ sweep at most `RECHECK_AFTER_UPDATE_MAX`, 1,500 an hour. Each hourly run checks 
 seconds, and (0.6.73) again with the time its other steps left, starting new emails until 95 s into the worker's 120-s
 request (the rest at the next run); each slot takes the next email as soon as its own is done (before, a
 batch of 12 waited for its slowest: about 24 emails an hour); an email at most 3 tries. Mail an admin answered, one its reader moved, and
-one no longer in the Inbox are never judged again; moves go through the brakes. A re-scan from the dashboard: one
+one no longer in the Inbox are never judged again; moves go through the brakes. (0.6.92) Nor is an email an admin answered on another copy:
+`earlierAnswerOf` (the same email's fingerprint answered in its campaign, or the campaign confirmed or released) gives a copy
+the re-check finds the same Phishing or Spam answer (`markedBy`, `answeredFrom: 'another copy'`) and the move that answer
+makes, or, answered safe, leaves it alone (outcome `answered`) unless the re-check found strong evidence; re-checked records
+keep the fingerprint. Once after the update, `answerRecheckedCopies` does the same for re-checked copies already waiting
+(state `answeredCopiesSweep`). A re-scan from the dashboard: one
 email at a time, not again within 30 s; the lists' Re-check at most once a minute. The Sender lists (Trusted, Spam,
 Brand senders) aren't re-checks: they apply to mail as it arrives. **Today** shows the re-checks under way
 (`state/recheckProgress`, kept by `runRechecks`: since the queue last started filling, the emails checked, the

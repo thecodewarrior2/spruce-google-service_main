@@ -1779,6 +1779,29 @@ class Service {
     // (Gmail confirmed the sender; not for spam), or a campaign an admin dismissed as a false alarm. Never when something
     // outside the email says otherwise (strong evidence: a link on a phishing list, a sender on a list or blocked, Gmail's
     // DMARC check failing…) or a link is dangerous. { kind, by } or null.
+    // (0.6.92) The answer an admin already gave this email, for a copy a re-check finds that nobody recorded on arrival (or
+    // that was recorded clean or suspicious before the answer): the same email (its fingerprint, remember.js) answered on
+    // another copy of its campaign, or the campaign confirmed as phishing. { safe: true, by } | { safe: false, spam, by } |
+    // null. A re-check never puts an answered email back in Review. Campaigns' answered copies are read at most once a
+    // minute per campaign.
+    forgetAnsweredCopies(campaignKey) { if (this._answeredCopies && campaignKey) this._answeredCopies.delete(campaignKey); }
+    async earlierAnswerOf(fingerprint, campaignKey) {
+        if (!campaignKey) return null;
+        const cs = await this.store.getCampaign(campaignKey).catch(() => null);
+        if (cs && cs.decision === 'confirmed') return { safe: false, spam: false, by: cs.decidedBy || 'an admin' };
+        if (cs && cs.decision === 'released') return { safe: true, by: cs.decidedBy || 'an admin' };
+        if (!fingerprint) return null;
+        this._answeredCopies = this._answeredCopies || new Map();
+        let c = this._answeredCopies.get(campaignKey);
+        if (!c || this.now() - c.at > 60000) {
+            const recs = await this.store.listCampaignRecords(campaignKey, this.now() - 35 * DAY).catch(() => []);
+            c = { at: this.now(), list: recs.filter(r => r.markedBy && !r.unclear && r.falseAlarm != null && r.fingerprint).map(r => ({ fp: r.fingerprint, safe: r.falseAlarm === true, spam: !!r.spam, by: r.markedBy, at: (r.undo && r.undo.at) || 0 })) };
+            if (this._answeredCopies.size > 500) this._answeredCopies.clear();
+            this._answeredCopies.set(campaignKey, c);
+        }
+        const hit = c.list.filter(x => x.fp === fingerprint).sort((a, b) => b.at - a.at)[0];
+        return hit ? { safe: hit.safe, spam: hit.spam, by: hit.by } : null;
+    }
     async autoAnswerOf(result, verified, decision, campaignKey) {
         if (!result || result.strong || decision.trigger === 'spam' || (result.links || []).some(l => l.severity === 'danger')) return null;
         if (verified && result.fingerprint) {
@@ -2186,6 +2209,7 @@ class Service {
     async mark(key, falseAlarm, by, { move = false, quiet = false, spam = false, addSender = false, noRemember = false } = {}) {
         const rec = await this.store.getRecord(key);
         if (!rec) return { error: 'not found' };
+        this.forgetAnsweredCopies(rec.campaign);   // (0.6.92) the re-checks' lookup reads the answer again
         // (0.6.39) What it was before, for Undo (one step back: the answer, and the move it made).
         const prev = { falseAlarm: rec.falseAlarm === undefined ? null : rec.falseAlarm, spam: !!rec.spam, unclear: !!rec.unclear, markedBy: rec.markedBy || null, state: rec.state };
         let out = await this.store.updateRecord(key, Object.assign({ falseAlarm: !!falseAlarm, markedBy: by, spam: !falseAlarm && !!spam, undo: Object.assign({ at: this.now(), by }, prev) }, rec.unclear ? { unclear: false } : {}));
@@ -2234,6 +2258,7 @@ class Service {
     async undoAnswer(key, by, { quiet = false } = {}) {
         const rec = await this.store.getRecord(key);
         if (!rec) return { error: 'not found', status: 404 };
+        this.forgetAnsweredCopies(rec.campaign);
         const u = rec.undo;
         if (!u) return { error: 'There is nothing to undo for this email.', status: 409 };
         if (this.now() - (u.at || 0) > UNDO_MS) return { error: 'It is too late to undo this answer (an hour has passed): answer it again instead.', status: 409 };
@@ -2518,6 +2543,7 @@ class Service {
         try {
             // (0.5.51) An update that changed how email is checked: recent delivered mail, queued.
             try { const u = await this.checksUpdate(); if (u) out.checksUpdate = u; } catch (e) { out.checksUpdate = { error: String(e.message || e).slice(0, 200) }; this.log.error('re-check after an update:', e); }
+            try { const a = await this.answerRecheckedCopies(); if (a) out.answeredCopies = a; } catch (e) { this.log.error('re-checked copies already answered:', e); }
             await this.queueLaterChecks();
             const budget = Math.min(RECHECK_BUDGET_MS, 75 * 1000 - (Date.now() - started));
             if (budget > 0) { const r = await this.runRechecks({ budgetMs: budget }); if (r) out.rechecked = r; }
@@ -2685,6 +2711,37 @@ class Service {
     // the next ones as the queue has room, up to RECHECK_AFTER_UPDATE_MAX. Mail that arrived after this
     // instance started was judged by this version already: not taken. A lower level (a version rolled back)
     // is recorded, nothing checked again.
+    // (0.6.92) Once, after the update: re-checked copies still waiting in Review whose email an admin had already answered
+    // Phishing or Spam on another copy (or whose campaign was confirmed) get that answer, as a re-check now gives it. Before
+    // 0.6.92 a re-check recorded such a copy unanswered, so it waited in Review. A copy whose email was marked safe stays:
+    // the re-check found it phishing after that answer, which is the admins' to weigh. Records of the last 35 days; written
+    // once (state answeredCopiesSweep).
+    async answerRecheckedCopies() {
+        if (await this.store.getState('answeredCopiesSweep')) return null;
+        const recs = await this.store.listRecords({ sinceMs: this.now() - 35 * DAY, limit: 20000 });
+        const waiting = recs.filter(r => r.recheck && !r.markedBy && !r.unclear && r.falseAlarm == null && !r.userReported && ['move', 'would-move', 'flag'].includes(r.action) && r.campaign);
+        const answeredBy = new Map();   // campaign → answered copies
+        for (const r of recs) if (r.campaign && r.markedBy && !r.unclear && r.falseAlarm != null) { const l = answeredBy.get(r.campaign) || []; l.push(r); answeredBy.set(r.campaign, l); }
+        let n = 0;
+        for (const r of waiting) {
+            let ans = null;
+            const cs = await this.store.getCampaign(r.campaign).catch(() => null);
+            if (cs && cs.decision === 'confirmed') ans = { spam: false, by: cs.decidedBy || 'an admin' };
+            else {
+                const copies = answeredBy.get(r.campaign) || [];
+                // The same email (fingerprint); a record kept before re-checks wrote one: every answered copy of its campaign agreeing.
+                const same = r.fingerprint ? copies.filter(c => c.fingerprint === r.fingerprint) : copies;
+                const kinds = new Set(same.map(c => c.falseAlarm === true ? 'safe' : c.spam ? 'spam' : 'phishing'));
+                if (same.length && kinds.size === 1 && !kinds.has('safe')) ans = { spam: kinds.has('spam'), by: same[0].markedBy };
+            }
+            if (!ans) continue;
+            const m = await this.mark(r.key, false, ans.by, { move: true, quiet: true, spam: ans.spam, noRemember: true }).catch(() => null);
+            if (m && m.record) { await this.store.updateRecord(r.key, { answeredFrom: 'another copy' }); n++; }
+        }
+        await this.store.setState('answeredCopiesSweep', { version: PKG_VERSION, at: this.now(), answered: n });
+        if (n) await this.store.addEvent({ kind: 'recheck', text: `${n} re-checked email${n === 1 ? '' : 's'} waiting in Review had been answered already on another copy (Phishing or Spam): given the same answer and taken out of Review (version ${PKG_VERSION}).` });
+        return { answered: n };
+    }
     async checksUpdate() {
         const level = this.checksLevel(), now = this.now();
         const st = await this.store.getState('checksLevel');
@@ -2864,6 +2921,19 @@ class Service {
         const senderDomain = (facts.senderAddress.split('@')[1] || '').toLowerCase();
         const campaign = campaignOf(senderDomain, facts.subject, user);
         const campaignLabel = this.cfg.storeSubjects ? campaign.label : senderDomain;
+        // (0.6.92) An email an admin already answered isn't put back in Review: marked safe (a remembered answer, a released
+        // campaign, or another copy marked safe), it is left as it is, unless the re-check found strong evidence (a phishing
+        // list, a dangerous link) the answer didn't know; answered Phishing or Spam on another copy (or its campaign confirmed),
+        // this copy gets the same answer and is moved as that answer would move it.
+        const fingerprint = remember.fingerprintOf(facts, user);
+        result.fingerprint = fingerprint;   // (kept on the record, as on arrival)
+        const earlier = await this.earlierAnswerOf(fingerprint, campaign.key).catch(() => null);
+        const auto = earlier && earlier.safe ? null : await this.autoAnswerOf(result, verified, decision, campaign.key).catch(() => null);
+        const strongNow = result.strong || (result.links || []).some(l => l.severity === 'danger');
+        if ((earlier && earlier.safe && !strongNow) || auto) return { item, outcome: 'answered', action: decision.action };
+        const answer = earlier && !earlier.safe ? earlier : null;
+        if (answer && (decision.action === 'flag' || decision.action === 'none')) decision = Object.assign({}, decision, { action: this.cfg.mode === 'enforce' ? 'move' : 'would-move' });
+        if (answer) decision = Object.assign({}, decision, { trigger: answer.spam ? 'spam' : decision.trigger === 'spam' ? 'rules' : decision.trigger, why: `${decision.why}; ${answer.by} answered this email ${answer.spam ? 'Spam' : 'Phishing'} on another copy, so this copy is answered the same way` });
         let held = decision.braked ? 'brake' : null;
         if ((decision.action === 'move' || decision.action === 'would-move') && where !== 'inbox') {
             decision = { action: 'flag', trigger: decision.trigger, why: `${decision.why}; it had already left the Inbox (${WHERE_WORDS[where]}), so it wasn't moved` };
@@ -2888,10 +2958,13 @@ class Service {
             before: was, beforeScore: before ? before.score : null, outcome, where, opened, movedAt: state === 'moved' ? now : null, clicks: null };
         const rec = this.recordOf(user, msg, facts, result, decision, { now, campaign, campaignLabel, senderDomain, held, state, labeled });
         rec.recheck = recheck;
+        const answeredAs = answer ? { falseAlarm: false, spam: !!answer.spam, markedBy: answer.by, answeredFrom: 'another copy' } : null;
+        if (answeredAs) Object.assign(rec, answeredAs);
         if (item.source === 'later') rec.laterChecks = ((before && before.laterChecks) || 0) + 1;
         if (before) {
             const keep = new Set(['key', 'user', 'messageId', 'threadId', 'readHistoryId', 'processedAt', 'releasedBy', 'releasedAt', 'falseAlarm', 'markedBy', 'unclear', 'userPlaced']);
             const patch = Object.fromEntries(Object.entries(rec).filter(([k, v]) => !keep.has(k) && v !== undefined));
+            if (answeredAs) Object.assign(patch, answeredAs);
             patch.arrival = before.arrival || { at: before.processedAt, score: before.score, status: before.status, action: before.action, firstTime,
                 ai: before.ai && typeof before.ai.probability === 'number' ? { probability: before.ai.probability, model: before.ai.model || null } : null };
             await timing.timed('Record write', () => this.store.updateRecord(key, patch));
