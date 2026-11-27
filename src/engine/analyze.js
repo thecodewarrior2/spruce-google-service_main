@@ -103,6 +103,20 @@ function sameOrgDomain(a, b) {
 // (0.6.65) The header signs Settings → Policy → Skip review reads (shared.js headerAnomalies).
 const FORGED_HEADER_KINDS = new Set(['forged-message-id', 'forged-received', 'duplicate-headers']);
 const SPAM_HEADER_KINDS = new Set(['spam-flag', 'placeholders', 'local-tool']);
+// (0.6.91) A Message-ID Gmail wrote itself: when the sending server gives none, or one that breaks the standard (no angle
+// brackets, spaces, illegal characters), Gmail's receiving servers add their own, ending in SMTPIN_ADDED_MISSING or
+// SMTPIN_ADDED_BROKEN@mx.google.com. Every ordinary mail program and mailing service writes a valid one, so it points to a
+// homemade script or a cheap bulk-sending tool; but scanners, copiers and old business software leave it out too. Half a
+// point, from outside the organization only: never enough alone, it can only tip an email with other signs. Not given to
+// the AI model (its input lists only the header checks it was trained on).
+const GOOGLE_ADDED_ID = /\.smtpin_added_(missing|broken)@mx\.google\.com>?$/i;
+function googleAddedIdSigns(facts, inside) {
+    if (inside) return [];
+    const m = GOOGLE_ADDED_ID.exec(String((facts && facts.messageIdHeader) || '').trim());
+    if (!m) return [];
+    const missing = m[1].toLowerCase() === 'missing';
+    return [{ weight: 0.5, kind: 'google-added-message-id', text: `Gmail had to add this email's Message-ID: the program that sent it ${missing ? 'didn\'t write one' : 'wrote one that breaks the email standard'}. Ordinary mail programs and mailing services always write a valid one; homemade scripts and cheap bulk-sending tools often don't (so do some scanners and old business software).` }];
+}
 function senderVerified(facts) {
     const a = facts && facts.auth;
     const domain = String((facts && facts.senderAddress) || '').toLowerCase().split('@')[1] || '';
@@ -171,6 +185,8 @@ async function analyze(facts, ctx = {}) {
     const headerSigns = safe(() => E.headerAnomalies(facts.rawForHeaders, mailbox, E.gmailReceiver));
     const signals = [
         ...headerSigns,
+        // (0.6.91) Google wrote the Message-ID itself (not one of the header checks the AI reads).
+        ...googleAddedIdSigns(facts, inside),
         ...safe(() => E.displayNameAnomalies(facts.senderName)),
         // (0.5.49) A sender's name naming one platform, sent from another's domain (or from no platform's).
         ...safe(() => N.platformClaimSigns(E, facts)),
@@ -655,4 +671,4 @@ async function aiReading(aiFacts, max = 40) {
     return spruce.load().model.reading(aiFacts, max);
 }
 
-module.exports = { analyze, aiReading, judgeLinks, linkSignals, senderVerified, sameOrgDomain, platformNotification: N.platformNotification, shareSource: N.shareSource };
+module.exports = { analyze, aiReading, judgeLinks, linkSignals, senderVerified, sameOrgDomain, googleAddedIdSigns, platformNotification: N.platformNotification, shareSource: N.shareSource };

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.91: a Message-ID Gmail had to write itself counts half a point
+
+- **A new, small sign:** when the sending server gives an email no Message-ID, or one that breaks the email standard (no
+  angle brackets, spaces, illegal characters), Gmail's receiving servers write their own, ending in
+  `SMTPIN_ADDED_MISSING@mx.google.com` or `SMTPIN_ADDED_BROKEN@mx.google.com`. Every ordinary mail program and mailing
+  service writes a valid one, so it points to a homemade script or a cheap bulk-sending tool; but scanners, copiers and old
+  business software leave it out too. Until now the service saw nothing in it.
+- **Half a point, outside mail only** (`googleAddedIdSigns` in `src/engine/analyze.js`): alone it never makes an email
+  suspicious; it can tip one that already has other signs. Your own organization's mail (a copier, a script) never gets it.
+  Listed with the forged and spam headers on the dashboard; not one of Skip review's kinds.
+- **Not given to the AI model:** its input lists only the header checks it was trained on, so its scores don't change.
+- This changes how such emails are judged: **the checks level is raised** (recent delivered mail is checked again).
+
 ## 0.6.90: a company answered Spam in Review → Promotional stays answered
 
 - **The problem:** answering Spam for a company in Review → Promotional (with "also send future mail straight to Spam") put

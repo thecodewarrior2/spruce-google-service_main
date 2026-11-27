@@ -33,8 +33,9 @@ nothing else: a link on a phishing list or an imitated brand is enough to move a
   ("the superintendent" writing from a free-mail account) counts 3 points on its own, enough to make it suspicious, and
   the AI is told the name claims to be a colleague. Your own name in your own mail never counts. The directory also says
   which mailboxes are watched (Settings → Mailboxes).
-- **Sender:** Gmail's DMARC, SPF and DKIM results, forged or spam-flagged headers, a forged Message-ID, and a "RE:" that
-  answers nothing in the mailbox (a fake reply chain).
+- **Sender:** Gmail's DMARC, SPF and DKIM results, forged or spam-flagged headers, a forged Message-ID, a Message-ID
+  Gmail had to write itself because the sending program gave none or a broken one (half a point, outside mail only, 0.6.91),
+  and a "RE:" that answers nothing in the mailbox (a fake reply chain).
 - **Imitation:** a brand's name on an address that isn't the brand's (unless your reviewers confirmed that sender: Brand
   senders), look-alikes of your own domain, which a daily watch finds as soon as they are registered, and (since 0.6.87)
   look-alikes of the companies that mail you: a sender, reply address or link one small change away from a vendor with
