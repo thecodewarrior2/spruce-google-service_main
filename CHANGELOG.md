@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.96: a new install and a new mailbox don't make known senders look new
+
+- **A new install:** the AI (phish-tiny 0.30.0 reads the sender's history with your organization) was told "first email
+  from this sender" for every sender on the day the service was installed, and "known for a few days" for weeks after,
+  even for vendors that had written for years; that pushed some long-standing marketing toward phishing. Now a sender the
+  service first saw in its first 14 days (`FIRST_SEEN_LEARNING_DAYS`, the learning period the rules already use for their
+  "first email from this sender" sign) gets no history for the AI: its email is read as if none were known. Senders first
+  seen after that keep theirs. The retraining export leaves those histories out too, so the model is never trained on them.
+- **A new mailbox** (a new hire, a new Google Workspace): a mailbox the directory says was created less than 30 days ago
+  has no earlier mail, so a reply to a conversation from before (from outside) counted as answering nothing: 1 point by the
+  rules, and "a reply, but the mailbox has no earlier email" for the AI. Its conversations now count as unknown; a "RE:"
+  whose headers name no earlier email still counts (2), as that is made up wherever it arrives. The directory read now
+  includes each person's creation time.
+- **A new Workspace domain** was already fine: your own domains' age is never looked up, for the rules or the AI.
+- This changes how such emails are judged: **the checks level is raised**.
+
 ## 0.6.95: the re-check after an update: how far back, in Settings; no pile-up; a stop button
 
 - **Settings → Policy → Re-check after an update:** off, the last 6 or 12 hours, the last day (the default, as before),

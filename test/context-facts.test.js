@@ -193,3 +193,31 @@ test('a format-4 model: an email of pictures has its picture\'s words read on ar
         assert.ok(!JSON.stringify(r.extraFacts).includes('mailbox'), 'nor on what the record keeps');
     } finally { E.model.analyze = realAnalyze; E.model.meta.inputFormat = realFormat; await ocr.stop(); }
 });
+
+test('0.6.96: no sender history for the AI while the service is new: a sender first seen in its learning period may be years old', () => {
+    const DAY = 86400000, now = Date.UTC(2026, 11, 20);
+    const E = require('../src/engine/spruce').load();
+    const facts = { senderAddress: 'billing@vendor.example', subject: 'Invoice', links: [] };
+    const doc = { first: now - 40 * DAY, count: 30, days: 12, prof: {} };
+    const at = (o) => CF.checkFacts(E, facts, { linkUrls: [] }, Object.assign({ now }, o)).history;
+    // Installed 10 days ago (learning for 14): no history at all.
+    assert.equal(at({ standingDoc: { first: now - 9 * DAY, count: 5, days: 5, prof: {} }, firstSeenAt: now - 9 * DAY, historySince: now + 4 * DAY }), null);
+    // Installed 60 days ago: a sender first seen in its first 14 days still gets none (its real age is unknown)…
+    assert.equal(at({ standingDoc: doc, firstSeenAt: now - 58 * DAY, historySince: now - 46 * DAY }), null);
+    // …one first seen after them has its history; and with no install known, as before.
+    assert.equal(at({ standingDoc: doc, firstSeenAt: now - 40 * DAY, historySince: now - 46 * DAY }).emails, 30);
+    assert.equal(at({ standingDoc: doc, firstSeenAt: now - 40 * DAY }).emails, 30);
+});
+
+test('0.6.96: a mailbox created less than 30 days ago has no earlier mail: its conversations count as unknown', async () => {
+    const store = new MemoryStore();
+    const cfg = loadConfig({ STORE: 'memory', ORG_DOMAINS: ORG, PILOT_USERS: PAT, MODE: 'monitor', DIRECTORY_ADMIN: `it.madeup@${ORG}` });
+    const now = Date.now();
+    const gmail = { userNames: async () => [{ name: 'Pat Fakewell', email: PAT, createdAt: now - 5 * 86400000 }, { name: 'Lee Samplefield', email: LEE, createdAt: now - 400 * 86400000 }],
+        labelId: async (u, l) => `L_${l}`, modify: async () => ({}) };
+    const svc = new Service({ cfg, store, gmail, log: { error() {}, warn() {} } });
+    await svc.colleagueNames();
+    assert.equal(svc.youngMailbox(PAT), true, 'five days old');
+    assert.equal(svc.youngMailbox(LEE), false);
+    assert.equal(svc.youngMailbox(`nobody@${ORG}`), false, 'unknown: as before');
+});

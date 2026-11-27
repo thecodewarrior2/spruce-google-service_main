@@ -113,6 +113,13 @@ whole email is the one that counts.
 Since 0.6.85 the service gathers, for every email it records, what it knows beyond the email's own words, and since 0.6.89
 the AI model (phish-tiny 0.30.0, input format 4) reads them too:
 
+**A new install, a new mailbox** (0.6.96): the service knows a sender's history only from its install. A sender it first saw
+in its first 14 days (`FIRST_SEEN_LEARNING_DAYS`, the rules' learning period too) may have written for years before, so the
+AI isn't told its history (it reads such an email as if no history were known); senders first seen later have theirs. A
+mailbox created less than 30 days ago (a new hire, a new Google Workspace: the directory says when) has no earlier mail, so
+its conversations count as unknown: a "RE:" isn't taken for one that answers nothing, by the rules or the AI. Your own
+domains' age is never looked up, so a new Workspace domain doesn't make your own mail look new.
+
 | Fact | What it tells the AI |
 |---|---|
 | Gmail's category | Primary, Updates, Promotions, Social or Forums: Gmail's own reading of the sender's mail |

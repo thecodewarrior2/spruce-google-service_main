@@ -94,9 +94,15 @@ function arrivalFacts({ labelIds, facts, threadInfo = null, recipients = null })
 }
 
 // What analyze adds: the mailing service, the history and the domain's age (days; null when the registry didn't say).
-function checkFacts(E, facts, result, { standingDoc, firstSeenAt, now, senderAge }) {
+// (0.6.96) historySince: the end of the service's learning period (its install plus FIRST_SEEN_LEARNING_DAYS). A sender the
+// service first saw before then may have written for years before it was installed: its history here is only as old as
+// the install, so the AI isn't given one (no history, as for mail of no known sender), the way the rules don't count a
+// first email then. A sender first seen after it has its history.
+function checkFacts(E, facts, result, { standingDoc, firstSeenAt, now, senderAge, historySince = null }) {
     let history = null;
-    if (standingDoc !== undefined || typeof firstSeenAt === 'number') {
+    const firstKnown = Math.min(...[standingDoc && standingDoc.first, firstSeenAt].filter(x => typeof x === 'number'), Infinity);
+    const tooEarly = typeof historySince === 'number' && (now < historySince || (isFinite(firstKnown) ? firstKnown < historySince : false));
+    if (!tooEarly && (standingDoc !== undefined || typeof firstSeenAt === 'number')) {
         const prof = (() => { try { return ST.profileOf(E, facts, result); } catch (e) { return null; } })();
         history = historyOf(standingDoc, prof, now, firstSeenAt);
     }
