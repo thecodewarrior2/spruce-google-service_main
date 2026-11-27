@@ -93,6 +93,11 @@ class GmailClient {
         const r = await this.call(user, 'GET', '/messages', { query: Object.assign({ q, maxResults: String(max) }, pageToken ? { pageToken } : {}, includeSpamTrash ? { includeSpamTrash: 'true' } : {}) });
         return { ids: (r.messages || []).map(m => m.id), next: r.nextPageToken || null };
     }
+    // (0.6.98) Whether a search finds anything, and Gmail's estimate of how much (one call, one result): for a sender's history.
+    async searchCount(user, q) {
+        const r = await this.call(user, 'GET', '/messages', { query: { q, maxResults: '1' } });
+        return { any: !!(r.messages && r.messages.length), estimate: Number(r.resultSizeEstimate) || 0 };
+    }
     // From, Subject, Message-ID and labels of a message, without its body.
     async headers(user, id) {
         const r = await this.call(user, 'GET', `/messages/${encodeURIComponent(id)}`, { query: { format: 'metadata', metadataHeaders: ['From', 'Subject', 'Message-ID'] } });

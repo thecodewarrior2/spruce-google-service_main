@@ -8,6 +8,7 @@
 //
 // Every fact is null when unknown, so a model reads "unknown" rather than a guess.
 const ST = require('./standing');
+const MH = require('./mailbox-history');
 const { sendingService } = require('./engine/mailers');
 const { oneClickSigned, headerValues } = require('./promotional');
 
@@ -98,7 +99,7 @@ function arrivalFacts({ labelIds, facts, threadInfo = null, recipients = null })
 // service first saw before then may have written for years before it was installed: its history here is only as old as
 // the install, so the AI isn't given one (no history, as for mail of no known sender), the way the rules don't count a
 // first email then. A sender first seen after it has its history.
-function checkFacts(E, facts, result, { standingDoc, firstSeenAt, now, senderAge, historySince = null }) {
+function checkFacts(E, facts, result, { standingDoc, firstSeenAt, now, senderAge, historySince = null, gmailHistory = null }) {
     let history = null;
     const firstKnown = Math.min(...[standingDoc && standingDoc.first, firstSeenAt].filter(x => typeof x === 'number'), Infinity);
     const tooEarly = typeof historySince === 'number' && (now < historySince || (isFinite(firstKnown) ? firstKnown < historySince : false));
@@ -106,6 +107,9 @@ function checkFacts(E, facts, result, { standingDoc, firstSeenAt, now, senderAge
         const prof = (() => { try { return ST.profileOf(E, facts, result); } catch (e) { return null; } })();
         history = historyOf(standingDoc, prof, now, firstSeenAt);
     }
+    // (0.6.98) Gmail's own history of the sender (mailbox-history.js), where the service's is missing, too new to tell, or
+    // says "first": the mailbox goes back further than the service.
+    if (gmailHistory && (!history || history.first)) history = MH.historyFromGmail(gmailHistory);
     return {
         mailer: mailerOf(E, facts, result.linkUrls),
         history,

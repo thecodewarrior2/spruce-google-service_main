@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.98: a sender's history from Gmail, from the install's first day
+
+- **The service knew a sender only from its own install**, so for the first weeks every sender looked new or had no
+  history. Now, for an outside sender Gmail confirmed (DMARC) that the service doesn't know yet (new to it, or first seen in
+  its learning period), it asks the reader's mailbox (`src/mailbox-history.js`): has it older mail from the sender (over a
+  day, a month, a year old), about how much, and has anyone in the organization written to them (Sent). The mailbox goes
+  back as far as the person's mail does.
+- **The rules' "first email from this sender"** uses Gmail's answer from the install's first day (it was off for the
+  learning period): a vendor of years isn't new, a sender the mailbox has never had mail from is.
+- **The AI's history** (phish-tiny 0.30.0 reads it) comes from Gmail where the service's own is missing, too new to tell
+  (0.6.96) or says "first": "known for a year, over 40 emails" instead of nothing.
+- **Cached for the whole organization:** in memory and in the shared store, under a one-way hash of the sender, counts and
+  yes/no only (never an address or an email); a known sender 30 days, an unknown one a day. So a sender is looked up about
+  once a month, not per email; a lookup is 2 to 4 Gmail searches of one result each and gives up after 2.5 seconds.
+- **Never for** a sender Gmail couldn't confirm (a forged address would borrow the real sender's history), mail from
+  inside, or a platform's share. It uses the Gmail access the service already has: no installation change.
+- This changes how such emails are judged: **the checks level is raised**.
+
 ## 0.6.97: group mail and migrated mail
 
 - **Mail that doesn't name the reader** (To or Cc): from a group they were just added to, Bcc, an alias the directory

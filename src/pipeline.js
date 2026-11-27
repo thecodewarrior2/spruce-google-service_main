@@ -30,6 +30,7 @@ const sims = require('./simulations');
 const { promotionalSigns, aiMarketingSign } = require('./promotional');
 const remember = require('./remember');
 const StaffNames = require('./staff-names');
+const { MailboxHistory } = require('./mailbox-history');
 const ST = require('./standing');
 const CF = require('./context-facts');
 const timing = require('./timing');
@@ -406,6 +407,7 @@ class Service {
         // Kept per instance, as they never change once known: when each sender was first seen (a hash, as
         // in Firestore), and the campaigns whose alert has been sent.
         this.installedAt = null; this.senderSeen = new Map(); this.alerted = new Set();
+        this.mailboxHistory = new MailboxHistory({ gmail, store, now, log });   // (0.6.98) a sender's history from Gmail
         // (0.6.76) Sender standing: clean mail's counts and profiles, added up and written with the day's counters; and each
         // sender's standing as read, for STANDING_CACHE_MS.
         this.standingBuf = new Map(); this.standingCache = new Map();
@@ -1114,9 +1116,18 @@ class Service {
         const learning = now - installedAt < this.cfg.firstSeenLearningDays * DAY;
         // Allowlisted only with DMARC passing for the address (policy.js).
         const allowlisted = (await this.allowedNow(facts.senderAddress)).allowed, verified = senderVerified(facts);
-        const result = await analyze(facts, { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), historySince: await this.historySince(), mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime: !!who && !learning && now - first < DAY, intel: this.intel,
+        // (0.6.98) A sender the service doesn't know yet (new to it, or first seen in its learning period), from outside and
+        // confirmed by Gmail (DMARC): its history from the reader's mailbox (mailbox-history.js, cached for the organization).
+        const historySince = await this.historySince();
+        const senderDom = String(facts.senderAddress || '').toLowerCase().split('@')[1] || '';
+        const outside = !!senderDom && !this.cfg.orgDomains.some(o => senderDom === o || senderDom.endsWith('.' + o));
+        const unknownToUs = learning || now - first < DAY || (typeof historySince === 'number' && first < historySince);
+        const gmailHistory = !relay && who && verified && outside && unknownToUs ? await this.mailboxHistory.of(user, facts.senderAddress, senderHash(who)).catch(() => null) : null;
+        // The rules' "first email from this sender": Gmail's answer when there is one (from the install on), else the service's.
+        const firstTime = !!who && (gmailHistory ? !gmailHistory.received && !gmailHistory.wrote && now - first < DAY : !learning && now - first < DAY);
+        const result = await analyze(facts, { staff: this.staffDirectory(), staffNameSenders: await this.staffNameSendersSet(), historySince: await this.historySince(), mailbox: user, orgDomains: this.cfg.orgDomains, allowLinkDomains: await this.allowLinkDomainsNow(), trusted: allowlisted && verified, firstTime, intel: this.intel,
             colleagues, selfNameHash: this.selfNameHash(user), shareReach, aiInside: this.aiReadsInside(), lookalikes, threadSize, brandSenders: await this.brandSenderSet(), correspondents: await this.correspondentKeys(), correspondentCache: this.correspondentCache,
-            extraFacts: this.arrivalFacts(msg, facts, threadInfo, recipients), standingDoc, firstSeenAt: who ? first : undefined, now });
+            extraFacts: this.arrivalFacts(msg, facts, threadInfo, recipients), standingDoc, firstSeenAt: who ? first : undefined, gmailHistory, now });
         result.allowlistedUnverified = allowlisted && !verified;
         // (0.6.55) In Gmail's Promotions tab: never moved on the AI's spam answer alone (policy.js aiSpamOf).
         result.gmailPromotions = (msg.labelIds || []).includes('CATEGORY_PROMOTIONS') || undefined;

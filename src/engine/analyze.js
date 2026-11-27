@@ -310,7 +310,7 @@ async function analyze(facts, ctx = {}) {
     const extraFacts = safeOne(() => {
         const CF = require('../context-facts');
         // (what the caller already knew wins: the retraining export passes the facts as they were on arrival)
-        const out = CF.checkFacts(E, facts, { linkUrls }, { standingDoc: ctx.standingDoc, firstSeenAt: ctx.firstSeenAt, now: ctx.now || Date.now(), senderAge: net.senderAge, historySince: ctx.historySince });
+        const out = CF.checkFacts(E, facts, { linkUrls }, { standingDoc: ctx.standingDoc, firstSeenAt: ctx.firstSeenAt, now: ctx.now || Date.now(), senderAge: net.senderAge, historySince: ctx.historySince, gmailHistory: ctx.gmailHistory || null });
         for (const [k, v] of Object.entries(ctx.extraFacts || {})) if (v !== null && v !== undefined) out[k] = v;
         return CF.cleanContext(out);
     });

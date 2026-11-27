@@ -113,6 +113,13 @@ whole email is the one that counts.
 Since 0.6.85 the service gathers, for every email it records, what it knows beyond the email's own words, and since 0.6.89
 the AI model (phish-tiny 0.30.0, input format 4) reads them too:
 
+**History from Gmail** (0.6.98): for an outside sender Gmail confirmed (DMARC) that the service doesn't know yet (new to
+it, or first seen in its learning period), the reader's mailbox is asked: has it older mail from the sender (a day, a month,
+a year old), about how much, and has anyone written to them. The mailbox goes back further than the service, so a vendor of
+years is known from the install's first day, for the rules' "first email from this sender" and for the AI's history.
+Answers are cached for the whole organization (counts only, under a one-way hash of the sender): a known sender 30 days, an
+unknown one a day, so most emails need no Gmail call. A sender Gmail couldn't confirm is never looked up.
+
 **A new install, a new mailbox** (0.6.96): the service knows a sender's history only from its install. A sender it first saw
 in its first 14 days (`FIRST_SEEN_LEARNING_DAYS`, the rules' learning period too) may have written for years before, so the
 AI isn't told its history (it reads such an email as if no history were known); senders first seen later have theirs. A
